@@ -1,0 +1,16 @@
+# 模型列表与 API 配置占位文件
+# TODO: 按需填写各模型的访问配置，例如：
+#
+# models:
+#   - name: gpt-4o
+#     provider: openai
+#     enabled: false
+#     config:
+#       api_key_env: OPENAI_API_KEY
+#       model: gpt-4o
+#   - name: claude-3.5-sonnet
+#     provider: anthropic
+#     enabled: false
+#     config:
+#       api_key_env: ANTHROPIC_API_KEY
+#       model: claude-3.5-sonnet
