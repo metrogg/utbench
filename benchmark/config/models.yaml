@@ -1,16 +1,157 @@
-# 模型列表与 API 配置占位文件
-# TODO: 按需填写各模型的访问配置，例如：
-#
-# models:
-#   - name: gpt-4o
-#     provider: openai
-#     enabled: false
-#     config:
-#       api_key_env: OPENAI_API_KEY
-#       model: gpt-4o
-#   - name: claude-3.5-sonnet
-#     provider: anthropic
-#     enabled: false
-#     config:
-#       api_key_env: ANTHROPIC_API_KEY
-#       model: claude-3.5-sonnet
+﻿# ut-bench 妯″瀷閰嶇疆鏂囦欢
+# 鏀寔鐨勬ā鍨嬶細qwen, glm, DeepSeek, minimax, doubao-seed
+
+models:
+  # 闃块噷閫氫箟鍗冮棶
+  qwen:
+    enabled: true
+    provider: dashscope
+    config:
+      api_endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      model: "qwen3.6-plus"
+      api_key_env: "DASHSCOPE_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  # 鏅鸿氨 GLM
+  glm:
+    enabled: false
+    provider: bigmodel
+    config:
+      api_endpoint: "https://open.bigmodel.cn/api/paas/v4"
+      model: "glm-4"
+      api_key_env: "BIGMODEL_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  # DeepSeek
+  deepseek:
+    enabled: true
+    provider: deepseek
+    config:
+      api_endpoint: "https://api.deepseek.com/v1"
+      model: "deepseek-chat"
+      api_key_env: "DEEPSEEK_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  # MiniMax
+  minimax:
+    enabled: true
+    provider: minimax
+    config:
+      api_endpoint: "https://api.minimax.chat/v1"
+      model: "MiniMax-M2.7"
+      api_key_env: "MINIMAX_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  # 璞嗗寘 Doubao-seed
+  doubao-seed:
+    enabled: true
+    provider: volcengine
+    config:
+      api_endpoint: "https://ark.cn-beijing.volces.com/api/coding/v3"
+      model: "doubao-seed-2.0-pro"
+      api_key_env: "VOLCENGINE_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  # Kimi K2.5 (via Volcengine Ark OpenAI-compatible API)
+  kimi-k2.5:
+    enabled: false
+    provider: volcengine
+    config:
+      api_endpoint: "https://ark.cn-beijing.volces.com/api/coding/v3"
+      model: "kimi-k2.5"
+      api_key_env: "VOLCENGINE_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  # GLM 4.7 (via Volcengine Ark OpenAI-compatible API)
+  glm-4.7:
+    enabled: true
+    provider: volcengine
+    config:
+      api_endpoint: "https://ark.cn-beijing.volces.com/api/coding/v3"
+      model: "glm-4.7"
+      api_key_env: "VOLCENGINE_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+# benchmark config
+benchmark:
+  thresholds:
+    compile_rate: 0.7
+    execution_rate: 0.6
+    line_coverage: 0.7
+    branch_coverage: 0.6
+    function_coverage: 0.8
+    mutation_score: 0.85
+
+  timeouts:
+    api_call: 120000
+    compilation: 60000
+    test_execution: 30000
+    mutation_test: 120000
+
+  parallel:
+    max_concurrent_models: 2
+    max_concurrent_samples: 4
+
+# language toolchain config
+languages:
+  java:
+    compiler: "javac"
+    test_framework: "junit"
+    test_framework_version: "4.13"
+    coverage_tool: "jacoco"
+    mutation_tool: "pitest"
+    source_dir: "src/main/java"
+    test_dir: "src/test/java"
+
+  python:
+    compiler: "pylint"
+    test_framework: "pytest"
+    coverage_tool: "coverage"
+    mutation_tool: "mutmut"
+    source_dir: "src"
+    test_dir: "tests"
+
+  go:
+    compiler: "go build"
+    test_framework: "go test"
+    coverage_tool: "go tool cover"
+    mutation_tool: "go-mutesting"
+    source_dir: "."
+    test_dir: "."
+
+  cpp:
+    compiler: "g++"
+    test_framework: "gtest"
+    coverage_tool: "gcov"
+    mutation_tool: "mutate"
+    source_dir: "src"
+    test_dir: "tests"
+
+  javascript:
+    compiler: "eslint"
+    test_framework: "jest"
+    coverage_tool: "jest --coverage"
+    mutation_tool: "stryker"
+    source_dir: "src"
+    test_dir: "tests"

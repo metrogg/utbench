@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+@dataclass
+class PromptInput:
+    # 样本 ID（来自文件名）
+    sample_id: str
+    # 编程语言标识
+    language: str
+    # 待测源码内容
+    source_code: str
+    # 样本文件路径
+    sample_path: Path
+
+
+class PromptBuilder:
+    """Build prompt text from dataset sample and benchmark requirements."""
+
+    LANGUAGE_FRAMEWORK = {
+        "java": "JUnit 4",
+        "python": "pytest",
+        "go": "Go testing package",
+        "cpp": "GoogleTest",
+        "javascript": "Jest",
+    }
+
+    def __init__(self, benchmark_config: dict[str, Any] | None = None) -> None:
+        benchmark_config = benchmark_config or {}
+        self._thresholds = benchmark_config.get("thresholds", {}) or {}
+
+    def read_sample(self, sample_path: str | Path, default_language: str | None = None) -> PromptInput:
+        sample = Path(sample_path)
+        source_code = sample.read_text(encoding="utf-8")
+        language = self._infer_language(sample, default_language)
+        return PromptInput(
+            sample_id=sample.stem,
+            language=language,
+            source_code=source_code,
+            sample_path=sample,
+        )
+
+    def build_prompt(self, data: PromptInput) -> str:
+        framework = self.LANGUAGE_FRAMEWORK.get(data.language, "the standard test framework")
+        dependencies = self._extract_dependencies(data.source_code, data.language)
+        scenario, complexity = self._parse_sample_meta(data.sample_id)
+        coverage_targets = self._coverage_targets_text()
+        mock_requirement = self._mock_requirement(data.source_code)
+
+        dependency_text = ", ".join(dependencies) if dependencies else "none detected"
+        scenario_text = scenario if scenario else "general"
+        complexity_text = complexity if complexity else "unknown"
+
+        return (
+            "You are an expert unit testing engineer.\n"
+            "你是一名资深单元测试工程师。\n"
+            "Generate high-quality unit tests based on the following specification.\n"
+            "请基于以下规范生成高质量单元测试。\n\n"
+            "## Language & Framework（语言与框架）\n"
+            f"- Language（语言）: {data.language}\n"
+            f"- Test Framework（测试框架）: {framework}\n\n"
+            "## Test Requirements（测试要求）\n"
+            "- Cover normal paths, boundary conditions, and error/exception behavior.\n"
+            "- 覆盖正常路径、边界条件和异常行为。\n"
+            "- Keep tests deterministic and runnable.\n"
+            "- 保持测试可重复、可执行（避免随机性）。\n"
+            "- Use clear assertions with meaningful expected values.\n"
+            "- 使用清晰断言和有意义的期望值。\n"
+            f"- Coverage targets（覆盖率目标，供参考）: {coverage_targets}\n"
+            f"- Mock requirements（Mock 要求）: {mock_requirement}\n\n"
+            "## Context Information（上下文信息）\n"
+            f"- Sample ID（样本ID）: {data.sample_id}\n"
+            f"- Scenario（场景）: {scenario_text}\n"
+            f"- Complexity（复杂度）: {complexity_text}\n"
+            f"- Dependencies detected（检测到依赖）: {dependency_text}\n\n"
+            "## Output Format（输出格式）\n"
+            f"- Return only test code in one fenced code block tagged with `{data.language}`.\n"
+            f"- 仅输出一个代码块，语言标签必须是 `{data.language}`。\n"
+            "- Do not include explanations.\n"
+            "- 不要输出解释文字。\n\n"
+            "## Source Code Under Test（被测源码）\n"
+            f"```{data.language}\n{data.source_code}\n```"
+        )
+
+    def _infer_language(self, sample_path: Path, default_language: str | None) -> str:
+        if default_language:
+            return default_language.lower()
+
+        ext = sample_path.suffix.lower()
+        ext_map = {
+            ".py": "python",
+            ".java": "java",
+            ".go": "go",
+            ".cpp": "cpp",
+            ".cc": "cpp",
+            ".cxx": "cpp",
+            ".js": "javascript",
+            ".ts": "javascript",
+        }
+        if ext in ext_map:
+            return ext_map[ext]
+        return sample_path.parent.name.lower()
+
+    def _coverage_targets_text(self) -> str:
+        def pct(name: str, default: float) -> str:
+            value = self._thresholds.get(name, default)
+            try:
+                return f"{float(value) * 100:.0f}%"
+            except Exception:
+                return f"{default * 100:.0f}%"
+
+        return (
+            f"line >= {pct('line_coverage', 0.7)}, "
+            f"branch >= {pct('branch_coverage', 0.6)}, "
+            f"function >= {pct('function_coverage', 0.8)}"
+        )
+
+    def _parse_sample_meta(self, sample_id: str) -> tuple[str | None, str | None]:
+        # Expected shape: <complexity>_<language>_<scenario>_<index>
+        parts = sample_id.split("_")
+        if len(parts) < 4:
+            return None, None
+        complexity = parts[0].lower()
+        scenario = "_".join(parts[2:-1]).lower()
+        return scenario, complexity
+
+    def _extract_dependencies(self, source_code: str, language: str) -> list[str]:
+        deps: list[str] = []
+        if language == "python":
+            for m in re.finditer(
+                r"^\s*(?:from\s+([a-zA-Z0-9_\.]+)\s+import|import\s+([a-zA-Z0-9_\.]+))",
+                source_code,
+                flags=re.MULTILINE,
+            ):
+                dep = m.group(1) or m.group(2)
+                if dep:
+                    deps.append(dep)
+        elif language == "java":
+            deps.extend(
+                re.findall(r"^\s*import\s+([^;]+);", source_code, flags=re.MULTILINE)
+            )
+        elif language == "go":
+            deps.extend(re.findall(r'^\s*import\s+"([^"]+)"', source_code, flags=re.MULTILINE))
+            block = re.search(r"import\s*\((.*?)\)", source_code, flags=re.DOTALL)
+            if block:
+                deps.extend(re.findall(r'"([^"]+)"', block.group(1)))
+        elif language == "cpp":
+            deps.extend(re.findall(r'^\s*#include\s*[<"]([^>"]+)[>"]', source_code, flags=re.MULTILINE))
+
+        # Keep order while deduplicating.
+        seen: set[str] = set()
+        out: list[str] = []
+        for dep in deps:
+            key = dep.strip()
+            if key and key not in seen:
+                seen.add(key)
+                out.append(key)
+        return out[:12]
+
+    def _mock_requirement(self, source_code: str) -> str:
+        lowered = source_code.lower()
+        external_markers = [
+            "http",
+            "request",
+            "socket",
+            "open(",
+            "file",
+            "database",
+            "sql",
+            "redis",
+            "grpc",
+            "client",
+            "os.environ",
+            "subprocess",
+        ]
+        if any(marker in lowered for marker in external_markers):
+            return (
+                "Use mocks/stubs/fakes for external dependencies "
+                "(network, file system, database, subprocess, environment)."
+            )
+        return "Mock only when necessary; avoid over-mocking pure functions."
