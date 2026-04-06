@@ -67,6 +67,28 @@ dataset/
 | JavaScript | 0 | 0 | 0 | 0 |
 | **合计** | 4 | 3 | 8 | **15** |
 
+## Realworld 扩展集（Python）
+
+仓库同时支持 Python realworld 扩展数据集，按场景目录组织在 `dataset/python/` 下：
+
+- `dataset/python/boundary/`（50）
+- `dataset/python/complex_dependency/`（50）
+- `dataset/python/interface_mock/`（50）
+- `dataset/python/simple_function/`（50）
+
+共计 200 条扩展样本，命名形如：
+
+- `boundary_000.py`
+- `complex_dependency_012.py`
+- `interface_mock_049.py`
+- `simple_function_007.py`
+
+说明：
+
+1. Runner 会递归扫描 `dataset/python/**`，无需额外改代码。
+2. Evaluator 会根据 `sample_id` 在 `dataset/python/**` 递归回查源码路径。
+3. 若仅想评估扩展集，建议通过 `--max-samples` 先做小规模验证。
+
 ## 贡献新样本
 
 新增样本需满足：

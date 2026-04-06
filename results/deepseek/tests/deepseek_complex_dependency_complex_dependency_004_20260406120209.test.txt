@@ -1,0 +1,431 @@
+```complex_dependency
+import os
+import tempfile
+import shutil
+import tarfile
+import zipfile
+import gzip
+import bz2
+import lzma
+import struct
+import warnings
+from pathlib import Path
+from unittest.mock import Mock, patch, mock_open, MagicMock
+import pytest
+
+# 测试基类 BaseExtractor
+class TestBaseExtractor:
+    def test_base_extractor_is_abstract(self):
+        """测试 BaseExtractor 是抽象类，不能实例化"""
+        with pytest.raises(TypeError):
+            BaseExtractor()
+
+# 测试 MagicNumberBaseExtractor
+class TestMagicNumberBaseExtractor:
+    def test_read_magic_number_success(self, tmp_path):
+        """测试成功读取魔数"""
+        test_file = tmp_path / "test.bin"
+        test_file.write_bytes(b"\x1f\x8b\x08")
+        result = MagicNumberBaseExtractor.read_magic_number(test_file, 3)
+        assert result == b"\x1f\x8b\x08"
+
+    def test_read_magic_number_file_not_found(self):
+        """测试读取不存在的文件"""
+        with pytest.raises(OSError):
+            MagicNumberBaseExtractor.read_magic_number("/nonexistent/file", 2)
+
+    def test_is_extractable_with_provided_magic_number(self):
+        """测试使用提供的魔数判断可提取性"""
+        class TestExtractor(MagicNumberBaseExtractor):
+            magic_numbers = [b"\x1f\x8b"]
+
+        # 使用正确的魔数
+        assert TestExtractor.is_extractable("dummy_path", magic_number=b"\x1f\x8b")
+        # 使用错误的魔数
+        assert not TestExtractor.is_extractable("dummy_path", magic_number=b"\x00\x00")
+        # 使用空魔数（应该从文件读取）
+        with patch.object(TestExtractor, 'read_magic_number', return_value=b"\x1f\x8b"):
+            assert TestExtractor.is_extractable("dummy_path", magic_number=b"")
+
+    def test_is_extractable_file_read_error(self):
+        """测试文件读取错误时的处理"""
+        class TestExtractor(MagicNumberBaseExtractor):
+            magic_numbers = [b"\x1f\x8b"]
+
+        with patch.object(TestExtractor, 'read_magic_number', side_effect=OSError):
+            assert not TestExtractor.is_extractable("dummy_path", magic_number=b"")
+
+# 测试 TarExtractor
+class TestTarExtractor:
+    def test_is_extractable_tarfile(self, tmp_path):
+        """测试识别tar文件"""
+        test_tar = tmp_path / "test.tar"
+        with tarfile.open(test_tar, "w") as tar:
+            tar.addfile(tarfile.TarInfo("test.txt"))
+        assert TarExtractor.is_extractable(test_tar)
+
+    def test_is_extractable_not_tarfile(self, tmp_path):
+        """测试识别非tar文件"""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("not a tar")
+        assert not TarExtractor.is_extractable(test_file)
+
+    def test_safemembers_safe_path(self, tmp_path):
+        """测试安全路径检查"""
+        members = [
+            Mock(name="safe.txt", islnk=lambda: False, issym=lambda: False, linkname=""),
+            Mock(name="../unsafe.txt", islnk=lambda: False, issym=lambda: False, linkname="")
+        ]
+        safe_members = list(TarExtractor.safemembers(members, tmp_path))
+        assert len(safe_members) == 1
+        assert safe_members[0].name == "safe.txt"
+
+    def test_safemembers_symlink_check(self, tmp_path):
+        """测试符号链接检查"""
+        member = Mock(name="link.txt", islnk=lambda: False, issym=lambda: True, 
+                     linkname="../../etc/passwd", name="link.txt")
+        safe_members = list(TarExtractor.safemembers([member], tmp_path))
+        assert len(safe_members) == 0
+
+    def test_extract_tar_file(self, tmp_path):
+        """测试提取tar文件"""
+        # 创建测试tar文件
+        input_tar = tmp_path / "input.tar"
+        output_dir = tmp_path / "output"
+        
+        with tarfile.open(input_tar, "w") as tar:
+            info = tarfile.TarInfo("test.txt")
+            info.size = len(b"test content")
+            tar.addfile(info, fileobj=open(os.devnull, 'rb'))
+        
+        TarExtractor.extract(input_tar, output_dir)
+        assert output_dir.exists()
+
+# 测试 GzipExtractor
+class TestGzipExtractor:
+    def test_is_extractable_gzip(self, tmp_path):
+        """测试识别gzip文件"""
+        test_gz = tmp_path / "test.gz"
+        with gzip.open(test_gz, "wb") as f:
+            f.write(b"test content")
+        assert GzipExtractor.is_extractable(test_gz)
+
+    def test_is_extractable_not_gzip(self, tmp_path):
+        """测试识别非gzip文件"""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("not gzip")
+        assert not GzipExtractor.is_extractable(test_file)
+
+    def test_extract_gzip_file(self, tmp_path):
+        """测试提取gzip文件"""
+        input_gz = tmp_path / "input.gz"
+        output_file = tmp_path / "output.txt"
+        
+        with gzip.open(input_gz, "wb") as f:
+            f.write(b"test content")
+        
+        GzipExtractor.extract(input_gz, output_file)
+        assert output_file.exists()
+        with open(output_file, "rb") as f:
+            assert f.read() == b"test content"
+
+# 测试 ZipExtractor
+class TestZipExtractor:
+    def test_is_extractable_zip(self, tmp_path):
+        """测试识别zip文件"""
+        test_zip = tmp_path / "test.zip"
+        with zipfile.ZipFile(test_zip, "w") as zipf:
+            zipf.writestr("test.txt", "content")
+        assert ZipExtractor.is_extractable(test_zip)
+
+    def test_is_extractable_empty_zip(self, tmp_path):
+        """测试识别空zip文件"""
+        test_zip = tmp_path / "empty.zip"
+        # 创建一个空的zip文件
+        with open(test_zip, "wb") as f:
+            f.write(b"PK\x05\x06" + b"\x00" * 18)
+        assert ZipExtractor.is_extractable(test_zip)
+
+    def test_is_extractable_not_zip(self, tmp_path):
+        """测试识别非zip文件"""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("not zip")
+        assert not ZipExtractor.is_extractable(test_file)
+
+    def test_safemembers_zip(self, tmp_path):
+        """测试zip安全成员检查"""
+        members = [
+            Mock(filename="safe.txt"),
+            Mock(filename="../unsafe.txt")
+        ]
+        safe_members = list(ZipExtractor.safemembers(members, tmp_path))
+        assert len(safe_members) == 1
+        assert safe_members[0].filename == "safe.txt"
+
+    def test_extract_zip_file(self, tmp_path):
+        """测试提取zip文件"""
+        input_zip = tmp_path / "input.zip"
+        output_dir = tmp_path / "output"
+        
+        with zipfile.ZipFile(input_zip, "w") as zipf:
+            zipf.writestr("test.txt", "content")
+        
+        ZipExtractor.extract(input_zip, output_dir)
+        assert output_dir.exists()
+        assert (output_dir / "test.txt").exists()
+
+# 测试 XzExtractor
+class TestXzExtractor:
+    def test_is_extractable_xz(self, tmp_path):
+        """测试识别xz文件"""
+        test_xz = tmp_path / "test.xz"
+        with lzma.open(test_xz, "wb") as f:
+            f.write(b"test content")
+        assert XzExtractor.is_extractable(test_xz)
+
+    def test_extract_xz_file(self, tmp_path):
+        """测试提取xz文件"""
+        input_xz = tmp_path / "input.xz"
+        output_file = tmp_path / "output.txt"
+        
+        with lzma.open(input_xz, "wb") as f:
+            f.write(b"test content")
+        
+        XzExtractor.extract(input_xz, output_file)
+        assert output_file.exists()
+        with open(output_file, "rb") as f:
+            assert f.read() == b"test content"
+
+# 测试 Bzip2Extractor
+class TestBzip2Extractor:
+    def test_is_extractable_bz2(self, tmp_path):
+        """测试识别bz2文件"""
+        test_bz2 = tmp_path / "test.bz2"
+        with bz2.open(test_bz2, "wb") as f:
+            f.write(b"test content")
+        assert Bzip2Extractor.is_extractable(test_bz2)
+
+    def test_extract_bz2_file(self, tmp_path):
+        """测试提取bz2文件"""
+        input_bz2 = tmp_path / "input.bz2"
+        output_file = tmp_path / "output.txt"
+        
+        with bz2.open(input_bz2, "wb") as f:
+            f.write(b"test content")
+        
+        Bzip2Extractor.extract(input_bz2, output_file)
+        assert output_file.exists()
+        with open(output_file, "rb") as f:
+            assert f.read() == b"test content"
+
+# 测试 Extractor 类
+class TestExtractor:
+    def test_get_magic_number_max_length(self):
+        """测试获取最大魔数长度"""
+        length = Extractor._get_magic_number_max_length()
+        assert isinstance(length, int)
+        assert length > 0
+
+    def test_read_magic_number_success(self, tmp_path):
+        """测试读取魔数成功"""
+        test_file = tmp_path / "test.bin"
+        test_file.write_bytes(b"\x1f\x8b\x08\x00")
+        result = Extractor._read_magic_number(test_file, 4)
+        assert result == b"\x1f\x8b\x08\x00"
+
+    def test_read_magic_number_file_error(self, tmp_path):
+        """测试读取魔数文件错误"""
+        result = Extractor._read_magic_number(tmp_path / "nonexistent", 2)
+        assert result == b""
+
+    def test_is_extractable_deprecated_warning(self):
+        """测试is_extractable已弃用警告"""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            Extractor.is_extractable("dummy_path")
+            assert len(w) == 1
+            assert "deprecated" in str(w[0].message)
+
+    def test_is_extractable_with_return_extractor(self, tmp_path):
+        """测试返回提取器"""
+        test_gz = tmp_path / "test.gz"
+        with gzip.open(test_gz, "wb") as f:
+            f.write(b"test")
+        
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = Extractor.is_extractable(test_gz, return_extractor=True)
+            assert isinstance(result, tuple)
+            assert result[0] is True
+            assert result[1] == GzipExtractor
+
+    def test_infer_extractor_format_gzip(self, tmp_path):
+        """测试推断gzip格式"""
+        test_gz = tmp_path / "test.gz"
+        with gzip.open(test_gz, "wb") as f:
+            f.write(b"test")
+        
+        format_name = Extractor.infer_extractor_format(test_gz)
+        assert format_name == "gzip"
+
+    def test_infer_extractor_format_unknown(self, tmp_path):
+        """测试推断未知格式"""
+        test_file = tmp_path / "test.unknown"
+        test_file.write_bytes(b"not a known archive")
+        
+        format_name = Extractor.infer_extractor_format(test_file)
+        assert format_name is None
+
+    def test_extract_with_lock(self, tmp_path):
+        """测试带锁的提取"""
+        input_file = tmp_path / "input.gz"
+        output_dir = tmp_path / "output"
+        
+        with gzip.open(input_file, "wb") as f:
+            f.write(b"test")
+        
+        with patch('_filelock.FileLock') as mock_lock:
+            mock_instance = Mock()
+            mock_lock.return_value.__enter__ = Mock(return_value=None)
+            mock_lock.return_value.__exit__ = Mock(return_value=None)
+            
+            Extractor.extract(input_file, output_dir, "gzip")
+            mock_lock.assert_called_once()
+
+    def test_extract_nonexistent_format(self):
+        """测试提取不存在的格式"""
+        with pytest.raises(KeyError):
+            Extractor.extract("input", "output", "nonexistent_format")
+
+# 测试 ExtractManager
+class TestExtractManager:
+    def test_init_with_cache_dir(self):
+        """测试使用缓存目录初始化"""
+        with patch('os.path.join') as mock_join:
+            mock_join.return_value = "/cache/extracted"
+            manager = ExtractManager(cache_dir="/cache")
+            assert manager.extract_dir == "/cache/extracted"
+
+    def test_init_without_cache_dir(self):
+        """测试不使用缓存目录初始化"""
+        with patch.dict('os.environ', {}, clear=True):
+            manager = ExtractManager(cache_dir=None)
+            # 这里假设 config.EXTRACTED_DATASETS_PATH 有默认值
+            assert manager.extract_dir is not None
+
+    def test_get_output_path(self):
+        """测试获取输出路径"""
+        manager = ExtractManager()
+        with patch('file_utils.hash_url_to_filename') as mock_hash:
+            mock_hash.return_value = "hashed_filename"
+            result = manager._get_output_path("/some/path/file.txt")
+            assert "hashed_filename" in result
+
+    def test_do_extract_force_true(self):
+        """测试强制提取"""
+        manager = ExtractManager()
+        assert manager._do_extract("any_path", force_extract=True)
+
+    def test_do_extract_file_exists(self, tmp_path):
+        """测试文件已存在时不提取"""
+        test_file = tmp_path / "existing.txt"
+        test_file.write_text("content")
+        manager = ExtractManager()
+        assert not manager._do_extract(test_file, force_extract=False)
+
+    def test_do_extract_dir_empty(self, tmp_path):
+        """测试空目录时提取"""
+        test_dir = tmp_path / "empty_dir"
+        test_dir.mkdir()
+        manager = ExtractManager()
+        assert manager._do_extract(test_dir, force_extract=False)
+
+    def test_do_extract_dir_not_empty(self, tmp_path):
+        """测试非空目录时不提取"""
+        test_dir = tmp_path / "nonempty_dir"
+        test_dir.mkdir()
+        (test_dir / "file.txt").write_text("content")
+        manager = ExtractManager()
+        assert not manager._do_extract(test_dir, force_extract=False)
+
+    def test_extract_unknown_format(self, tmp_path):
+        """测试提取未知格式文件"""
+        test_file = tmp_path / "unknown.bin"
+        test_file.write_bytes(b"unknown format")
+        
+        manager = ExtractManager()
+        with patch.object(Extractor, 'infer_extractor_format', return_value=None):
+            result = manager.extract(str(test_file))
+            assert result == str(test_file)
+
+    def test_extract_already_extracted(self, tmp_path):
+        """测试已提取的文件不再提取"""
+        test_file = tmp_path / "test.gz"
+        output_path = tmp_path / "output"
+        
+        with gzip.open(test_file, "wb") as f:
+            f.write(b"test")
+        
+        manager = ExtractManager()
+        with patch.object(manager, '_get_output_path', return_value=str(output_path)):
+            with patch.object(manager, '_do_extract', return_value=False):
+                result = manager.extract(str(test_file))
+                assert result == str(output_path)
+
+    def test_extract_successful(self, tmp_path):
+        """测试成功提取"""
+        test_file = tmp_path / "test.gz"
+        output_path = tmp_path / "output"
+        
+        with gzip.open(test_file, "wb") as f:
+            f.write(b"test")
+        
+        manager = ExtractManager()
+        with patch.object(manager, '_get_output_path', return_value=str(output_path)):
+            with patch.object(manager, '_do_extract', return_value=True):
+                with patch.object(Extractor, 'extract') as mock_extract:
+                    result = manager.extract(str(test_file))
+                    mock_extract.assert_called_once()
+                    assert result == str(output_path)
+
+# 测试依赖不可用的情况
+class TestDependencyUnavailable:
+    def test_rar_extractor_dependency_unavailable(self):
+        """测试rarfile依赖不可用"""
+        with patch('config.RARFILE_AVAILABLE', False):
+            with pytest.raises(ImportError, match="Please pip install rarfile"):
+                RarExtractor.extract("input.rar", "output")
+
+    def test_zstd_extractor_dependency_unavailable(self):
+        """测试zstandard依赖不可用"""
+        with patch('config.ZSTANDARD_AVAILABLE', False):
+            with pytest.raises(ImportError, match="Please pip install zstandard"):
+                ZstdExtractor.extract("input.zst", "output")
+
+    def test_sevenzip_extractor_dependency_unavailable(self):
+        """测试py7zr依赖不可用"""
+        with patch('config.PY7ZR_AVAILABLE', False):
+            with pytest.raises(ImportError, match="Please pip install py7zr"):
+                SevenZipExtractor.extract("input.7z", "output")
+
+    def test_lz4_extractor_dependency_unavailable(self):
+        """测试lz4依赖不可用"""
+        with patch('config.LZ4_AVAILABLE', False):
+            with pytest.raises(ImportError, match="Please pip install lz4"):
+                Lz4Extractor.extract("input.lz4", "output")
+
+# 测试边界条件
+class TestBoundaryConditions:
+    def test_empty_magic_numbers(self):
+        """测试空魔数列表"""
+        class EmptyExtractor(MagicNumberBaseExtractor):
+            magic_numbers = []
+        
+        # 应该正确处理空列表
+        assert not EmptyExtractor.is_extractable("path", magic_number=b"")
+
+    def test_long_magic_number(self, tmp_path):
+        """测试长魔数"""
+        test_file = tmp_path / "test.bin"
+        long_magic = b"\x00" * 100
+        test_file.write_bytes(long_magic)

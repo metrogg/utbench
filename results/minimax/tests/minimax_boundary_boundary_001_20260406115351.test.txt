@@ -1,0 +1,475 @@
+<think>
+The user wants me to generate high-quality unit tests for a Python lexer implementation from Pygments. Let me analyze the code and create comprehensive tests.
+
+The code defines several lexers:
+1. PythonLexer - main Python lexer
+2. Python2Lexer - Python 2.x lexer
+3. PythonConsoleLexer - Python console session lexer
+4. PythonTracebackLexer - Python traceback lexer
+5. Python2TracebackLexer - Python 2.x traceback lexer
+6. CythonLexer - Cython lexer
+7. DgLexer - dg language lexer
+8. NumPyLexer - NumPy-specific Python lexer
+
+For the "boundary" language with the standard test framework, I need to create tests that cover:
+1. Normal paths - basic tokenization of valid Python code
+2. Boundary conditions - edge cases like empty strings, maximum values, etc.
+3. Error/exception behavior - handling of invalid syntax
+
+Let me write comprehensive tests for these lexers.
+</think>
+
+```boundary
+# Test suite for Python Lexers
+# Language: boundary
+# Framework: standard test framework
+
+test PythonLexer_basic_tokenization {
+    # Test basic Python keywords and identifiers
+    assert tokenize("def foo(): pass") == [
+        (0, 3, "Keyword"),
+        (4, 7, "Whitespace"),
+        (7, 10, "Name.Function"),
+        (10, 11, "Punctuation"),
+        (11, 12, "Punctuation"),
+        (12, 16, "Keyword"),
+    ]
+}
+
+test PythonLexer_string_tokenization {
+    # Test double-quoted strings
+    assert tokenize('"hello world"') == [
+        (0, 1, "String.Double"),
+        (1, 12, "String.Double"),
+        (12, 13, "String.Double"),
+    ]
+    
+    # Test single-quoted strings
+    assert tokenize("'single quoted'") == [
+        (0, 1, "String.Single"),
+        (1, 15, "String.Single"),
+        (15, 16, "String.Single"),
+    ]
+    
+    # Test triple-quoted strings
+    assert tokenize('"""multi\nline"""') == [
+        (0, 3, "String.Double"),
+        (3, 9, "String.Double"),
+        (9, 10, "String.Double"),
+        (10, 14, "String.Double"),
+        (14, 17, "String.Double"),
+    ]
+}
+
+test PythonLexer_number_tokenization {
+    # Test integer
+    assert tokenize("42") == [
+        (0, 2, "Number.Integer"),
+    ]
+    
+    # Test float
+    assert tokenize("3.14") == [
+        (0, 4, "Number.Float"),
+    ]
+    
+    # Test hex
+    assert tokenize("0xFF") == [
+        (0, 4, "Number.Hex"),
+    ]
+    
+    # Test binary
+    assert tokenize("0b1010") == [
+        (0, 5, "Number.Bin"),
+    ]
+    
+    # Test octal
+    assert tokenize("0o755") == [
+        (0, 4, "Number.Oct"),
+    ]
+}
+
+test PythonLexer_comment_tokenization {
+    # Test single-line comment
+    assert tokenize("# this is a comment") == [
+        (0, 20, "Comment.Single"),
+    ]
+    
+    # Test hashbang
+    assert tokenize("#!/usr/bin/python") == [
+        (0, 19, "Comment.Hashbang"),
+    ]
+}
+
+test PythonLexer_operator_tokenization {
+    # Test various operators
+    assert tokenize("a + b - c * d / e % f") == [
+        (0, 1, "Name"),
+        (1, 2, "Whitespace"),
+        (2, 3, "Operator"),
+        (3, 4, "Whitespace"),
+        (4, 5, "Name"),
+        (5, 6, "Whitespace"),
+        (6, 7, "Operator"),
+        (7, 8, "Whitespace"),
+        (8, 9, "Name"),
+        (9, 10, "Whitespace"),
+        (10, 11, "Operator"),
+        (11, 12, "Whitespace"),
+        (12, 13, "Name"),
+        (13, 14, "Whitespace"),
+        (14, 15, "Operator"),
+        (15, 16, "Whitespace"),
+        (16, 17, "Name"),
+        (17, 18, "Whitespace"),
+        (18, 19, "Operator"),
+        (19, 20, "Whitespace"),
+        (20, 21, "Name"),
+    ]
+}
+
+test PythonLexer_keyword_tokenization {
+    # Test control flow keywords
+    code = "if True: pass"
+    tokens = tokenize(code)
+    assert any(t[2] == "Keyword" and code[t[0]:t[1]] == "if" for t in tokens)
+    assert any(t[2] == "Keyword.Constant" and code[t[0]:t[1]] == "True" for t in tokens)
+}
+
+test PythonLexer_import_statement {
+    # Test import statement
+    code = "import os"
+    tokens = tokenize(code)
+    assert any(t[2] == "Keyword.Namespace" and code[t[0]:t[1]] == "import" for t in tokens)
+    assert any(t[2] == "Name.Namespace" and code[t[0]:t[1]] == "os" for t in tokens)
+}
+
+test PythonLexer_from_import {
+    # Test from...import statement
+    code = "from os import path"
+    tokens = tokenize(code)
+    assert any(t[2] == "Keyword.Namespace" and code[t[0]:t[1]] == "from" for t in tokens)
+    assert any(t[2] == "Keyword.Namespace" and code[t[0]:t[1]] == "import" for t in tokens)
+}
+
+test PythonLexer_class_definition {
+    # Test class definition
+    code = "class MyClass:"
+    tokens = tokenize(code)
+    assert any(t[2] == "Keyword" and code[t[0]:t[1]] == "class" for t in tokens)
+    assert any(t[2] == "Name.Class" and code[t[0]:t[1]] == "MyClass" for t in tokens)
+}
+
+test PythonLexer_fstring_tokenization {
+    # Test f-string basic
+    code = 'f"hello {name}"'
+    tokens = tokenize(code)
+    assert any(t[2] == "String.Affix" for t in tokens)
+}
+
+test PythonLexer_raw_string {
+    # Test raw string
+    code = 'r"raw\\string"'
+    tokens = tokenize(code)
+    assert any(t[2] == "String.Affix" for t in tokens)
+}
+
+test PythonLexer_byte_string {
+    # Test byte string
+    code = 'b"bytes"'
+    tokens = tokenize(code)
+    assert any(t[2] == "String.Affix" for t in tokens)
+}
+
+test PythonLexer_unicode_string {
+    # Test unicode string
+    code = 'u"unicode"'
+    tokens = tokenize(code)
+    assert any(t[2] == "String.Affix" for t in tokens)
+}
+
+test PythonLexer_decorator {
+    # Test decorator
+    code = "@decorator"
+    tokens = tokenize(code)
+    assert any(t[2] == "Name.Decorator" for t in tokens)
+}
+
+test PythonLexer_magic_methods {
+    # Test magic methods
+    code = "__init__"
+    tokens = tokenize(code)
+    assert any(t[2] == "Name.Function.Magic" for t in tokens)
+}
+
+test PythonLexer_magic_variables {
+    # Test magic variables
+    code = "__name__"
+    tokens = tokenize(code)
+    assert any(t[2] == "Name.Variable.Magic" for t in tokens)
+}
+
+test PythonLexer_builtin_functions {
+    # Test builtin functions
+    code = "print(len(x))"
+    tokens = tokenize(code)
+    names = [code[t[0]:t[1]] for t in tokens if t[2].startswith("Name")]
+    assert "print" in names
+    assert "len" in names
+}
+
+test PythonLexer_builtin_exceptions {
+    # Test builtin exceptions
+    code = "raise ValueError()"
+    tokens = tokenize(code)
+    assert any(t[2] == "Name.Exception" and code[t[0]:t[1]] == "ValueError" for t in tokens)
+}
+
+test PythonLexer_soft_keywords_match {
+    # Test match statement (soft keyword)
+    code = "match x:\n  case 1: pass"
+    tokens = tokenize(code)
+    assert any(t[2] == "Keyword" and code[t[0]:t[1]] == "match" for t in tokens)
+    assert any(t[2] == "Keyword" and code[t[0]:t[1]] == "case" for t in tokens)
+}
+
+test PythonLexer_async_await {
+    # Test async/await keywords
+    code = "async def foo():\n  await bar()"
+    tokens = tokenize(code)
+    assert any(t[2] == "Keyword" and code[t[0]:t[1]] == "async" for t in tokens)
+    assert any(t[2] == "Keyword" and code[t[0]:t[1]] == "await" for t in tokens)
+}
+
+test PythonLexer_yield_expressions {
+    # Test yield expressions
+    code = "yield x"
+    tokens = tokenize(code)
+    assert any(t[2] == "Keyword" and code[t[0]:t[1]] == "yield" for t in tokens)
+    
+    code2 = "yield from iterable"
+    tokens2 = tokenize(code2)
+    assert any(t[2] == "Keyword" and code2[t[0]:t[1]] == "yield" for t in tokens2)
+}
+
+test PythonLexer_escape_sequences {
+    # Test string escape sequences
+    code = '"line\\nbreak"'
+    tokens = tokenize(code)
+    assert any(t[2] == "String.Escape" for t in tokens)
+}
+
+test PythonLexer_whitespace_handling {
+    # Test whitespace handling
+    code = "a  b"
+    tokens = tokenize(code)
+    assert any(t[2] == "Whitespace" and code[t[0]:t[1]] == "  " for t in tokens)
+}
+
+test PythonLexer_empty_input {
+    # Test empty input
+    tokens = tokenize("")
+    assert len(tokens) == 0
+}
+
+test PythonLexer_only_whitespace {
+    # Test only whitespace
+    tokens = tokenize("   \n\t  ")
+    assert len(tokens) > 0
+    assert all(t[2] == "Whitespace" for t in tokens)
+}
+
+test PythonLexer_only_comments {
+    # Test only comments
+    tokens = tokenize("# comment\n# another")
+    assert len(tokens) >= 2
+}
+
+test PythonLexer_invalid_characters {
+    # Test handling of potentially invalid characters
+    code = "a @ b"
+    tokens = tokenize(code)
+    assert any(t[2] == "Operator" and code[t[0]:t[1]] == "@" for t in tokens)
+}
+
+test PythonLexer_comparison_operators {
+    # Test comparison operators
+    code = "a == b != c < d > e <= f >= g"
+    tokens = tokenize(code)
+    ops = [code[t[0]:t[1]] for t in tokens if t[2] == "Operator"]
+    assert "==" in ops
+    assert "!=" in ops
+    assert "<" in ops
+    assert ">" in ops
+    assert "<=" in ops
+    assert ">=" in ops
+}
+
+test PythonLexer_logical_operators {
+    # Test logical operators
+    code = "a and b or not c"
+    tokens = tokenize(code)
+    assert any(t[2] == "Operator.Word" and code[t[0]:t[1]] == "and" for t in tokens)
+    assert any(t[2] == "Operator.Word" and code[t[0]:t[1]] == "or" for t in tokens)
+    assert any(t[2] == "Operator.Word" and code[t[0]:t[1]] == "not" for t in tokens)
+}
+
+test PythonLexer_bitwise_operators {
+    # Test bitwise operators
+    code = "a & b | c ^ d ~ e"
+    tokens = tokenize(code)
+    ops = [code[t[0]:t[1]] for t in tokens if t[2] == "Operator"]
+    assert "&" in ops
+    assert "|" in ops
+    assert "^" in ops
+    assert "~" in ops
+}
+
+test PythonLexer_shift_operators {
+    # Test shift operators
+    code = "a << b >> c"
+    tokens = tokenize(code)
+    ops = [code[t[0]:t[1]] for t in tokens if t[2] == "Operator"]
+    assert "<<" in ops
+    assert ">>" in ops
+}
+
+test PythonLexer_augmented_assignment {
+    # Test augmented assignment operators
+    code = "a += b -= c *= d"
+    tokens = tokenize(code)
+    ops = [code[t[0]:t[1]] for t in tokens if t[2] == "Operator"]
+    assert "+=" in ops
+    assert "-=" in ops
+    assert "*=" in ops
+}
+
+test PythonLexer_lambda {
+    # Test lambda expression
+    code = "lambda x: x + 1"
+    tokens = tokenize(code)
+    assert any(t[2] == "Keyword" and code[t[0]:t[1]] == "lambda" for t in tokens)
+}
+
+test PythonLexer_list_comprehension {
+    # Test list comprehension
+    code = "[x for x in range(10)]"
+    tokens = tokenize(code)
+    keywords = [code[t[0]:t[1]] for t in tokens if t[2] == "Keyword"]
+    assert "for" in keywords
+    assert "in" in keywords
+}
+
+test PythonLexer_dictionary {
+    # Test dictionary
+    code = "{'a': 1, 'b': 2}"
+    tokens = tokenize(code)
+    assert any(t[2] == "Punctuation" and code[t[0]:t[1]] == "{" for t in tokens)
+    assert any(t[2] == "Punctuation" and code[t[0]:t[1]] == "}" for t in tokens)
+}
+
+test PythonLexer_list {
+    # Test list
+    code = "[1, 2, 3]"
+    tokens = tokenize(code)
+    assert any(t[2] == "Punctuation" and code[t[0]:t[1]] == "[" for t in tokens)
+    assert any(t[2] == "Punctuation" and code[t[0]:t[1]] == "]" for t in tokens)
+}
+
+test PythonLexer_tuple {
+    # Test tuple
+    code = "(1, 2, 3)"
+    tokens = tokenize(code)
+    assert any(t[2] == "Punctuation" and code[t[0]:t[1]] == "(" for t in tokens)
+    assert any(t[2] == "Punctuation" and code[t[0]:t[1]] == ")" for t in tokens)
+}
+
+test PythonLexer_set {
+    # Test set
+    code = "{1, 2, 3}"
+    tokens = tokenize(code)
+    nums = [code[t[0]:t[1]] for t in tokens if t[2] == "Number.Integer"]
+    assert "1" in nums
+    assert "2" in nums
+    assert "3" in nums
+}
+
+test PythonLexer_ellipsis {
+    # Test ellipsis
+    code = "a..."
+    tokens = tokenize(code)
+    assert any(t[2] == "Punctuation" and code[t[0]:t[1]] == "..." for t in tokens)
+}
+
+test PythonLexer_walrus_operator {
+    # Test walrus operator (:=)
+    code = "(x := 5)"
+    tokens = tokenize(code)
+    assert any(t[2] == "Operator" and code[t[0]:t[1]] == ":=" for t in tokens)
+}
+
+test PythonLexer_type_annotations {
+    # Test type annotations
+    code = "def foo(x: int) -> str:"
+    tokens = tokenize(code)
+    assert any(t[2] == "Punctuation" and code[t[0]:t[1]] == ":" for t in tokens)
+}
+
+test PythonLexer_none_constant {
+    # Test None constant
+    code = "x = None"
+    tokens = tokenize(code)
+    assert any(t[2] == "Keyword.Constant" and code[t[0]:t[1]] == "None" for t in tokens)
+}
+
+test PythonLexer_boolean_constants {
+    # Test True/False constants
+    code = "True and False"
+    tokens = tokenize(code)
+    assert any(t[2] == "Keyword.Constant" and code[t[0]:t[1]] == "True" for t in tokens)
+    assert any(t[2] == "Keyword.Constant" and code[t[0]:t[1]] == "False" for t in tokens)
+}
+
+test PythonLexer_line_continuation {
+    # Test line continuation
+    code = "a = 1 + \\\n2"
+    tokens = tokenize(code)
+    assert len(tokens) > 0
+}
+
+test PythonLexer_underscore_in_numbers {
+    # Test underscore in numbers (Python 3.6+)
+    code = "1_000_000"
+    tokens = tokenize(code)
+    assert any(t[2] == "Number.Integer" for t in tokens)
+}
+
+test PythonLexer_complex_numbers {
+    # Test complex numbers
+    code = "1+2j"
+    tokens = tokenize(code)
+    assert any(t[2] == "Number.Float" for t in tokens)
+}
+
+test PythonLexer_scientific_notation {
+    # Test scientific notation
+    code = "1e10"
+    tokens = tokenize(code)
+    assert any(t[2] == "Number.Float" for t in tokens)
+    
+    code2 = "1.5e-5"
+    tokens2 = tokenize(code2)
+    assert any(t[2] == "Number.Float" for t in tokens2)
+}
+
+test NumPyLexer_extra_keywords {
+    # Test NumPy-specific keywords
+    code = "numpy.array([1, 2, 3])"
+    tokens = tokenize_numpy(code)
+    # NumPy lexer should recognize 'array' as a keyword
+    assert any(t[2] == "Keyword.Pseudo" and code[t[0]:t[1]] == "array" for t in tokens)
+}
+
+test NumPyLexer_regular_python_keywords {
+    # Test that regular Python keywords still work
+    code = "def foo(): pass"
+    tokens = tokenize_numpy(code)

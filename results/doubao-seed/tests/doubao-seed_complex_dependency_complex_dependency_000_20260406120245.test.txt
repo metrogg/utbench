@@ -1,0 +1,262 @@
+import pytest
+import asyncio
+import time
+from unittest.mock import Mock, patch, AsyncMock
+import h2.events
+import h2.exceptions
+from .._backends.base import AsyncNetworkStream
+from .._exceptions import ConnectionNotAvailable, LocalProtocolError, RemoteProtocolError
+from .._models import Origin, Request, URL, Response
+from .._synchronization import AsyncLock, AsyncSemaphore
+from .http2 import (
+    has_body_headers,
+    HTTPConnectionState,
+    AsyncHTTP2Connection,
+    HTTP2ConnectionByteStream
+)
+
+@pytest.fixture
+def mock_origin():
+    return Origin(scheme=b'https', host=b'example.com', port=443)
+
+@pytest.fixture
+def mock_stream():
+    stream = Mock(spec=AsyncNetworkStream)
+    stream.read = AsyncMock(return_value=b'')
+    stream.write = AsyncMock()
+    stream.aclose = AsyncMock()
+    return stream
+
+@pytest.fixture
+def test_request(mock_origin):
+    return Request(
+        method=b'GET',
+        url=URL(scheme=b'https', host=b'example.com', port=443, target=b'/'),
+        headers=[(b'host', b'example.com')],
+        stream=AsyncMock()
+    )
+
+@pytest.fixture
+def test_post_request(mock_origin):
+    return Request(
+        method=b'POST',
+        url=URL(scheme=b'https', host=b'example.com', port=443, target=b'/submit'),
+        headers=[(b'host', b'example.com'), (b'content-length', b'10')],
+        stream=asyncio.Queue()
+    )
+
+@pytest.fixture
+def h2_connection(mock_origin, mock_stream):
+    with patch('httpcore.http2.h2.connection.H2Connection') as mock_h2:
+        mock_h2_instance = Mock()
+        mock_h2_instance.get_next_available_stream_id.return_value = 1
+        mock_h2_instance.data_to_send.return_value = b''
+        mock_h2_instance.local_flow_control_window.return_value = 65535
+        mock_h2_instance.max_outbound_frame_size = 16384
+        mock_h2_instance.local_settings.max_concurrent_streams = 100
+        mock_h2_instance.state_machine.state = h2.connection.ConnectionState.OPEN
+        mock_h2.return_value = mock_h2_instance
+        conn = AsyncHTTP2Connection(origin=mock_origin, stream=mock_stream, keepalive_expiry=30.0)
+        yield conn
+
+# Test helper function has_body_headers
+def test_has_body_headers():
+    # Normal case with content-length
+    req1 = Mock(headers=[(b'Content-Length', b'100')])
+    assert has_body_headers(req1) is True
+    # Normal case with transfer-encoding
+    req2 = Mock(headers=[(b'Transfer-Encoding', b'chunked')])
+    assert has_body_headers(req2) is True
+    # Boundary case no body headers
+    req3 = Mock(headers=[(b'Host', b'example.com'), (b'User-Agent', b'test')])
+    assert has_body_headers(req3) is False
+    # Case-insensitive check
+    req4 = Mock(headers=[(b'CONTENT-length', b'50')])
+    assert has_body_headers(req4) is True
+
+# Test connection initialization
+def test_connection_init(mock_origin, mock_stream):
+    conn = AsyncHTTP2Connection(origin=mock_origin, stream=mock_stream, keepalive_expiry=30.0)
+    assert conn._origin == mock_origin
+    assert conn._state == HTTPConnectionState.IDLE
+    assert conn._sent_connection_init is False
+    assert conn._request_count == 0
+    assert conn._used_all_stream_ids is False
+    assert conn._connection_error is False
+
+# Test can_handle_request
+def test_can_handle_request(h2_connection, mock_origin):
+    # Same origin
+    assert h2_connection.can_handle_request(mock_origin) is True
+    # Different scheme
+    wrong_scheme = Origin(scheme=b'http', host=b'example.com', port=443)
+    assert h2_connection.can_handle_request(wrong_scheme) is False
+    # Different host
+    wrong_host = Origin(scheme=b'https', host=b'example.org', port=443)
+    assert h2_connection.can_handle_request(wrong_host) is False
+    # Different port
+    wrong_port = Origin(scheme=b'https', host=b'example.com', port=8443)
+    assert h2_connection.can_handle_request(wrong_port) is False
+
+# Test state check methods
+def test_state_checks(h2_connection):
+    assert h2_connection.is_idle() is True
+    assert h2_connection.is_available() is True
+    assert h2_connection.is_closed() is False
+    assert h2_connection.has_expired() is False
+    # Test expired state
+    h2_connection._expire_at = time.monotonic() - 10
+    assert h2_connection.has_expired() is True
+    # Test closed state
+    asyncio.run(h2_connection.aclose())
+    assert h2_connection.is_closed() is True
+    assert h2_connection.is_available() is False
+
+# Test info and repr
+def test_info_repr(h2_connection, mock_origin):
+    info_str = h2_connection.info()
+    assert str(mock_origin) in info_str
+    assert 'HTTP/2' in info_str
+    assert 'IDLE' in info_str
+    assert 'Request Count: 0' in info_str
+    repr_str = repr(h2_connection)
+    assert 'AsyncHTTP2Connection' in repr_str
+    assert 'IDLE' in repr_str
+
+# Test normal GET request flow
+@pytest.mark.asyncio
+async def test_handle_get_request(h2_connection, test_request, mock_stream):
+    # Mock events
+    response_event = h2.events.ResponseReceived()
+    response_event.stream_id = 1
+    response_event.headers = [(b':status', b'200'), (b'content-type', b'text/plain')]
+    data_event = h2.events.DataReceived()
+    data_event.stream_id = 1
+    data_event.data = b'hello world'
+    data_event.flow_controlled_length = 11
+    end_event = h2.events.StreamEnded()
+    end_event.stream_id = 1
+    h2_connection._h2_state.receive_data.return_value = [response_event, data_event, end_event]
+    mock_stream.read.side_effect = [b'', b'']
+
+    response = await h2_connection.handle_async_request(test_request)
+    assert response.status == 200
+    assert dict(response.headers) == {b'content-type': b'text/plain'}
+    assert response.extensions[b'http_version'] == b'HTTP/2'
+    # Read response body
+    body = b''
+    async for chunk in response.content:
+        body += chunk
+    assert body == b'hello world'
+    # Verify write calls
+    assert mock_stream.write.called
+    assert h2_connection._h2_state.send_headers.called
+    assert h2_connection._request_count == 1
+
+# Test POST request with body
+@pytest.mark.asyncio
+async def test_handle_post_request(h2_connection, test_post_request, mock_stream):
+    # Populate request body
+    await test_post_request.stream.put(b'hello')
+    await test_post_request.stream.put(b'world')
+    test_post_request.stream.put_exception(StopAsyncIteration())
+    # Mock response events
+    response_event = h2.events.ResponseReceived()
+    response_event.stream_id = 1
+    response_event.headers = [(b':status', b'201')]
+    end_event = h2.events.StreamEnded()
+    end_event.stream_id = 1
+    h2_connection._h2_state.receive_data.return_value = [response_event, end_event]
+    mock_stream.read.return_value = b''
+
+    response = await h2_connection.handle_async_request(test_post_request)
+    assert response.status == 201
+    assert h2_connection._h2_state.send_data.call_count == 2
+    assert h2_connection._h2_state.end_stream.called
+
+# Test wrong origin error
+@pytest.mark.asyncio
+async def test_wrong_origin_error(h2_connection):
+    wrong_req = Request(
+        method=b'GET',
+        url=URL(scheme=b'https', host=b'wrong.com', port=443, target=b'/'),
+        headers=[],
+        stream=AsyncMock()
+    )
+    with pytest.raises(RuntimeError, match='Attempted to send request to'):
+        await h2_connection.handle_async_request(wrong_req)
+
+# Test connection not available when closed
+@pytest.mark.asyncio
+async def test_closed_connection_error(h2_connection, test_request):
+    await h2_connection.aclose()
+    with pytest.raises(ConnectionNotAvailable):
+        await h2_connection.handle_async_request(test_request)
+
+# Test no available stream IDs error
+@pytest.mark.asyncio
+async def test_no_available_stream_ids(h2_connection, test_request):
+    h2_connection._sent_connection_init = True
+    h2_connection._max_streams_semaphore = AsyncSemaphore(100)
+    h2_connection._h2_state.get_next_available_stream_id.side_effect = h2.exceptions.NoAvailableStreamIDError()
+    with pytest.raises(ConnectionNotAvailable):
+        await h2_connection.handle_async_request(test_request)
+    assert h2_connection._used_all_stream_ids is True
+    assert h2_connection._request_count == 0
+
+# Test remote protocol error on connection terminate
+@pytest.mark.asyncio
+async def test_remote_protocol_error(h2_connection, test_request):
+    term_event = h2.events.ConnectionTerminated()
+    term_event.error_code = 2
+    term_event.last_stream_id = 0
+    h2_connection._connection_terminated = term_event
+    with pytest.raises(RemoteProtocolError):
+        await h2_connection.handle_async_request(test_request)
+
+# Test local protocol error
+@pytest.mark.asyncio
+async def test_local_protocol_error(h2_connection, test_request):
+    h2_connection._sent_connection_init = True
+    h2_connection._max_streams_semaphore = AsyncSemaphore(100)
+    h2_connection._h2_state.send_headers.side_effect = h2.exceptions.ProtocolError('Invalid header')
+    with pytest.raises(LocalProtocolError):
+        await h2_connection.handle_async_request(test_request)
+
+# Test remote settings change
+@pytest.mark.asyncio
+async def test_remote_settings_change(h2_connection):
+    h2_connection._sent_connection_init = True
+    h2_connection._max_streams = 100
+    h2_connection._max_streams_semaphore = AsyncSemaphore(100)
+    # Simulate max concurrent streams reduce
+    settings_event = h2.events.RemoteSettingsChanged()
+    settings_event.changed_settings = {
+        h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS: Mock(new_value=50)
+    }
+    await h2_connection._receive_remote_settings_change(settings_event)
+    assert h2_connection._max_streams == 50
+    # Simulate max concurrent streams increase
+    settings_event.changed_settings = {
+        h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS: Mock(new_value=75)
+    }
+    await h2_connection._receive_remote_settings_change(settings_event)
+    assert h2_connection._max_streams == 75
+
+# Test byte stream close
+@pytest.mark.asyncio
+async def test_byte_stream_close(h2_connection, test_request):
+    h2_connection._events[1] = []
+    stream = HTTP2ConnectionByteStream(h2_connection, test_request, 1)
+    with patch.object(h2_connection, '_response_closed', AsyncMock()) as mock_close:
+        await stream.aclose()
+        assert stream._closed is True
+        mock_close.assert_called_once_with(stream_id=1)
+
+# Test async context manager
+@pytest.mark.asyncio
+async def test_async_context_manager(h2_connection):
+    with patch.object(h2_connection, 'aclose', AsyncMock()) as mock_close:
+        async with h2_connection as conn:
+            assert conn is h2_connection
+        mock_close.assert_called_once()

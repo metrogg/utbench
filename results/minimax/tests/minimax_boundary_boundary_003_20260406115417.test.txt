@@ -1,0 +1,284 @@
+import unittest
+import sys
+import copy
+from io import StringIO
+from unittest.mock import patch, MagicMock
+
+
+class TestErrmess(unittest.TestCase):
+    """Test cases for the errmess function."""
+    
+    def test_errmess_writes_to_stderr(self):
+        """Test that errmess writes the given message to stderr."""
+        from . import __fortran2py
+        captured_stderr = StringIO()
+        with patch.object(sys, 'stderr', captured_stderr):
+            errmess("test message\n")
+        self.assertEqual(captured_stderr.getvalue(), "test message\n")
+    
+    def test_errmess_empty_string(self):
+        """Test errmess with an empty string."""
+        captured_stderr = StringIO()
+        with patch.object(sys, 'stderr', captured_stderr):
+            errmess("")
+        self.assertEqual(captured_stderr.getvalue(), "")
+    
+    def test_errmess_multiline_string(self):
+        """Test errmess with a multiline message."""
+        captured_stderr = StringIO()
+        with patch.object(sys, 'stderr', captured_stderr):
+            errmess("line1\nline2\nline3\n")
+        self.assertEqual(captured_stderr.getvalue(), "line1\nline2\nline3\n")
+    
+    def test_errmess_special_characters(self):
+        """Test errmess with special characters."""
+        captured_stderr = StringIO()
+        with patch.object(sys, 'stderr', captured_stderr):
+            errmess("special chars: \x00\x01\x02\n")
+        self.assertEqual(captured_stderr.getvalue(), "special chars: \x00\x01\x02\n")
+
+
+class TestBuildcfuncs(unittest.TestCase):
+    """Test cases for the buildcfuncs function."""
+    
+    def setUp(self):
+        """Save original state of cppmacros."""
+        self.original_cppmacros = copy.copy(cppmacros)
+    
+    def tearDown(self):
+        """Restore original state of cppmacros."""
+        cppmacros.clear()
+        cppmacros.update(self.original_cppmacros)
+    
+    def test_buildcfuncs_populates_cppmacros(self):
+        """Test that buildcfuncs adds entries to cppmacros."""
+        initial_count = len(cppmacros)
+        with patch('.capi_maps.c2capi_map', {
+            'int': 'NPY_INT',
+            'float': 'NPY_FLOAT'
+        }):
+            buildcfuncs()
+        self.assertGreater(len(cppmacros), initial_count)
+
+
+class TestAppendNeeds(unittest.TestCase):
+    """Test cases for the append_needs function."""
+    
+    def setUp(self):
+        """Save and reset global state."""
+        self.original_outneeds = copy.deepcopy(outneeds)
+        self.original_needs = copy.deepcopy(needs)
+    
+    def tearDown(self):
+        """Restore original global state."""
+        outneeds.clear()
+        outneeds.update(copy.deepcopy(self.original_outneeds))
+        needs.clear()
+        needs.update(copy.deepcopy(self.original_needs))
+    
+    def test_append_needs_with_string(self):
+        """Test append_needs with a single string."""
+        initial_len = len(outneeds['includes'])
+        append_needs('math.h')
+        self.assertIn('math.h', outneeds['includes0'])
+    
+    def test_append_needs_with_list(self):
+        """Test append_needs with a list of strings."""
+        append_needs(['math.h', 'string.h'])
+        self.assertIn('math.h', outneeds['includes0'])
+        self.assertIn('string.h', outneeds['includes0'])
+    
+    def test_append_needs_with_empty_string(self):
+        """Test append_needs with empty string does nothing."""
+        initial_includes0 = copy.copy(outneeds['includes0'])
+        append_needs('')
+        self.assertEqual(outneeds['includes0'], initial_includes0)
+    
+    def test_append_needs_flag_zero(self):
+        """Test append_needs with flag=0 returns dependency dict."""
+        result = append_needs('string', flag=0)
+        self.assertIsInstance(result, dict)
+    
+    def test_append_needs_with_unknown_need(self):
+        """Test append_needs with unknown need type logs error."""
+        captured_stderr = StringIO()
+        with patch.object(sys, 'stderr', captured_stderr):
+            append_needs('unknown_need_xyz')
+        error_output = captured_stderr.getvalue()
+        self.assertIn('unknown need', error_output)
+    
+    def test_append_needs_with_typedefs(self):
+        """Test append_needs with typedefs entries."""
+        append_needs('unsigned_char')
+        self.assertIn('unsigned_char', outneeds['typedefs'])
+    
+    def test_append_needs_with_cppmacros(self):
+        """Test append_needs with cppmacros entries."""
+        append_needs('F_FUNC')
+        self.assertIn('F_FUNC', outneeds['cppmacros'])
+    
+    def test_append_needs_with_cfuncs(self):
+        """Test append_needs with cfuncs entries."""
+        append_needs('int_from_pyobj')
+        self.assertIn('int_from_pyobj', outneeds['cfuncs'])
+    
+    def test_append_needs_no_duplicate(self):
+        """Test that append_needs does not add duplicates."""
+        append_needs('math.h')
+        initial_len = len(outneeds['includes0'])
+        append_needs('math.h')
+        self.assertEqual(len(outneeds['includes0']), initial_len)
+    
+    def test_append_needs_with_callbacks(self):
+        """Test append_needs with callbacks entries."""
+        append_needs('callbacks')
+        self.assertIn('callbacks', outneeds['callbacks'])
+    
+    def test_append_needs_with_f90modhooks(self):
+        """Test append_needs with f90modhooks entries."""
+        append_needs('f90modhooks')
+        self.assertIn('f90modhooks', outneeds['f90modhooks'])
+    
+    def test_append_needs_with_commonhooks(self):
+        """Test append_needs with commonhooks entries."""
+        append_needs('commonhooks')
+        self.assertIn('commonhooks', outneeds['commonhooks'])
+    
+    def test_append_needs_with_nested_dependencies(self):
+        """Test append_needs resolves nested dependencies."""
+        needs['test_need'] = ['math.h']
+        append_needs('test_need')
+        self.assertIn('test_need', outneeds['cfuncs'])
+        self.assertIn('math.h', outneeds['includes0'])
+
+
+class TestGetNeeds(unittest.TestCase):
+    """Test cases for the get_needs function."""
+    
+    def setUp(self):
+        """Save and reset global state."""
+        self.original_outneeds = copy.deepcopy(outneeds)
+        self.original_needs = copy.deepcopy(needs)
+    
+    def tearDown(self):
+        """Restore original global state."""
+        outneeds.clear()
+        outneeds.update(copy.deepcopy(self.original_outneeds))
+        needs.clear()
+        needs.update(copy.deepcopy(self.original_needs))
+    
+    def test_get_needs_returns_dict(self):
+        """Test that get_needs returns a dictionary."""
+        result = get_needs()
+        self.assertIsInstance(result, dict)
+    
+    def test_get_needs_includes_all_keys(self):
+        """Test that get_needs includes all expected keys."""
+        result = get_needs()
+        expected_keys = ['includes0', 'includes', 'typedefs', 'typedefs_generated',
+                        'userincludes', 'cppmacros', 'cfuncs', 'callbacks',
+                        'f90modhooks', 'commonhooks']
+        for key in expected_keys:
+            self.assertIn(key, result)
+    
+    def test_get_needs_empty_outneeds(self):
+        """Test get_needs with empty outneeds."""
+        for key in outneeds:
+            outneeds[key] = []
+        result = get_needs()
+        self.assertEqual(result['includes0'], ['includes0'])
+    
+    def test_get_needs_with_simple_entries(self):
+        """Test get_needs with simple entries."""
+        outneeds['includes0'] = ['math.h']
+        result = get_needs()
+        self.assertIn('math.h', result['includes0'])
+    
+    def test_get_needs_respects_dependencies(self):
+        """Test get_needs respects dependency ordering."""
+        needs['test_dep'] = ['math.h']
+        outneeds['includes0'] = ['test_dep', 'math.h']
+        result = get_needs()
+        math_idx = result['includes0'].index('math.h')
+        if 'test_dep' in result['includes0']:
+            test_idx = result['includes0'].index('test_dep')
+            self.assertLess(math_idx, test_idx)
+
+
+class TestGlobalDictionaries(unittest.TestCase):
+    """Test cases for global dictionaries initialization."""
+    
+    def test_outneeds_initialized(self):
+        """Test that outneeds is properly initialized."""
+        expected_keys = ['includes0', 'includes', 'typedefs', 'typedefs_generated',
+                        'userincludes', 'cppmacros', 'cfuncs', 'callbacks',
+                        'f90modhooks', 'commonhooks']
+        for key in expected_keys:
+            self.assertIn(key, outneeds)
+            self.assertIsInstance(outneeds[key], list)
+    
+    def test_includes0_populated(self):
+        """Test that includes0 contains expected entries."""
+        self.assertIn('math.h', includes0)
+        self.assertIn('string.h', includes0)
+        self.assertIn('setjmp.h', includes0)
+    
+    def test_includes_populated(self):
+        """Test that includes contains expected entries."""
+        self.assertIn('arrayobject.h', includes)
+        self.assertIn('npy_math.h', includes)
+    
+    def test_typedefs_populated(self):
+        """Test that typedefs contains expected entries."""
+        self.assertIn('unsigned_char', typedefs)
+        self.assertIn('unsigned_short', typedefs)
+        self.assertIn('long_long', typedefs)
+    
+    def test_cppmacros_populated(self):
+        """Test that cppmacros contains expected entries."""
+        self.assertIn('F_FUNC', cppmacros)
+        self.assertIn('SWAP', cppmacros)
+        self.assertIn('MINMAX', cppmacros)
+    
+    def test_cfuncs_populated(self):
+        """Test that cfuncs contains expected entries."""
+        self.assertIn('int_from_pyobj', cfuncs)
+        self.assertIn('double_from_pyobj', cfuncs)
+        self.assertIn('string_from_pyobj', cfuncs)
+
+
+class TestIntegration(unittest.TestCase):
+    """Integration tests for the module."""
+    
+    def setUp(self):
+        """Save original state."""
+        self.original_outneeds = copy.deepcopy(outneeds)
+        self.original_needs = copy.deepcopy(needs)
+    
+    def tearDown(self):
+        """Restore original state."""
+        outneeds.clear()
+        outneeds.update(copy.deepcopy(self.original_outneeds))
+        needs.clear()
+        needs.update(copy.deepcopy(self.original_needs))
+    
+    def test_append_and_get_needs_workflow(self):
+        """Test complete workflow of append_needs followed by get_needs."""
+        append_needs('math.h')
+        append_needs('string.h')
+        result = get_needs()
+        self.assertIsInstance(result, dict)
+        self.assertIn('includes0', result)
+    
+    def test_nested_dependencies_resolution(self):
+        """Test that nested dependencies are properly resolved."""
+        needs['level1'] = ['level2']
+        needs['level2'] = ['math.h']
+        outneeds['includes0'] = ['level1']
+        result = get_needs()
+        self.assertIn('level1', result.get('includes0', []))
+        self.assertIn('level2', result.get('includes0', []))
+
+
+if __name__ == '__main__':
+    unittest.main()

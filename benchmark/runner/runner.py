@@ -103,13 +103,14 @@ class Runner:
         model_names: list[str] | None = None,
         languages: list[str] | None = None,
         max_samples: int | None = None,
+        sample_glob: str | None = None,
         dry_run: bool = False,
         resume: bool = True,
         reset_checkpoint: bool = False,
         max_workers: int | None = None,
     ) -> dict[str, Any]:
         models = self._select_models(model_names)
-        samples = self._collect_samples(languages, max_samples)
+        samples = self._collect_samples(languages, max_samples, sample_glob)
         run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
         selected_models = [m.model_name for m in models]
 
@@ -456,7 +457,10 @@ class Runner:
         return selected
 
     def _collect_samples(
-        self, languages: list[str] | None, max_samples: int | None
+        self,
+        languages: list[str] | None,
+        max_samples: int | None,
+        sample_glob: str | None,
     ) -> list[Path]:
         if not self.dataset_root.exists():
             raise FileNotFoundError(f"Dataset dir not found: {self.dataset_root}")
@@ -472,7 +476,8 @@ class Runner:
             if language_set and language not in language_set:
                 continue
 
-            files = sorted([p for p in lang_dir.rglob("*") if p.is_file()])
+            pattern = sample_glob or "*"
+            files = sorted([p for p in lang_dir.rglob(pattern) if p.is_file()])
             if max_samples is not None and max_samples > 0:
                 files = files[:max_samples]
             samples.extend(files)

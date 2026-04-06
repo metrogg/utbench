@@ -15,6 +15,12 @@ AI 单元测试生成横向评测工具（当前重点是 Runner 生成阶段）
   - 并发执行
   - 断点续跑（checkpoint）
   - 按模型实时进度日志
+- 评估模块：`benchmark/evaluator/`
+  - 编译验证 / 测试执行 / 覆盖率 / 变异测试（Python 已接入）
+  - 输出 `evaluator_summary_*.json`
+- 报告模块：`benchmark/reporter/`
+  - 基于 evaluator 结果进行多维聚合
+  - 输出 JSON / CSV / HTML 报告
 
 ## 目录说明
 
@@ -28,8 +34,12 @@ ut-bench/
       runner.py
       prompt_builder.py
       __main__.py
+    evaluator/
+    reporter/
   results/
 ```
+
+详细使用手册：`docs/使用说明.md`
 
 ## 环境准备
 
@@ -87,6 +97,26 @@ python -m benchmark.runner
 python -m benchmark.runner --model doubao-seed,glm-4.7 --lang python,java
 ```
 
+### 2.1) 指定样本子集（按 glob）
+
+例如仅跑 realworld 扩展集中 `boundary` 目录前 5 个：
+
+```bash
+python -m benchmark.runner \
+  --lang python \
+  --sample-glob "boundary/*.py" \
+  --max-samples 5
+```
+
+分别跑四个扩展目录的前 5 个：
+
+```bash
+python -m benchmark.runner --lang python --sample-glob "boundary/*.py" --max-samples 5
+python -m benchmark.runner --lang python --sample-glob "complex_dependency/*.py" --max-samples 5
+python -m benchmark.runner --lang python --sample-glob "interface_mock/*.py" --max-samples 5
+python -m benchmark.runner --lang python --sample-glob "simple_function/*.py" --max-samples 5
+```
+
 ### 3) 并发 + 断点续跑
 
 ```bash
@@ -118,6 +148,54 @@ python -m benchmark.runner --dry-run --model doubao-seed --lang python --max-sam
 - `results/<model>/artifacts/`：原始响应/失败产物
 - `results/checkpoints/`：断点续跑状态
 - `results/runner_summary_*.json`：本轮汇总
+- `results/evaluator_summary_*.json`：评测汇总
+- `results/reports/reporter_*.{json,csv,html}`：报告产物
+
+## Evaluator 与 Reporter
+
+运行 evaluator：
+
+```bash
+python -m benchmark.evaluator --results-root results
+```
+
+运行 reporter（默认读取最新 evaluator summary）：
+
+```bash
+python -m benchmark.reporter --results-root results
+```
+
+中文可视化报告（摘要/详细分析/附录 + 图表）：
+
+- 柱状图：模型关键指标横向对比
+- 折线图：复杂度维度趋势
+- 雷达图：五维能力分布
+- 热力图：模型 × 语言表现
+
+指定 evaluator summary：
+
+```bash
+python -m benchmark.reporter --results-root results --evaluator-summary results/evaluator_summary_20260406T064045963256Z.json
+```
+
+可配置参数示例：
+
+```bash
+python -m benchmark.reporter \
+  --results-root results \
+  --formats json,csv,html \
+  --chart-style teal \
+  --threshold-test 0.7 \
+  --threshold-line 0.7 \
+  --threshold-branch 0.6 \
+  --threshold-mutation 0.85
+```
+
+也可通过脚本一键生成：
+
+```bash
+bash scripts/gen_report.sh --results-root results
+```
 
 ## 进度日志示例
 
@@ -141,6 +219,3 @@ python -m benchmark.runner --dry-run --model doubao-seed --lang python --max-sam
 3. 需要从中断点继续
    - 直接重跑同一命令即可（默认 `resume=true`）。
 
----
-
-如果你后续要接 evaluator/reporter，我可以继续把编译、执行、覆盖率、变异测试和报告汇总补齐到同一条流水线命令。

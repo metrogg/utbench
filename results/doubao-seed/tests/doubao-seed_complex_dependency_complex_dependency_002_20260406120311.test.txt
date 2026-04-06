@@ -1,0 +1,203 @@
+import os
+import pytest
+from unittest import mock, MagicMock
+import pyarrow as pa
+import pandas as pd
+import datasets
+from datasets import Features, Value, ClassLabel
+from datasets.builder import Key
+
+# Import SUT
+from .source import (
+    count_path_segments,
+    _nested_apply,
+    FolderBasedBuilderConfig,
+    FolderBasedBuilder,
+)
+
+
+@pytest.mark.parametrize(
+    "path, expected_count",
+    [
+        ("a/b/c.txt", 2),
+        ("a\\b\\c.txt", 2),
+        ("/root/dir/file", 3),
+        ("file.txt", 0),
+        ("", 0),
+        ("dir/subdir/", 2),
+        ("C:\\Users\\Name\\file.txt", 3),
+    ],
+)
+def test_count_path_segments(path, expected_count):
+    assert count_path_segments(path) == expected_count
+
+
+def test_nested_apply():
+    def add_one(item, path):
+        if isinstance(item, int):
+            return item + 1
+        return item
+
+    test_data = {"a": 1, "b": [2, 3, {"c": 4}], "d": {"e": 5}}
+    result = _nested_apply(test_data, [], add_one)
+    assert result["a"] == 2
+    assert result["b"][0] == 3
+    assert result["b"][1] == 4
+    assert result["b"][2]["c"] == 5
+    assert result["d"]["e"] == 6
+
+
+# Concrete test subclass for abstract FolderBasedBuilder
+class TestImageFolderBuilder(FolderBasedBuilder):
+    BASE_FEATURE = Value("binary")
+    BASE_COLUMN_NAME = "image"
+    EXTENSIONS = [".jpg", ".jpeg"]
+    BUILDER_CONFIG_CLASS = FolderBasedBuilderConfig
+
+
+def test_folder_builder_config_post_init():
+    config = FolderBasedBuilderConfig(
+        name="test",
+        features=Features({"image": Value("binary")}),
+        drop_labels=False,
+        drop_metadata=False,
+        metadata_filenames=["test_meta.csv"],
+    )
+    assert config.features is not None
+    assert config.metadata_filenames == ["test_meta.csv"]
+
+
+@pytest.mark.parametrize(
+    "input_files, expected_files, expected_meta, expected_archives",
+    [
+        (
+            ["img1.jpg", "img2.jpeg", "metadata.csv", "archive.zip", "readme.txt"],
+            ["img1.jpg", "img2.jpeg"],
+            ["metadata.csv"],
+            ["archive.zip"],
+        ),
+        (
+            ["img.jpg.gz", "meta.jsonl", "data.tar.zip"],
+            ["img.jpg.gz"],
+            ["meta.jsonl"],
+            ["data.tar.zip"],
+        ),
+        (
+            ["other.img", "custom_meta.csv"],
+            [],
+            [],
+            [],
+        ),
+    ],
+)
+def test_split_files_and_metadata_and_archives(
+    input_files, expected_files, expected_meta, expected_archives
+):
+    builder = TestImageFolderBuilder(
+        config=FolderBasedBuilderConfig(name="test", data_files={"train": input_files})
+    )
+    files, meta, archives = builder._split_files_and_metadata_and_archives(input_files)
+    assert sorted(files) == sorted(expected_files)
+    assert sorted(meta) == sorted(expected_meta)
+    assert sorted(archives) == sorted(expected_archives)
+
+
+def test_info_raises_no_data_dir_or_files():
+    builder = TestImageFolderBuilder(config=FolderBasedBuilderConfig(name="test"))
+    with pytest.raises(ValueError, match="require either `data_dir` or `data_files`"):
+        builder._info()
+
+
+def test_info_returns_correct_features():
+    test_features = Features({"image": Value("binary"), "label": ClassLabel(names=["cat", "dog"])})
+    builder = TestImageFolderBuilder(
+        config=FolderBasedBuilderConfig(name="test", data_dir="./test", features=test_features)
+    )
+    info = builder._info()
+    assert info.features == test_features
+
+
+def test_split_generators_raises_no_data_files():
+    builder = TestImageFolderBuilder(config=FolderBasedBuilderConfig(name="test", data_files={}))
+    mock_dl_manager = MagicMock()
+    with pytest.raises(ValueError, match="At least one data file must be specified"):
+        builder._split_generators(mock_dl_manager)
+
+
+@mock.patch("datasets.builder.download_manager.DownloadManager")
+def test_split_generators_infers_labels_from_dirs(mock_dl_manager):
+    mock_dl_manager.download.return_value = ["/fake/train/cat/img1.jpg", "/fake/train/dog/img2.jpg"]
+    mock_dl_manager.iter_files.return_value = []
+    builder = TestImageFolderBuilder(
+        config=FolderBasedBuilderConfig(
+            name="test",
+            data_files={"train": ["train/cat/img1.jpg", "train/dog/img2.jpg"]},
+            drop_metadata=True,
+        )
+    )
+    splits = builder._split_generators(mock_dl_manager)
+    assert len(splits) == 1
+    assert splits[0].name == "train"
+    assert splits[0].gen_kwargs["add_labels"] is True
+    assert builder.info.features["label"].names == sorted(["cat", "dog"])
+
+
+@mock.patch("os.path.splitext")
+@mock.patch("datasets.builder.download_manager.DownloadManager")
+def test_split_generators_raises_mixed_metadata_extensions(mock_dl_manager, mock_splitext):
+    mock_splitext.side_effect = lambda x: (os.path.basename(x), ".csv") if "meta1" in x else (os.path.basename(x), ".jsonl")
+    mock_dl_manager.download.return_value = ["/fake/meta1.csv", "/fake/meta2.jsonl"]
+    mock_dl_manager.iter_files.return_value = []
+    builder = TestImageFolderBuilder(
+        config=FolderBasedBuilderConfig(
+            name="test",
+            data_files={"train": ["meta1.csv", "meta2.jsonl"]},
+            drop_labels=True,
+        )
+    )
+    with pytest.raises(ValueError, match="Found metadata files with different extensions"):
+        builder._split_generators(mock_dl_manager)
+
+
+@mock.patch("pandas.read_csv")
+def test_read_metadata_csv_with_filters(mock_read_csv):
+    mock_df = pd.DataFrame({"file_name": ["img1.jpg", "img2.jpg"], "label": [0, 1]})
+    mock_read_csv.return_value = iter([mock_df])
+    builder = TestImageFolderBuilder(
+        config=FolderBasedBuilderConfig(
+            name="test",
+            data_files={"train": ["meta.csv"]},
+            filters=[("label", "==", 0)],
+            features=Features({"file_name": Value("string"), "label": Value("int64")})
+        )
+    )
+    result = list(builder._read_metadata("/fake/meta.csv", metadata_ext=".csv"))
+    assert len(result) == 1
+    assert len(result[0]) == 1
+    assert result[0]["label"].to_pylist() == [0]
+
+
+def test_generate_examples_with_labels():
+    builder = TestImageFolderBuilder(
+        config=FolderBasedBuilderConfig(name="test", data_files={"train": ["cat/img1.jpg"]})
+    )
+    files = [("cat/img1.jpg", None, "/fake/cat/img1.jpg")]
+    examples = list(builder._generate_examples(files=files, metadata_files=[], add_metadata=False, add_labels=True))
+    assert len(examples) == 1
+    key, sample = examples[0]
+    assert isinstance(key, Key)
+    assert sample["label"] == "cat"
+    assert sample["image"] == "/fake/cat/img1.jpg"
+
+
+@mock.patch("pyarrow.json.read_json")
+def test_read_metadata_jsonl(mock_read_json):
+    mock_table = pa.Table.from_pylist([{"file_name": "img1.jpg", "label": 0}, {"file_name": "img2.jpg", "label": 1}])
+    mock_read_json.return_value = mock_table
+    builder = TestImageFolderBuilder(
+        config=FolderBasedBuilderConfig(name="test", data_files={"train": ["meta.jsonl"]})
+    )
+    with mock.patch("builtins.open", mock.mock_open(read_data=b'{"file_name": "img1.jpg", "label": 0}\n{"file_name": "img2.jpg", "label": 1}\n')):
+        result = list(builder._read_metadata("/fake/meta.jsonl", metadata_ext=".jsonl"))
+    assert len(result) == 1
+    assert len(result[0]) == 2

@@ -33,7 +33,7 @@ class PromptBuilder:
         benchmark_config = benchmark_config or {}
         self._thresholds = benchmark_config.get("thresholds", {}) or {}
 
-    def read_sample(self, sample_path: str | Path, default_language: str | None = None) -> PromptInput:
+    def read_sample(self , sample_path: str | Path, default_language: str | None = None) -> PromptInput:
         sample = Path(sample_path)
         source_code = sample.read_text(encoding="utf-8")
         language = self._infer_language(sample, default_language)

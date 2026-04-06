@@ -1,0 +1,274 @@
+import unittest
+import warnings
+import io
+import os
+import tempfile
+from unittest import mock
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Any
+
+# Import tested components
+from . import constants
+from .errors import EntryNotFoundError
+from . import (
+    CommitOperationAdd,
+    CommitOperationCopy,
+    CommitOperationDelete,
+    _validate_path_in_repo,
+    _warn_on_overwriting_operations,
+    _validate_preupload_info,
+    _fetch_upload_modes,
+    _prepare_commit_payload,
+    UploadInfo
+)
+from .utils import FORBIDDEN_FOLDERS
+
+
+class TestValidatePathInRepo(unittest.TestCase):
+    def test_normal_path_no_changes(self):
+        path = "test/dir/file.txt"
+        self.assertEqual(_validate_path_in_repo(path), path)
+
+    def test_leading_slash_stripped(self):
+        self.assertEqual(_validate_path_in_repo("/test/file.txt"), "test/file.txt")
+
+    def test_dot_prefix_stripped(self):
+        self.assertEqual(_validate_path_in_repo("./test/file.txt"), "test/file.txt")
+
+    def test_invalid_dot_path_raises(self):
+        with self.assertRaises(ValueError):
+            _validate_path_in_repo(".")
+        with self.assertRaises(ValueError):
+            _validate_path_in_repo("..")
+        with self.assertRaises(ValueError):
+            _validate_path_in_repo("../test/file.txt")
+
+    def test_forbidden_folder_raises(self):
+        for forbidden in FORBIDDEN_FOLDERS:
+            with self.assertRaises(ValueError):
+                _validate_path_in_repo(f"{forbidden}/file.txt")
+            with self.assertRaises(ValueError):
+                _validate_path_in_repo(f"test/{forbidden}/file.txt")
+
+
+class TestCommitOperationDelete(unittest.TestCase):
+    def test_is_folder_auto_detect(self):
+        op = CommitOperationDelete(path_in_repo="test/folder/")
+        self.assertTrue(op.is_folder)
+        op = CommitOperationDelete(path_in_repo="test/file.txt")
+        self.assertFalse(op.is_folder)
+
+    def test_explicit_is_folder(self):
+        op = CommitOperationDelete(path_in_repo="test/folder", is_folder=True)
+        self.assertTrue(op.is_folder)
+        op = CommitOperationDelete(path_in_repo="test/folder/", is_folder=False)
+        self.assertFalse(op.is_folder)
+
+    def test_invalid_is_folder_raises(self):
+        with self.assertRaises(ValueError):
+            CommitOperationDelete(path_in_repo="test", is_folder="invalid")
+
+
+class TestCommitOperationCopy(unittest.TestCase):
+    def test_post_init_validates_paths(self):
+        with self.assertRaises(ValueError):
+            CommitOperationCopy(src_path_in_repo="../src.txt", path_in_repo="dest.txt")
+        op = CommitOperationCopy(src_path_in_repo="/src.txt", path_in_repo="./dest.txt")
+        self.assertEqual(op.src_path_in_repo, "src.txt")
+        self.assertEqual(op.path_in_repo, "dest.txt")
+
+
+class TestCommitOperationAdd(unittest.TestCase):
+    def setUp(self):
+        self.temp_file = tempfile.NamedTemporaryFile(delete=False)
+        self.temp_file.write(b"test content")
+        self.temp_file.close()
+
+    def tearDown(self):
+        os.unlink(self.temp_file.name)
+
+    def test_init_with_valid_path(self):
+        op = CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=self.temp_file.name)
+        self.assertEqual(op.path_in_repo, "test/file.txt")
+        self.assertEqual(op.upload_info.size, len(b"test content"))
+
+    def test_init_with_bytes(self):
+        op = CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=b"test content")
+        self.assertEqual(op.upload_info.size, len(b"test content"))
+
+    def test_init_with_seekable_fileobj(self):
+        with open(self.temp_file.name, "rb") as f:
+            op = CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=f)
+            self.assertEqual(op.upload_info.size, len(b"test content"))
+
+    def test_init_with_non_seekable_fileobj_raises(self):
+        class NonSeekableIO(io.BufferedIOBase):
+            def read(self, n=None):
+                return b""
+        f = NonSeekableIO()
+        with self.assertRaises(ValueError):
+            CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=f)
+
+    def test_init_with_nonexistent_path_raises(self):
+        with self.assertRaises(ValueError):
+            CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj="/nonexistent/path/file.txt")
+
+    def test_as_file_path(self):
+        op = CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=self.temp_file.name)
+        with op.as_file() as f:
+            self.assertEqual(f.read(), b"test content")
+
+    def test_as_file_bytes(self):
+        op = CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=b"test content")
+        with op.as_file() as f:
+            self.assertEqual(f.read(), b"test content")
+
+    def test_b64content(self):
+        op = CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=b"test content")
+        self.assertEqual(op.b64content(), b"dGVzdCBjb250ZW50")
+
+    def test_local_oid_lfs_mode(self):
+        op = CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=b"test content")
+        op._upload_mode = "lfs"
+        expected_oid = op.upload_info.sha256.hex()
+        self.assertEqual(op._local_oid, expected_oid)
+
+
+class TestWarnOnOverwritingOperations(unittest.TestCase):
+    def test_duplicate_add_triggers_warning(self):
+        ops = [
+            CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=b"content1"),
+            CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=b"content2")
+        ]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _warn_on_overwriting_operations(ops)
+            self.assertEqual(len(w), 1)
+            self.assertIn("multiple times the same file", str(w[0].message))
+
+    def test_add_then_delete_triggers_warning(self):
+        ops = [
+            CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=b"content"),
+            CommitOperationDelete(path_in_repo="test/file.txt")
+        ]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _warn_on_overwriting_operations(ops)
+            self.assertEqual(len(w), 1)
+            self.assertIn("delete a file that have just been updated", str(w[0].message))
+
+    def test_add_then_delete_parent_folder_triggers_warning(self):
+        ops = [
+            CommitOperationAdd(path_in_repo="test/dir/file.txt", path_or_fileobj=b"content"),
+            CommitOperationDelete(path_in_repo="test/dir/", is_folder=True)
+        ]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _warn_on_overwriting_operations(ops)
+            self.assertEqual(len(w), 1)
+            self.assertIn("delete a folder containing files", str(w[0].message))
+
+    def test_no_overlap_no_warnings(self):
+        ops = [
+            CommitOperationAdd(path_in_repo="test/file1.txt", path_or_fileobj=b"content1"),
+            CommitOperationAdd(path_in_repo="test/file2.txt", path_or_fileobj=b"content2"),
+            CommitOperationDelete(path_in_repo="test/old.txt")
+        ]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _warn_on_overwriting_operations(ops)
+            self.assertEqual(len(w), 0)
+
+
+class TestValidatePreuploadInfo(unittest.TestCase):
+    def test_valid_preupload_info_passes(self):
+        info = {
+            "files": [
+                {"path": "test/file1.txt", "uploadMode": "lfs", "shouldIgnore": False, "oid": "123"},
+                {"path": "test/file2.txt", "uploadMode": "regular", "shouldIgnore": False, "oid": "456"}
+            ]
+        }
+        self.assertEqual(_validate_preupload_info(info), info)
+
+    def test_missing_files_key_raises(self):
+        with self.assertRaises(ValueError):
+            _validate_preupload_info({})
+
+    def test_files_not_list_raises(self):
+        with self.assertRaises(ValueError):
+            _validate_preupload_info({"files": "not a list"})
+
+    def test_invalid_file_entry_raises(self):
+        with self.assertRaises(ValueError):
+            _validate_preupload_info({"files": [{"path": "test.txt", "uploadMode": "invalid"}]})
+        with self.assertRaises(ValueError):
+            _validate_preupload_info({"files": [{"uploadMode": "lfs"}]})
+
+
+class TestFetchUploadModes(unittest.TestCase):
+    @mock.patch("src.hf_api._fetch_upload_modes.http_backoff")
+    def test_fetch_upload_modes_sets_attributes(self, mock_http_backoff):
+        mock_resp = mock.Mock()
+        mock_resp.json.return_value = {
+            "files": [
+                {"path": "test/file1.txt", "uploadMode": "lfs", "shouldIgnore": False, "oid": "oid1"},
+                {"path": "test/file2.txt", "uploadMode": "regular", "shouldIgnore": True, "oid": "oid2"}
+            ]
+        }
+        mock_http_backoff.return_value = mock_resp
+        ops = [
+            CommitOperationAdd(path_in_repo="test/file1.txt", path_or_fileobj=b"content1"),
+            CommitOperationAdd(path_in_repo="test/file2.txt", path_or_fileobj=b"content2")
+        ]
+        _fetch_upload_modes(
+            additions=ops,
+            repo_type="model",
+            repo_id="test/repo",
+            headers={"Authorization": "Bearer token"},
+            revision="main"
+        )
+        self.assertEqual(ops[0]._upload_mode, "lfs")
+        self.assertFalse(ops[0]._should_ignore)
+        self.assertEqual(ops[0]._remote_oid, "oid1")
+        self.assertEqual(ops[1]._upload_mode, "regular")
+        self.assertTrue(ops[1]._should_ignore)
+        self.assertEqual(ops[1]._remote_oid, "oid2")
+
+
+class TestPrepareCommitPayload(unittest.TestCase):
+    def test_prepare_add_regular_file(self):
+        op = CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=b"test content")
+        op._upload_mode = "regular"
+        op._should_ignore = False
+        payload = list(_prepare_commit_payload([op], {}, "test commit"))
+        self.assertEqual(len(payload), 2)
+        self.assertEqual(payload[1]["key"], "file")
+        self.assertEqual(payload[1]["value"]["path"], "test/file.txt")
+        self.assertEqual(payload[1]["value"]["content"], "dGVzdCBjb250ZW50")
+
+    def test_prepare_add_lfs_file(self):
+        op = CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=b"test content")
+        op._upload_mode = "lfs"
+        op._should_ignore = False
+        payload = list(_prepare_commit_payload([op], {}, "test commit"))
+        self.assertEqual(payload[1]["key"], "lfsFile")
+        self.assertEqual(payload[1]["value"]["oid"], op.upload_info.sha256.hex())
+        self.assertEqual(payload[1]["value"]["size"], op.upload_info.size)
+
+    def test_prepare_delete_operation(self):
+        op_file = CommitOperationDelete(path_in_repo="test/file.txt")
+        op_folder = CommitOperationDelete(path_in_repo="test/folder/", is_folder=True)
+        payload = list(_prepare_commit_payload([op_file, op_folder], {}, "test commit"))
+        self.assertEqual(payload[1]["key"], "deletedFile")
+        self.assertEqual(payload[2]["key"], "deletedFolder")
+
+    def test_ignored_file_skipped(self):
+        op = CommitOperationAdd(path_in_repo="test/file.txt", path_or_fileobj=b"test content")
+        op._should_ignore = True
+        payload = list(_prepare_commit_payload([op], {}, "test commit"))
+        self.assertEqual(len(payload), 1)  # Only header, no file entry
+
+
+if __name__ == "__main__":
+    unittest.main()

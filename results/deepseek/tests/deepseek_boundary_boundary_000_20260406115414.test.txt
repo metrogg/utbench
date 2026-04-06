@@ -1,0 +1,540 @@
+```boundary
+import collections.abc
+import sys
+import types
+from dataclasses import dataclass, field, fields, MISSING
+from typing import Any, Union, Literal, Optional, List, Dict, Tuple, Set, Sequence, Annotated
+from typing_extensions import NotRequired, Required
+
+# Import the module under test
+from . import strict, validate_typed_dict, validated_field, as_validated_field
+from .errors import StrictDataclassClassValidationError, StrictDataclassDefinitionError, StrictDataclassFieldValidationError
+
+# Test 1: Basic dataclass with @strict decorator
+def test_basic_strict_dataclass():
+    @strict
+    @dataclass
+    class Person:
+        name: str
+        age: int
+    
+    # Normal case
+    p = Person(name="Alice", age=30)
+    assert p.name == "Alice"
+    assert p.age == 30
+    
+    # Type validation on field assignment
+    try:
+        p.age = "thirty"
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError as e:
+        assert e.field == "age"
+        assert isinstance(e.cause, TypeError)
+    
+    # Type validation on initialization
+    try:
+        Person(name="Bob", age="twenty")
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError as e:
+        assert e.field == "age"
+
+# Test 2: @strict with accept_kwargs=True
+def test_strict_with_accept_kwargs():
+    @strict(accept_kwargs=True)
+    @dataclass
+    class Config:
+        host: str = "localhost"
+        port: int = 8080
+    
+    # Normal case with keyword arguments
+    c = Config(host="example.com", port=9000)
+    assert c.host == "example.com"
+    assert c.port == 9000
+    
+    # Additional kwargs should be stored
+    c2 = Config(host="test.com", port=8000, timeout=30, debug=True)
+    assert c2.host == "test.com"
+    assert c2.port == 8000
+    assert c2.timeout == 30
+    assert c2.debug is True
+    
+    # Positional args should be rejected
+    try:
+        Config("example.com", 9000)
+        assert False, "Should have raised ValueError for positional args"
+    except ValueError as e:
+        assert "positional args" in str(e)
+    
+    # Missing required field (no default)
+    @strict(accept_kwargs=True)
+    @dataclass
+    class RequiredField:
+        required: str
+        optional: int = 42
+    
+    try:
+        RequiredField()
+        assert False, "Should have raised TypeError for missing required field"
+    except TypeError as e:
+        assert "Missing required field" in str(e)
+    
+    # Test repr with additional kwargs
+    c3 = Config(host="api.com", port=443, ssl=True)
+    repr_str = repr(c3)
+    assert "host='api.com'" in repr_str
+    assert "port=443" in repr_str
+    assert "*ssl=True" in repr_str
+
+# Test 3: Class validators (methods starting with validate_)
+def test_class_validators():
+    @strict
+    @dataclass
+    class Account:
+        balance: float
+        min_balance: float = 0.0
+        
+        def validate_balance_positive(self):
+            if self.balance < self.min_balance:
+                raise ValueError(f"Balance {self.balance} cannot be below minimum {self.min_balance}")
+        
+        def validate_reasonable_amount(self):
+            if self.balance > 1000000:
+                raise ValueError("Balance too high")
+    
+    # Valid account
+    acc = Account(balance=1000.0, min_balance=-100.0)
+    assert acc.balance == 1000.0
+    
+    # Should fail class validation
+    try:
+        Account(balance=-50.0, min_balance=0.0)
+        assert False, "Should have raised StrictDataclassClassValidationError"
+    except StrictDataclassClassValidationError as e:
+        assert "validate_balance_positive" in str(e.validator)
+        assert isinstance(e.cause, ValueError)
+    
+    # Should fail second validator
+    try:
+        Account(balance=2000000.0)
+        assert False, "Should have raised StrictDataclassClassValidationError"
+    except StrictDataclassClassValidationError as e:
+        assert "validate_reasonable_amount" in str(e.validator)
+    
+    # Invalid validator signature
+    try:
+        @strict
+        @dataclass
+        class InvalidValidator:
+            x: int
+            
+            def validate_invalid(self, extra_arg):
+                pass
+        
+        InvalidValidator(x=1)
+        assert False, "Should have raised StrictDataclassDefinitionError"
+    except StrictDataclassDefinitionError as e:
+        assert "takes more than one argument" in str(e)
+
+# Test 4: validated_field and custom validators
+def test_validated_field():
+    def is_positive(value):
+        if value <= 0:
+            raise ValueError("Value must be positive")
+    
+    def is_even(value):
+        if value % 2 != 0:
+            raise ValueError("Value must be even")
+    
+    @strict
+    @dataclass
+    class Numbers:
+        positive_int: int = validated_field(is_positive, default=1)
+        even_int: int = validated_field([is_positive, is_even], default=2)
+        custom: int = validated_field(
+            validator=lambda x: None if x == 42 else ValueError("Must be 42"),
+            default=42
+        )
+    
+    # Default values should pass validation
+    n = Numbers()
+    assert n.positive_int == 1
+    assert n.even_int == 2
+    assert n.custom == 42
+    
+    # Valid assignment
+    n.positive_int = 10
+    n.even_int = 4
+    n.custom = 42
+    
+    # Invalid assignments
+    try:
+        n.positive_int = -5
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError as e:
+        assert e.field == "positive_int"
+        assert "must be positive" in str(e.cause)
+    
+    try:
+        n.even_int = 3
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError as e:
+        assert e.field == "even_int"
+    
+    try:
+        n.custom = 99
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError as e:
+        assert e.field == "custom"
+
+# Test 5: as_validated_field decorator
+def test_as_validated_field():
+    @as_validated_field
+    def is_positive(value):
+        if value <= 0:
+            raise ValueError("Positive required")
+    
+    @strict
+    @dataclass
+    class TestClass:
+        value: int = is_positive(default=10)
+        other: int = is_positive(default_factory=lambda: 20)
+    
+    tc = TestClass()
+    assert tc.value == 10
+    assert tc.other == 20
+    
+    try:
+        tc.value = -1
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+
+# Test 6: Type validation for complex types
+def test_complex_type_validation():
+    @strict
+    @dataclass
+    class ComplexTypes:
+        str_list: List[str]
+        int_dict: Dict[str, int]
+        optional_int: Optional[int]
+        union_type: Union[int, str]
+        literal_type: Literal["yes", "no", "maybe"]
+        tuple_fixed: Tuple[int, str, float]
+        tuple_var: Tuple[int, ...]
+        simple_set: Set[str]
+        sequence: Sequence[int]
+    
+    # Valid cases
+    ct = ComplexTypes(
+        str_list=["a", "b", "c"],
+        int_dict={"x": 1, "y": 2},
+        optional_int=None,
+        union_type=10,
+        literal_type="yes",
+        tuple_fixed=(1, "test", 3.14),
+        tuple_var=(1, 2, 3),
+        simple_set={"a", "b"},
+        sequence=[1, 2, 3]
+    )
+    
+    # Test list validation
+    try:
+        ct.str_list = ["a", 1, "b"]
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError as e:
+        assert "str_list" in str(e)
+    
+    # Test dict validation
+    try:
+        ct.int_dict = {"a": "not_int"}
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+    
+    # Test union validation
+    ct.union_type = "string"
+    try:
+        ct.union_type = 3.14
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+    
+    # Test literal validation
+    try:
+        ct.literal_type = "invalid"
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+    
+    # Test tuple validation
+    try:
+        ct.tuple_fixed = (1, 2, 3)  # Wrong types
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+    
+    try:
+        ct.tuple_fixed = (1, "test")  # Wrong length
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+    
+    # Test variable tuple
+    ct.tuple_var = (1,)
+    ct.tuple_var = (1, 2, 3, 4, 5)
+    try:
+        ct.tuple_var = (1, "not_int")
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+    
+    # Test set validation
+    try:
+        ct.simple_set = {1, 2, 3}
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+    
+    # Test sequence validation
+    ct.sequence = (1, 2, 3)  # Tuple is a Sequence
+    try:
+        ct.sequence = ["a", "b", "c"]
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+
+# Test 7: validate_typed_dict function
+def test_validate_typed_dict():
+    from typing import TypedDict
+    
+    class User(TypedDict):
+        name: str
+        age: int
+        email: Optional[str]
+    
+    # Valid data
+    validate_typed_dict(User, {"name": "Alice", "age": 30, "email": None})
+    validate_typed_dict(User, {"name": "Bob", "age": 25})
+    
+    # Invalid data - wrong type
+    try:
+        validate_typed_dict(User, {"name": "Charlie", "age": "thirty"})
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+    
+    # Invalid data - missing required field
+    try:
+        validate_typed_dict(User, {"name": "David"})
+        assert False, "Should have raised TypeError"
+    except TypeError as e:
+        assert "required but missing" in str(e)
+    
+    # Test with NotRequired (non-total TypedDict)
+    class PartialUser(TypedDict, total=False):
+        name: str
+        age: int
+    
+    validate_typed_dict(PartialUser, {})
+    validate_typed_dict(PartialUser, {"name": "Eve"})
+    validate_typed_dict(PartialUser, {"name": "Frank", "age": 40})
+    
+    # Invalid type in partial dict
+    try:
+        validate_typed_dict(PartialUser, {"age": "forty"})
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+
+# Test 8: Edge cases and error conditions
+def test_edge_cases():
+    # Applying @strict to non-dataclass should fail
+    try:
+        @strict
+        class NotADataclass:
+            pass
+        
+        NotADataclass()
+        assert False, "Should have raised StrictDataclassDefinitionError"
+    except StrictDataclassDefinitionError as e:
+        assert "must be a dataclass" in str(e)
+    
+    # Field with Any type should accept anything
+    @strict
+    @dataclass
+    class AnyType:
+        value: Any
+    
+    at = AnyType(value="string")
+    at.value = 123
+    at.value = [1, 2, 3]
+    at.value = None
+    
+    # Test with default_factory
+    @strict
+    @dataclass
+    class WithFactory:
+        items: List[str] = field(default_factory=list)
+        counter: int = field(default_factory=lambda: 0)
+    
+    wf = WithFactory()
+    assert wf.items == []
+    assert wf.counter == 0
+    
+    wf.items.append("test")
+    assert wf.items == ["test"]
+    
+    # Test that validate method cannot be overridden
+    try:
+        @strict
+        @dataclass
+        class Conflict:
+            x: int
+            
+            def validate(self):
+                pass
+        
+        Conflict(x=1)
+        assert False, "Should have raised StrictDataclassDefinitionError"
+    except StrictDataclassDefinitionError as e:
+        assert "already implements a method called 'validate'" in str(e)
+
+# Test 9: Python 3.10+ union type (types.UnionType)
+def test_python310_union_type():
+    if sys.version_info >= (3, 10):
+        @strict
+        @dataclass
+        class ModernUnion:
+            value: int | str | None
+        
+        mu = ModernUnion(value=10)
+        mu.value = "string"
+        mu.value = None
+        
+        try:
+            mu.value = 3.14
+            assert False, "Should have raised StrictDataclassFieldValidationError"
+        except StrictDataclassFieldValidationError:
+            pass
+
+# Test 10: Annotated types with validators
+def test_annotated_types():
+    from typing import Annotated
+    
+    def is_uppercase(value: str):
+        if not value.isupper():
+            raise ValueError("Must be uppercase")
+    
+    @strict
+    @dataclass
+    class WithAnnotated:
+        code: Annotated[str, is_uppercase]
+    
+    wa = WithAnnotated(code="HELLO")
+    assert wa.code == "HELLO"
+    
+    try:
+        wa.code = "hello"
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError as e:
+        assert "code" in str(e)
+        assert "Must be uppercase" in str(e.cause)
+
+# Test 11: Required and NotRequired in TypedDict
+def test_required_notrequired():
+    from typing import TypedDict
+    
+    class MixedDict(TypedDict, total=False):
+        required_field: Required[str]
+        optional_field: NotRequired[int]
+    
+    # Should work with both fields
+    validate_typed_dict(MixedDict, {
+        "required_field": "test",
+        "optional_field": 123
+    })
+    
+    # Should work with only required field
+    validate_typed_dict(MixedDict, {
+        "required_field": "test"
+    })
+    
+    # Should fail without required field
+    try:
+        validate_typed_dict(MixedDict, {
+            "optional_field": 123
+        })
+        assert False, "Should have raised TypeError"
+    except TypeError as e:
+        assert "required but missing" in str(e)
+    
+    # Should fail with wrong type for optional field
+    try:
+        validate_typed_dict(MixedDict, {
+            "required_field": "test",
+            "optional_field": "not_int"
+        })
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+
+# Test 12: Nested complex structures
+def test_nested_structures():
+    @strict
+    @dataclass
+    class Nested:
+        matrix: List[List[int]]
+        nested_dict: Dict[str, Dict[str, int]]
+    
+    n = Nested(
+        matrix=[[1, 2], [3, 4]],
+        nested_dict={"a": {"x": 1}, "b": {"y": 2}}
+    )
+    
+    # Valid nested assignment
+    n.matrix = [[5, 6], [7, 8]]
+    
+    # Invalid nested structure
+    try:
+        n.matrix = [[1, "two"], [3, 4]]
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError as e:
+        assert "matrix" in str(e)
+    
+    try:
+        n.nested_dict = {"a": {"x": "not_int"}}
+        assert False, "Should have raised StrictDataclassFieldValidationError"
+    except StrictDataclassFieldValidationError:
+        pass
+
+# Test 13: Empty collections
+def test_empty_collections():
+    @strict
+    @dataclass
+    class EmptyCollections:
+        empty_list: List[int] = field(default_factory=list)
+        empty_dict: Dict[str, int] = field(default_factory=dict)
+        empty_set: Set[str] = field(default_factory=set)
+        empty_tuple: Tuple[()] = ()
+    
+    ec = EmptyCollections()
+    assert ec.empty_list == []
+    assert ec.empty_dict == {}
+    assert ec.empty_set == set()
+    assert ec.empty_tuple == ()
+    
+    # Should accept empty collections of correct type
+    ec.empty_list = []
+    ec.empty_dict = {}
+    ec.empty_set = set()
+
+# Test 14: ForwardRef handling (type as string)
+def test_forward_ref():
+    @strict
+    @dataclass
+    class Node:
+        value: int
+        next: Optional['Node'] = None
+    
+    # This should work without validation errors for forward refs
+    n1 = Node(value=

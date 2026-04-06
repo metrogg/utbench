@@ -1,0 +1,214 @@
+import unittest
+from datetime import datetime, date, time, timedelta
+from dateutil import tz
+import sys
+import six
+
+# Assuming the source code is available in the environment. 
+# For the purpose of this block, we are testing the provided class structure.
+# If running standalone, the class definition would need to be imported or pasted above.
+
+class TestISOParser(unittest.TestCase):
+    
+    def setUp(self):
+        self.parser = isoparser()
+
+    def test_init_default(self):
+        p = isoparser()
+        self.assertIsNone(p._sep)
+
+    def test_init_custom_separator(self):
+        p = isoparser(sep='T')
+        self.assertEqual(p._sep, b'T')
+
+    def test_init_invalid_separator(self):
+        with self.assertRaises(ValueError):
+            isoparser(sep='AB') # Too long
+        with self.assertRaises(ValueError):
+            isoparser(sep='1') # Numeric
+        with self.assertRaises(ValueError):
+            isoparser(sep='\x80') # Non-ASCII
+
+    def test_isoparse_common_date_basic(self):
+        # YYYY-MM-DD
+        res = self.parser.isoparse(b'2023-10-05')
+        self.assertEqual(res, datetime(2023, 10, 5, 0, 0, 0))
+
+    def test_isoparse_common_date_compact(self):
+        # YYYYMMDD
+        res = self.parser.isoparse(b'20231005')
+        self.assertEqual(res, datetime(2023, 10, 5, 0, 0, 0))
+
+    def test_isoparse_common_date_month_only(self):
+        # YYYY-MM
+        res = self.parser.isoparse(b'2023-10')
+        self.assertEqual(res, datetime(2023, 10, 1, 0, 0, 0))
+
+    def test_isoparse_common_date_year_only(self):
+        # YYYY
+        res = self.parser.isoparse(b'2023')
+        self.assertEqual(res, datetime(2023, 1, 1, 0, 0, 0))
+
+    def test_isoparse_uncommon_ordinal(self):
+        # YYYY-DDD
+        res = self.parser.isoparse(b'2023-278')
+        self.assertEqual(res, datetime(2023, 10, 5, 0, 0, 0))
+        
+        # Compact ordinal
+        res = self.parser.isoparse(b'2023278')
+        self.assertEqual(res, datetime(2023, 10, 5, 0, 0, 0))
+
+    def test_isoparse_uncommon_ordinal_leap_year(self):
+        # 2020 is a leap year
+        res = self.parser.isoparse(b'2020-366')
+        self.assertEqual(res, datetime(2020, 12, 31, 0, 0, 0))
+        
+        # 2023 is not
+        with self.assertRaises(ValueError):
+            self.parser.isoparse(b'2023-366')
+
+    def test_isoparse_uncommon_week(self):
+        # YYYY-Www-D
+        # 2023-W40-5 is Friday, Oct 6, 2023
+        res = self.parser.isoparse(b'2023-W40-5')
+        self.assertEqual(res, datetime(2023, 10, 6, 0, 0, 0))
+        
+        # Compact week
+        res = self.parser.isoparse(b'2023W405')
+        self.assertEqual(res, datetime(2023, 10, 6, 0, 0, 0))
+
+    def test_isoparse_with_time(self):
+        res = self.parser.isoparse(b'2023-10-05 14:30:15')
+        self.assertEqual(res, datetime(2023, 10, 5, 14, 30, 15))
+        
+        # Compact time
+        res = self.parser.isoparse(b'2023-10-05 143015')
+        self.assertEqual(res, datetime(2023, 10, 5, 14, 30, 15))
+
+    def test_isoparse_with_fractional_seconds(self):
+        res = self.parser.isoparse(b'2023-10-05 14:30:15.123456')
+        self.assertEqual(res, datetime(2023, 10, 5, 14, 30, 15, 123456))
+        
+        # Short fractional
+        res = self.parser.isoparse(b'2023-10-05 14:30:15.12')
+        self.assertEqual(res, datetime(2023, 10, 5, 14, 30, 15, 120000))
+
+    def test_isoparse_24_hour_midnight(self):
+        # 24:00:00 is valid, means 00:00:00 next day
+        res = self.parser.isoparse(b'2023-10-05 24:00:00')
+        self.assertEqual(res, datetime(2023, 10, 6, 0, 0, 0))
+
+    def test_isoparse_24_hour_invalid_components(self):
+        # 24:01:00 is invalid
+        with self.assertRaises(ValueError):
+            self.parser.isoparse(b'2023-10-05 24:01:00')
+
+    def test_isoparse_custom_separator(self):
+        p = isoparser(sep='T')
+        res = p.isoparse(b'2023-10-05T14:30:00')
+        self.assertEqual(res, datetime(2023, 10, 5, 14, 30, 0))
+        
+        # Should fail if separator doesn't match
+        with self.assertRaises(ValueError):
+            p.isoparse(b'2023-10-05 14:30:00')
+
+    def test_isoparse_with_timezone(self):
+        # UTC Z
+        res = self.parser.isoparse(b'2023-10-05 14:30:00Z')
+        self.assertEqual(res.tzinfo, tz.UTC)
+        
+        # Offset +00:00
+        res = self.parser.isoparse(b'2023-10-05 14:30:00+00:00')
+        self.assertEqual(res.tzinfo, tz.UTC)
+        
+        # Offset +05:30
+        res = self.parser.isoparse(b'2023-10-05 14:30:00+05:30')
+        self.assertEqual(res.utcoffset(), timedelta(hours=5, minutes=30))
+
+    def test_parse_isodate_only(self):
+        res = self.parser.parse_isodate(b'2023-10-05')
+        self.assertEqual(res, date(2023, 10, 5))
+        self.assertIsInstance(res, date)
+
+    def test_parse_isodate_invalid_trailing(self):
+        # parse_isodate should not accept time components
+        with self.assertRaises(ValueError):
+            self.parser.parse_isodate(b'2023-10-05 14:00')
+
+    def test_parse_isotime_only(self):
+        res = self.parser.parse_isotime(b'14:30:00')
+        self.assertEqual(res, time(14, 30, 0))
+        self.assertIsInstance(res, time)
+        
+        # With tz
+        res = self.parser.parse_isotime(b'14:30:00Z')
+        self.assertEqual(res.tzinfo, tz.UTC)
+
+    def test_parse_isotime_24_hour(self):
+        # parse_isotime just normalizes 24 to 0, doesn't add day
+        res = self.parser.parse_isotime(b'24:00:00')
+        self.assertEqual(res, time(0, 0, 0))
+
+    def test_parse_tzstr(self):
+        self.assertEqual(self.parser.parse_tzstr(b'Z'), tz.UTC)
+        self.assertEqual(self.parser.parse_tzstr(b'+0000'), tz.UTC)
+        self.assertEqual(self.parser.parse_tzstr(b'-00:00'), tz.UTC)
+        
+        # Positive offset
+        t = self.parser.parse_tzstr(b'+0530')
+        self.assertEqual(t.utcoffset(), timedelta(hours=5, minutes=30))
+        
+        # Negative offset
+        t = self.parser.parse_tzstr(b'-0800')
+        self.assertEqual(t.utcoffset(), timedelta(hours=-8))
+
+    def test_parse_tzstr_invalid(self):
+        with self.assertRaises(ValueError):
+            self.parser.parse_tzstr(b'+25:00') # Invalid hour
+        with self.assertRaises(ValueError):
+            self.parser.parse_tzstr(b'+05:60') # Invalid minute
+        with self.assertRaises(ValueError):
+            self.parser.parse_tzstr(b'0500') # Missing sign
+
+    def test_takes_ascii_decorator(self):
+        # Should handle str (unicode in py3)
+        res = self.parser.isoparse('2023-10-05')
+        self.assertEqual(res, datetime(2023, 10, 5))
+        
+        # Should handle bytes
+        res = self.parser.isoparse(b'2023-10-05')
+        self.assertEqual(res, datetime(2023, 10, 5))
+        
+        # Should handle file-like object
+        class MockFile:
+            def read(self):
+                return b'2023-10-05'
+        res = self.parser.isoparse(MockFile())
+        self.assertEqual(res, datetime(2023, 10, 5))
+
+    def test_takes_ascii_unicode_error(self):
+        # Non-ascii characters should raise ValueError
+        with self.assertRaises(ValueError):
+            self.parser.isoparse('2023-10-05\u00E9') # Contains 'é'
+
+    def test_errors_invalid_format(self):
+        with self.assertRaises(ValueError):
+            self.parser.isoparse(b'2023') # Valid
+        with self.assertRaises(ValueError):
+            self.parser.isoparse(b'23') # Too short
+        
+        # Inconsistent separators
+        with self.assertRaises(ValueError):
+            self.parser.isoparse(b'2023-10/05')
+            
+        # Invalid month
+        with self.assertRaises(ValueError):
+            self.parser.isoparse(b'2023-13-01')
+
+    def test_module_level_isoparse(self):
+        # Test the exported function
+        res = isoparse(b'2023-10-05 12:00')
+        self.assertEqual(res, datetime(2023, 10, 5, 12, 0))
+
+if __name__ == '__main__':
+    unittest.main()

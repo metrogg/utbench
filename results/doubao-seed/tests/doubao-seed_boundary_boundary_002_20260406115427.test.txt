@@ -1,0 +1,102 @@
+import unittest
+import unicodedata
+from idna import (
+    IDNAError, IDNABidiError, InvalidCodepoint, InvalidCodepointContext,
+    valid_label_length, valid_string_length,
+    check_hyphen_ok, check_initial_combiner, check_nfc, check_bidi,
+    valid_contextj, valid_contexto,
+    alabel, ulabel, encode, decode
+)
+
+class TestIDNAFunctions(unittest.TestCase):
+    def test_valid_label_length(self):
+        self.assertTrue(valid_label_length('a' * 63))
+        self.assertFalse(valid_label_length('a' * 64))
+        self.assertTrue(valid_label_length(''))
+        self.assertTrue(valid_label_length(b'x' * 63))
+        self.assertFalse(valid_label_length(b'x' * 64))
+
+    def test_valid_string_length(self):
+        self.assertTrue(valid_string_length('a' * 253, trailing_dot=False))
+        self.assertFalse(valid_string_length('a' * 254, trailing_dot=False))
+        self.assertTrue(valid_string_length('a' * 254, trailing_dot=True))
+        self.assertFalse(valid_string_length('a' * 255, trailing_dot=True))
+
+    def test_check_hyphen_ok(self):
+        self.assertTrue(check_hyphen_ok('valid-label'))
+        self.assertRaises(IDNAError, check_hyphen_ok, '-invalid')
+        self.assertRaises(IDNAError, check_hyphen_ok, 'invalid-')
+        self.assertRaises(IDNAError, check_hyphen_ok, 'ab--invalid')
+
+    def test_check_initial_combiner(self):
+        self.assertTrue(check_initial_combiner('valid'))
+        self.assertRaises(IDNAError, check_initial_combiner, '\u0300invalid')
+
+    def test_check_nfc(self):
+        self.assertIsNone(check_nfc('\xe0'))
+        non_nfc = unicodedata.normalize('NFD', '\xe0')
+        self.assertRaises(IDNAError, check_nfc, non_nfc)
+
+    def test_check_bidi(self):
+        self.assertTrue(check_bidi('english'))
+        self.assertTrue(check_bidi('العربية'))
+        self.assertRaises(IDNABidiError, check_bidi, '\u200binvalid')
+        self.assertRaises(IDNABidiError, check_bidi, 'العربية!')
+        self.assertRaises(IDNABidiError, check_bidi, '١٢٣123')
+
+    def test_valid_contextj(self):
+        self.assertTrue(valid_contextj('क्‍या', 2))
+        self.assertFalse(valid_contextj('test\u200ctest', 4))
+        self.assertTrue(valid_contextj('क‍या', 2))
+        self.assertFalse(valid_contextj('test\u200dtest', 4))
+
+    def test_valid_contexto(self):
+        self.assertTrue(valid_contexto('l·l', 1))
+        self.assertFalse(valid_contexto('l·a', 1))
+        self.assertTrue(valid_contexto('α\x03\xb5', 1))
+        self.assertFalse(valid_contexto('\x03\xb5a', 0))
+        self.assertTrue(valid_contexto('א\x06\xb3', 1))
+        self.assertFalse(valid_contexto('\x06\xb3a', 0))
+        self.assertTrue(valid_contexto('漢字・ひらがな', 2))
+        self.assertFalse(valid_contexto('test・test', 4))
+        self.assertTrue(valid_contexto('١٢٣', 0))
+        self.assertFalse(valid_contexto('١٢٣१२३', 0))
+
+    def test_alabel(self):
+        self.assertEqual(alabel('example'), b'example')
+        self.assertEqual(alabel('例'), b'xn--fsq')
+        self.assertRaises(IDNAError, alabel, 'a' * 60 + '例' * 10)
+        self.assertRaises(IDNAError, alabel, '-invalid')
+
+    def test_ulabel(self):
+        self.assertEqual(ulabel(b'example'), 'example')
+        self.assertEqual(ulabel(b'xn--fsq'), '例')
+        self.assertRaises(IDNAError, ulabel, b'xn--')
+        self.assertRaises(IDNAError, ulabel, b'xn--invalid-xxx')
+        self.assertRaises(IDNAError, ulabel, b'invalid-')
+
+    def test_encode(self):
+        self.assertEqual(encode('example.com'), b'example.com')
+        self.assertEqual(encode('例.中国'), b'xn--fsq.xn--fiqs8s')
+        self.assertEqual(encode('example.com.'), b'example.com.')
+        self.assertRaises(IDNAError, encode, '')
+        self.assertRaises(IDNAError, encode, '-invalid.com')
+        self.assertRaises(IDNAError, encode, ('a' * 63 + '.') * 4 + 'com')
+
+    def test_decode(self):
+        self.assertEqual(decode(b'example.com'), 'example.com')
+        self.assertEqual(decode(b'xn--fsq.xn--fiqs8s'), '例.中国')
+        self.assertEqual(decode(b'example.com.'), 'example.com.')
+        self.assertRaises(IDNAError, decode, b'')
+        self.assertRaises(IDNAError, decode, b'xn--invalid-xxx.com')
+
+    def test_uts46_encode(self):
+        self.assertEqual(encode('www.example.com', uts46=True), b'www.example.com')
+        self.assertEqual(encode('www.例.cn', uts46=True), b'www.xn--fsq.cn')
+
+    def test_uts46_decode(self):
+        self.assertEqual(decode(b'www.xn--fsq.cn', uts46=True), 'www.例.cn')
+        self.assertEqual(decode('WWW.XN--FSQ.CN', uts46=True), 'www.例.cn')
+
+if __name__ == '__main__':
+    unittest.main()

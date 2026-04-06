@@ -1,0 +1,193 @@
+import unittest
+from pygments.lexers import PythonLexer, Python2Lexer, PythonConsoleLexer, PythonTracebackLexer, Python2TracebackLexer, CythonLexer, DgLexer, NumPyLexer
+from pygments.token import Token
+from pygments.util import ClassNotFound
+
+class TestPythonLexer(unittest.TestCase):
+    def setUp(self):
+        self.lexer = PythonLexer()
+
+    def test_empty_string(self):
+        tokens = list(self.lexer.get_tokens(''))
+        self.assertEqual(tokens, [])
+
+    def test_single_comment(self):
+        tokens = list(self.lexer.get_tokens('# comment'))
+        self.assertEqual(tokens, [(Token.Comment.Single, '# comment')])
+
+    def test_hashbang(self):
+        tokens = list(self.lexer.get_tokens('#!/usr/bin/env python3'))
+        self.assertEqual(tokens, [(Token.Comment.Hashbang, '#!/usr/bin/env python3')])
+
+    def test_keyword(self):
+        tokens = list(self.lexer.get_tokens('def'))
+        self.assertEqual(tokens, [(Token.Keyword, 'def')])
+
+    def test_soft_keyword_match(self):
+        tokens = list(self.lexer.get_tokens('match x:'))
+        self.assertEqual(tokens[1], (Token.Keyword, 'match'))
+
+    def test_string_single_quote(self):
+        tokens = list(self.lexer.get_tokens("'hello'"))
+        self.assertEqual(tokens[0], (Token.String.Single, "'hello'"))
+
+    def test_string_double_quote(self):
+        tokens = list(self.lexer.get_tokens('"world"'))
+        self.assertEqual(tokens[0], (Token.String.Double, '"world"'))
+
+    def test_triple_quoted_string(self):
+        tokens = list(self.lexer.get_tokens('"""multiline\nstring"""'))
+        self.assertEqual(tokens[0], (Token.String.Double, '"""multiline\nstring"""'))
+
+    def test_fstring(self):
+        tokens = list(self.lexer.get_tokens('f"value: {x}"'))
+        self.assertEqual(tokens[0], (Token.String.Affix, 'f'))
+        self.assertEqual(tokens[1], (Token.String.Double, '"'))
+
+    def test_number_integer(self):
+        tokens = list(self.lexer.get_tokens('42'))
+        self.assertEqual(tokens[0], (Token.Number.Integer, '42'))
+
+    def test_number_float(self):
+        tokens = list(self.lexer.get_tokens('3.14'))
+        self.assertEqual(tokens[0], (Token.Number.Float, '3.14'))
+
+    def test_operator(self):
+        tokens = list(self.lexer.get_tokens('+'))
+        self.assertEqual(tokens[0], (Token.Operator, '+'))
+
+    def test_whitespace(self):
+        tokens = list(self.lexer.get_tokens('  \n\t'))
+        self.assertEqual(tokens[0], (Token.Whitespace, '  \n\t'))
+
+    def test_decorator(self):
+        tokens = list(self.lexer.get_tokens('@decorator'))
+        self.assertEqual(tokens[0], (Token.Name.Decorator, '@decorator'))
+
+    def test_builtin_function(self):
+        tokens = list(self.lexer.get_tokens('len'))
+        self.assertEqual(tokens[0], (Token.Name.Builtin, 'len'))
+
+    def test_exception_name(self):
+        tokens = list(self.lexer.get_tokens('ValueError'))
+        self.assertEqual(tokens[0], (Token.Name.Exception, 'ValueError'))
+
+    def test_magic_method(self):
+        tokens = list(self.lexer.get_tokens('__init__'))
+        self.assertEqual(tokens[0], (Token.Name.Function.Magic, '__init__'))
+
+    def test_analyse_text_python_shebang(self):
+        result = PythonLexer.analyse_text('#!/usr/bin/python3\nprint("hello")')
+        self.assertTrue(result)
+
+    def test_analyse_text_import_statement(self):
+        result = PythonLexer.analyse_text('import sys')
+        self.assertTrue(result)
+
+    def test_analyse_text_no_python(self):
+        result = PythonLexer.analyse_text('This is just plain text')
+        self.assertFalse(result)
+
+class TestPython2Lexer(unittest.TestCase):
+    def setUp(self):
+        self.lexer = Python2Lexer()
+
+    def test_backtick_string(self):
+        tokens = list(self.lexer.get_tokens('`repr`'))
+        self.assertEqual(tokens[0], (Token.String.Backtick, '`repr`'))
+
+    def test_python2_keyword(self):
+        tokens = list(self.lexer.get_tokens('print'))
+        self.assertEqual(tokens[0], (Token.Keyword, 'print'))
+
+    def test_analyse_text_python2_shebang(self):
+        result = Python2Lexer.analyse_text('#!/usr/bin/python2\nprint "hello"')
+        self.assertTrue(result)
+
+class TestPythonConsoleLexer(unittest.TestCase):
+    def test_prompt_and_code(self):
+        lexer = PythonConsoleLexer()
+        tokens = list(lexer.get_tokens('>>> print("hello")\nhello\n'))
+        self.assertEqual(tokens[0], (Token.Generic.Prompt, '>>> '))
+        self.assertEqual(tokens[1][0], Token.Other.Code)
+
+    def test_continuation_prompt(self):
+        lexer = PythonConsoleLexer()
+        tokens = list(lexer.get_tokens('... continue\n'))
+        self.assertEqual(tokens[0], (Token.Generic.Prompt, '... '))
+
+class TestPythonTracebackLexer(unittest.TestCase):
+    def test_traceback_header(self):
+        lexer = PythonTracebackLexer()
+        tokens = list(lexer.get_tokens('Traceback (most recent call last):\n'))
+        self.assertEqual(tokens[0], (Token.Generic.Traceback, 'Traceback (most recent call last):\n'))
+
+    def test_file_line_info(self):
+        lexer = PythonTracebackLexer()
+        tokens = list(lexer.get_tokens('  File "test.py", line 1, in <module>\n'))
+        self.assertEqual(tokens[0], (Token.Text, '  File '))
+
+class TestCythonLexer(unittest.TestCase):
+    def test_cython_keyword(self):
+        lexer = CythonLexer()
+        tokens = list(lexer.get_tokens('cdef'))
+        self.assertEqual(tokens[0], (Token.Keyword, 'cdef'))
+
+    def test_cython_type(self):
+        lexer = CythonLexer()
+        tokens = list(lexer.get_tokens('int'))
+        self.assertEqual(tokens[0], (Token.Keyword.Type, 'int'))
+
+class TestDgLexer(unittest.TestCase):
+    def test_dg_operator(self):
+        lexer = DgLexer()
+        tokens = list(lexer.get_tokens('|>'))
+        self.assertEqual(tokens[0], (Token.Operator, '|>'))
+
+    def test_dg_builtin(self):
+        lexer = DgLexer()
+        tokens = list(lexer.get_tokens('map'))
+        self.assertEqual(tokens[0], (Token.Name.Builtin, 'map'))
+
+class TestNumPyLexer(unittest.TestCase):
+    def test_numpy_keyword(self):
+        lexer = NumPyLexer()
+        tokens = list(lexer.get_tokens('array'))
+        self.assertEqual(tokens[0], (Token.Keyword.Pseudo, 'array'))
+
+    def test_analyse_text_with_numpy_import(self):
+        result = NumPyLexer.analyse_text('import numpy as np\nnp.array([1,2,3])')
+        self.assertTrue(result)
+
+    def test_analyse_text_without_numpy(self):
+        result = NumPyLexer.analyse_text('import sys\nsys.exit()')
+        self.assertFalse(result)
+
+class TestLexerEdgeCases(unittest.TestCase):
+    def test_python_lexer_with_unicode_identifier(self):
+        lexer = PythonLexer()
+        tokens = list(lexer.get_tokens('var = 1'))
+        self.assertEqual(tokens[0], (Token.Name, 'var'))
+
+    def test_string_with_escape(self):
+        lexer = PythonLexer()
+        tokens = list(lexer.get_tokens('"line1\\nline2"'))
+        self.assertEqual(tokens[0][1], '"line1\\nline2"')
+
+    def test_mixed_operators(self):
+        lexer = PythonLexer()
+        tokens = list(lexer.get_tokens('x += 1'))
+        self.assertEqual(tokens[1], (Token.Operator, '+='))
+
+    def test_multiline_statement(self):
+        lexer = PythonLexer()
+        tokens = list(self.lexer.get_tokens('x = 1 + \\\n2'))
+        self.assertIn((Token.Text, '\\\n'), tokens)
+
+    def test_docstring(self):
+        lexer = PythonLexer()
+        tokens = list(self.lexer.get_tokens('def foo():\n    """doc"""'))
+        self.assertEqual(tokens[4], (Token.String.Doc, '"""doc"""'))
+
+if __name__ == '__main__':
+    unittest.main()

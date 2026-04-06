@@ -1,0 +1,425 @@
+```complex_dependency
+import pytest
+import asyncio
+from unittest.mock import AsyncMock, Mock, patch, MagicMock
+import h2.config
+import h2.connection
+import h2.events
+import h2.exceptions
+import h2.settings
+from .._backends.base import AsyncNetworkStream
+from .._exceptions import ConnectionNotAvailable, LocalProtocolError, RemoteProtocolError
+from .._models import Origin, Request, Response
+from .._synchronization import AsyncLock, AsyncSemaphore, AsyncShieldCancellation
+from .._trace import Trace
+from .interfaces import AsyncConnectionInterface
+from .http2 import AsyncHTTP2Connection, HTTP2ConnectionByteStream, HTTPConnectionState, has_body_headers
+
+class TestHasBodyHeaders:
+    def test_has_body_headers_with_content_length(self):
+        request = Request(
+            method=b"GET",
+            url="http://example.com/",
+            headers=[(b"Content-Length", b"100")],
+            content=b"",
+            extensions={}
+        )
+        assert has_body_headers(request) == True
+
+    def test_has_body_headers_with_transfer_encoding(self):
+        request = Request(
+            method=b"GET",
+            url="http://example.com/",
+            headers=[(b"Transfer-Encoding", b"chunked")],
+            content=b"",
+            extensions={}
+        )
+        assert has_body_headers(request) == True
+
+    def test_has_body_headers_without_body_headers(self):
+        request = Request(
+            method=b"GET",
+            url="http://example.com/",
+            headers=[(b"Host", b"example.com")],
+            content=b"",
+            extensions={}
+        )
+        assert has_body_headers(request) == False
+
+    def test_has_body_headers_case_insensitive(self):
+        request = Request(
+            method=b"GET",
+            url="http://example.com/",
+            headers=[(b"content-length", b"100")],
+            content=b"",
+            extensions={}
+        )
+        assert has_body_headers(request) == True
+
+class TestAsyncHTTP2Connection:
+    @pytest.fixture
+    def mock_stream(self):
+        stream = AsyncMock(spec=AsyncNetworkStream)
+        stream.read = AsyncMock(return_value=b"")
+        stream.write = AsyncMock()
+        stream.aclose = AsyncMock()
+        return stream
+
+    @pytest.fixture
+    def origin(self):
+        return Origin(b"http", b"example.com", 80)
+
+    @pytest.fixture
+    def connection(self, origin, mock_stream):
+        return AsyncHTTP2Connection(origin, mock_stream, keepalive_expiry=30.0)
+
+    @pytest.fixture
+    def request(self):
+        return Request(
+            method=b"GET",
+            url="http://example.com/",
+            headers=[(b"Host", b"example.com")],
+            content=b"",
+            extensions={}
+        )
+
+    def test_init(self, origin, mock_stream):
+        conn = AsyncHTTP2Connection(origin, mock_stream, keepalive_expiry=30.0)
+        assert conn._origin == origin
+        assert conn._network_stream == mock_stream
+        assert conn._keepalive_expiry == 30.0
+        assert conn._state == HTTPConnectionState.IDLE
+        assert conn._expire_at is None
+        assert conn._request_count == 0
+        assert conn._sent_connection_init == False
+        assert conn._used_all_stream_ids == False
+        assert conn._connection_error == False
+        assert conn._events == {}
+        assert conn._connection_terminated is None
+        assert conn._read_exception is None
+        assert conn._write_exception is None
+
+    def test_can_handle_request_matching_origin(self, connection, origin):
+        assert connection.can_handle_request(origin) == True
+
+    def test_can_handle_request_different_origin(self, connection):
+        other_origin = Origin(b"https", b"example.com", 443)
+        assert connection.can_handle_request(other_origin) == False
+
+    @pytest.mark.asyncio
+    async def test_handle_async_request_wrong_origin(self, connection):
+        request = Request(
+            method=b"GET",
+            url="https://other.com/",
+            headers=[],
+            content=b"",
+            extensions={}
+        )
+        with pytest.raises(RuntimeError):
+            await connection.handle_async_request(request)
+
+    @pytest.mark.asyncio
+    async def test_handle_async_request_closed_state(self, connection):
+        connection._state = HTTPConnectionState.CLOSED
+        request = Request(
+            method=b"GET",
+            url="http://example.com/",
+            headers=[],
+            content=b"",
+            extensions={}
+        )
+        with pytest.raises(ConnectionNotAvailable):
+            await connection.handle_async_request(request)
+
+    @pytest.mark.asyncio
+    async def test_handle_async_request_success(self, connection, request):
+        mock_h2_conn = MagicMock()
+        mock_h2_conn.get_next_available_stream_id = Mock(return_value=1)
+        mock_h2_conn.local_settings = Mock(max_concurrent_streams=100)
+        mock_h2_conn.state_machine.state = h2.connection.ConnectionState.OPEN
+        connection._h2_state = mock_h2_conn
+        
+        with patch.object(connection, '_send_connection_init', AsyncMock()) as mock_send_init, \
+             patch.object(connection, '_send_request_headers', AsyncMock()) as mock_send_headers, \
+             patch.object(connection, '_send_request_body', AsyncMock()) as mock_send_body, \
+             patch.object(connection, '_receive_response', AsyncMock(return_value=(200, []))) as mock_receive_response:
+            
+            mock_receive_response.return_value = (200, [(b"content-type", b"text/plain")])
+            
+            response = await connection.handle_async_request(request)
+            
+            assert response.status == 200
+            assert response.headers == [(b"content-type", b"text/plain")]
+            assert isinstance(response.content, HTTP2ConnectionByteStream)
+            assert response.extensions["http_version"] == b"HTTP/2"
+            assert response.extensions["stream_id"] == 1
+
+    @pytest.mark.asyncio
+    async def test_handle_async_request_no_available_stream_id(self, connection, request):
+        mock_h2_conn = MagicMock()
+        mock_h2_conn.get_next_available_stream_id = Mock(side_effect=h2.exceptions.NoAvailableStreamIDError)
+        mock_h2_conn.local_settings = Mock(max_concurrent_streams=100)
+        connection._h2_state = mock_h2_conn
+        
+        with patch.object(connection, '_send_connection_init', AsyncMock()):
+            with pytest.raises(ConnectionNotAvailable):
+                await connection.handle_async_request(request)
+            
+            assert connection._used_all_stream_ids == True
+            assert connection._request_count == 0
+
+    @pytest.mark.asyncio
+    async def test_handle_async_request_protocol_error(self, connection, request):
+        mock_h2_conn = MagicMock()
+        mock_h2_conn.get_next_available_stream_id = Mock(return_value=1)
+        mock_h2_conn.local_settings = Mock(max_concurrent_streams=100)
+        connection._h2_state = mock_h2_conn
+        
+        with patch.object(connection, '_send_connection_init', AsyncMock()), \
+             patch.object(connection, '_send_request_headers', AsyncMock(side_effect=h2.exceptions.ProtocolError)):
+            
+            with pytest.raises(LocalProtocolError):
+                await connection.handle_async_request(request)
+
+    @pytest.mark.asyncio
+    async def test_send_connection_init(self, connection, request):
+        mock_h2_conn = MagicMock()
+        connection._h2_state = mock_h2_conn
+        
+        await connection._send_connection_init(request)
+        
+        assert mock_h2_conn.local_settings.__setitem__.called
+        mock_h2_conn.initiate_connection.assert_called_once()
+        mock_h2_conn.increment_flow_control_window.assert_called_once_with(2 ** 24)
+        connection._network_stream.write.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_request_headers_without_body(self, connection, request):
+        mock_h2_conn = MagicMock()
+        connection._h2_state = mock_h2_conn
+        
+        await connection._send_request_headers(request, stream_id=1)
+        
+        mock_h2_conn.send_headers.assert_called_once()
+        mock_h2_conn.increment_flow_control_window.assert_called_once_with(2 ** 24, stream_id=1)
+        connection._network_stream.write.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_request_headers_with_body(self, connection):
+        request = Request(
+            method=b"POST",
+            url="http://example.com/",
+            headers=[(b"Host", b"example.com"), (b"Content-Length", b"100")],
+            content=b"test",
+            extensions={}
+        )
+        mock_h2_conn = MagicMock()
+        connection._h2_state = mock_h2_conn
+        
+        await connection._send_request_headers(request, stream_id=1)
+        
+        mock_h2_conn.send_headers.assert_called_once()
+        mock_h2_conn.increment_flow_control_window.assert_called_once_with(2 ** 24, stream_id=1)
+        connection._network_stream.write.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_request_body_without_body(self, connection, request):
+        await connection._send_request_body(request, stream_id=1)
+        connection._network_stream.write.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_request_body_with_body(self, connection):
+        async def async_data():
+            yield b"chunk1"
+            yield b"chunk2"
+        
+        request = Request(
+            method=b"POST",
+            url="http://example.com/",
+            headers=[(b"Content-Length", b"100")],
+            content=async_data(),
+            extensions={}
+        )
+        
+        with patch.object(connection, '_send_stream_data', AsyncMock()) as mock_send_data, \
+             patch.object(connection, '_send_end_stream', AsyncMock()) as mock_send_end:
+            
+            await connection._send_request_body(request, stream_id=1)
+            
+            assert mock_send_data.call_count == 2
+            mock_send_end.assert_called_once_with(request, 1)
+
+    @pytest.mark.asyncio
+    async def test_receive_response(self, connection, request):
+        mock_event = Mock(spec=h2.events.ResponseReceived)
+        mock_event.headers = [(b":status", b"200"), (b"content-type", b"text/plain")]
+        
+        with patch.object(connection, '_receive_stream_event', AsyncMock(return_value=mock_event)):
+            status, headers = await connection._receive_response(request, stream_id=1)
+            
+            assert status == 200
+            assert headers == [(b"content-type", b"text/plain")]
+
+    @pytest.mark.asyncio
+    async def test_receive_response_body(self, connection, request):
+        data_event = Mock(spec=h2.events.DataReceived)
+        data_event.flow_controlled_length = 5
+        data_event.data = b"hello"
+        
+        end_event = Mock(spec=h2.events.StreamEnded)
+        
+        mock_receive_stream_event = AsyncMock(side_effect=[data_event, end_event])
+        
+        with patch.object(connection, '_receive_stream_event', mock_receive_stream_event):
+            chunks = []
+            async for chunk in connection._receive_response_body(request, stream_id=1):
+                chunks.append(chunk)
+            
+            assert chunks == [b"hello"]
+            connection._h2_state.acknowledge_received_data.assert_called_once_with(5, 1)
+
+    @pytest.mark.asyncio
+    async def test_receive_stream_event_reset(self, connection, request):
+        reset_event = Mock(spec=h2.events.StreamReset)
+        
+        connection._events[1] = [reset_event]
+        
+        with pytest.raises(RemoteProtocolError):
+            await connection._receive_stream_event(request, stream_id=1)
+
+    @pytest.mark.asyncio
+    async def test_receive_events_connection_terminated(self, connection, request):
+        terminated_event = Mock(spec=h2.events.ConnectionTerminated)
+        terminated_event.last_stream_id = 0
+        connection._connection_terminated = terminated_event
+        
+        with pytest.raises(RemoteProtocolError):
+            await connection._receive_events(request, stream_id=1)
+
+    @pytest.mark.asyncio
+    async def test_receive_remote_settings_change_increase(self, connection):
+        event = Mock(spec=h2.events.RemoteSettingsChanged)
+        event.changed_settings = {h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS: Mock(new_value=200)}
+        connection._h2_state.local_settings.max_concurrent_streams = 100
+        connection._max_streams = 50
+        connection._max_streams_semaphore = AsyncMock(spec=AsyncSemaphore)
+        
+        await connection._receive_remote_settings_change(event)
+        
+        assert connection._max_streams == 100
+        assert connection._max_streams_semaphore.release.call_count == 50
+
+    @pytest.mark.asyncio
+    async def test_receive_remote_settings_change_decrease(self, connection):
+        event = Mock(spec=h2.events.RemoteSettingsChanged)
+        event.changed_settings = {h2.settings.SettingCodes.MAX_CONCURRENT_STREAMS: Mock(new_value=50)}
+        connection._h2_state.local_settings.max_concurrent_streams = 100
+        connection._max_streams = 100
+        connection._max_streams_semaphore = AsyncMock(spec=AsyncSemaphore)
+        
+        await connection._receive_remote_settings_change(event)
+        
+        assert connection._max_streams == 50
+        assert connection._max_streams_semaphore.acquire.call_count == 50
+
+    @pytest.mark.asyncio
+    async def test_response_closed_idle_state(self, connection):
+        connection._state = HTTPConnectionState.ACTIVE
+        connection._events = {}
+        connection._keepalive_expiry = 30.0
+        connection._max_streams_semaphore = AsyncMock(spec=AsyncSemaphore)
+        
+        with patch('time.monotonic', return_value=1000.0):
+            await connection._response_closed(stream_id=1)
+            
+            assert connection._state == HTTPConnectionState.IDLE
+            assert connection._expire_at == 1030.0
+            connection._max_streams_semaphore.release.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_response_closed_close_on_terminated(self, connection):
+        connection._connection_terminated = Mock()
+        connection._events = {}
+        connection._max_streams_semaphore = AsyncMock(spec=AsyncSemaphore)
+        
+        with patch.object(connection, 'aclose', AsyncMock()) as mock_aclose:
+            await connection._response_closed(stream_id=1)
+            
+            mock_aclose.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_response_closed_close_on_used_all_streams(self, connection):
+        connection._state = HTTPConnectionState.IDLE
+        connection._events = {}
+        connection._used_all_stream_ids = True
+        connection._max_streams_semaphore = AsyncMock(spec=AsyncSemaphore)
+        
+        with patch.object(connection, 'aclose', AsyncMock()) as mock_aclose:
+            await connection._response_closed(stream_id=1)
+            
+            mock_aclose.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_aclose(self, connection):
+        mock_h2_conn = MagicMock()
+        connection._h2_state = mock_h2_conn
+        
+        await connection.aclose()
+        
+        mock_h2_conn.close_connection.assert_called_once()
+        assert connection._state == HTTPConnectionState.CLOSED
+        connection._network_stream.aclose.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_read_incoming_data_success(self, connection, request):
+        connection._network_stream.read = AsyncMock(return_value=b"test data")
+        mock_h2_conn = MagicMock()
+        mock_h2_conn.receive_data = Mock(return_value=[Mock(spec=h2.events.Event)])
+        connection._h2_state = mock_h2_conn
+        
+        events = await connection._read_incoming_data(request)
+        
+        assert len(events) == 1
+        connection._network_stream.read.assert_called_once_with(connection.READ_NUM_BYTES, None)
+
+    @pytest.mark.asyncio
+    async def test_read_incoming_data_empty_response(self, connection, request):
+        connection._network_stream.read = AsyncMock(return_value=b"")
+        
+        with pytest.raises(RemoteProtocolError, match="Server disconnected"):
+            await connection._read_incoming_data(request)
+
+    @pytest.mark.asyncio
+    async def test_read_incoming_data_exception(self, connection, request):
+        connection._network_stream.read = AsyncMock(side_effect=Exception("Read error"))
+        
+        with pytest.raises(Exception, match="Read error"):
+            await connection._read_incoming_data(request)
+        
+        assert connection._read_exception is not None
+        assert connection._connection_error == True
+
+    @pytest.mark.asyncio
+    async def test_write_outgoing_data_success(self, connection, request):
+        mock_h2_conn = MagicMock()
+        mock_h2_conn.data_to_send = Mock(return_value=b"outgoing data")
+        connection._h2_state = mock_h2_conn
+        
+        await connection._write_outgoing_data(request)
+        
+        connection._network_stream.write.assert_called_once_with(b"outgoing data", None)
+
+    @pytest.mark.asyncio
+    async def test_write_outgoing_data_exception(self, connection, request):
+        mock_h2_conn = MagicMock()
+        mock_h2_conn.data_to_send = Mock(return_value=b"outgoing data")
+        connection._h2_state = mock_h2_conn
+        connection._network_stream.write = AsyncMock(side_effect=Exception("Write error"))
+        
+        with pytest.raises(Exception, match="Write error"):
+            await connection._write_outgoing_data(request)
+        
+        assert connection._write_exception is not None
+        assert connection._connection_error == True
+
+    @

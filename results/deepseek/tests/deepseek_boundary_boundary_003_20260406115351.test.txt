@@ -1,0 +1,257 @@
+import unittest
+import sys
+import copy
+from unittest.mock import Mock, patch, MagicMock
+
+# 导入被测模块，假设模块名为 f2py_capi
+import f2py_capi
+
+class TestF2PyCAPI(unittest.TestCase):
+    
+    def setUp(self):
+        """测试前的准备工作"""
+        # 重置 outneeds 到初始状态
+        f2py_capi.outneeds = {'includes0': [], 'includes': [], 'typedefs': [], 'typedefs_generated': [], 
+                               'userincludes': [], 'cppmacros': [], 'cfuncs': [], 'callbacks': [], 
+                               'f90modhooks': [], 'commonhooks': []}
+    
+    def test_errmess_normal(self):
+        """测试 errmess 函数正常路径"""
+        with patch('sys.stderr.write') as mock_write:
+            f2py_capi.errmess("test error message")
+            mock_write.assert_called_once_with("test error message")
+    
+    def test_errmess_stderr_none(self):
+        """测试 errmess 当 sys.stderr 为 None 时的行为"""
+        original_stderr = sys.stderr
+        sys.stderr = None
+        try:
+            # 应该不会抛出异常
+            f2py_capi.errmess("test message")
+        finally:
+            sys.stderr = original_stderr
+    
+    def test_append_needs_with_string(self):
+        """测试 append_needs 函数，传入字符串参数"""
+        # 测试已知的 need
+        f2py_capi.append_needs('string.h')
+        self.assertIn('string.h', f2py_capi.outneeds['includes0'])
+        
+        # 测试未知的 need
+        with patch.object(f2py_capi, 'errmess') as mock_errmess:
+            f2py_capi.append_needs('unknown_need')
+            mock_errmess.assert_called_once()
+    
+    def test_append_needs_with_list(self):
+        """测试 append_needs 函数，传入列表参数"""
+        f2py_capi.append_needs(['string.h', 'math.h'])
+        self.assertIn('string.h', f2py_capi.outneeds['includes0'])
+        self.assertIn('math.h', f2py_capi.outneeds['includes0'])
+    
+    def test_append_needs_with_empty_string(self):
+        """测试 append_needs 函数，传入空字符串"""
+        f2py_capi.append_needs('')
+        # 应该不会有任何添加
+        self.assertEqual(len(f2py_capi.outneeds['includes0']), 0)
+    
+    def test_append_needs_with_flag_false(self):
+        """测试 append_needs 函数，flag=False 的情况"""
+        result = f2py_capi.append_needs('string.h', flag=False)
+        self.assertIsInstance(result, dict)
+        self.assertIn('includes0', result)
+        self.assertIn('string.h', result['includes0'])
+    
+    def test_append_needs_circular_dependency(self):
+        """测试 append_needs 处理循环依赖的情况"""
+        # 设置一个循环依赖：need1 依赖 need2，need2 依赖 need1
+        f2py_capi.needs['need1'] = ['need2']
+        f2py_capi.needs['need2'] = ['need1']
+        
+        # 将 need1 和 need2 添加到相应的类别中
+        f2py_capi.includes0['need1'] = '#include <need1>'
+        f2py_capi.includes0['need2'] = '#include <need2>'
+        
+        with patch.object(f2py_capi, 'errmess') as mock_errmess:
+            f2py_capi.append_needs('need1')
+            # 应该会输出错误信息
+            mock_errmess.assert_called()
+    
+    def test_get_needs_normal(self):
+        """测试 get_needs 函数正常路径"""
+        # 先添加一些 needs
+        f2py_capi.append_needs('string.h')
+        f2py_capi.append_needs('math.h')
+        
+        result = f2py_capi.get_needs()
+        self.assertIsInstance(result, dict)
+        self.assertIn('includes0', result)
+        self.assertIn('string.h', result['includes0'])
+        self.assertIn('math.h', result['includes0'])
+    
+    def test_get_needs_with_dependencies(self):
+        """测试 get_needs 函数处理依赖关系"""
+        # 设置依赖关系
+        f2py_capi.needs['pyobj_from_string1'] = ['string']
+        f2py_capi.needs['string'] = ['string.h']
+        
+        # 将相关项添加到对应的字典中
+        f2py_capi.typedefs['string'] = 'typedef char * string;'
+        f2py_capi.includes0['string.h'] = '#include <string.h>'
+        f2py_capi.cppmacros['pyobj_from_string1'] = '#define pyobj_from_string1(v) (PyUnicode_FromString((char *)v))'
+        
+        f2py_capi.append_needs('pyobj_from_string1')
+        result = f2py_capi.get_needs()
+        
+        # 检查依赖顺序
+        includes0_list = result.get('includes0', [])
+        typedefs_list = result.get('typedefs', [])
+        cppmacros_list = result.get('cppmacros', [])
+        
+        # string.h 应该在 string 之前
+        if 'string.h' in includes0_list and 'string' in typedefs_list:
+            # 检查依赖顺序
+            pass
+    
+    def test_get_needs_circular_dependency_handling(self):
+        """测试 get_needs 处理循环依赖的情况"""
+        # 设置循环依赖
+        f2py_capi.needs['dep1'] = ['dep2']
+        f2py_capi.needs['dep2'] = ['dep1']
+        
+        f2py_capi.includes0['dep1'] = '#include <dep1>'
+        f2py_capi.includes0['dep2'] = '#include <dep2>'
+        
+        # 先添加到 outneeds
+        f2py_capi.outneeds['includes0'] = ['dep1', 'dep2']
+        
+        with patch.object(f2py_capi, 'errmess') as mock_errmess:
+            result = f2py_capi.get_needs()
+            # 应该会输出错误信息
+            mock_errmess.assert_called_once()
+        
+        # 结果应该包含原始列表
+        self.assertIn('dep1', result['includes0'])
+        self.assertIn('dep2', result['includes0'])
+    
+    def test_get_needs_empty_category(self):
+        """测试 get_needs 当某个类别为空时"""
+        result = f2py_capi.get_needs()
+        self.assertIn('includes0', result)
+        self.assertEqual(result['includes0'], ['includes0'])  # 根据代码逻辑，空列表会返回类别名
+    
+    def test_buildcfuncs_basic(self):
+        """测试 buildcfuncs 函数的基本功能"""
+        # 模拟 capi_maps 模块
+        with patch.dict('f2py_capi.c2capi_map', {'int': 'NPY_INT', 'double': 'NPY_DOUBLE'}, clear=True):
+            f2py_capi.buildcfuncs()
+            
+            # 检查是否生成了正确的宏定义
+            self.assertIn('pyarr_from_p_int1', f2py_capi.cppmacros)
+            self.assertIn('pyarr_from_p_double1', f2py_capi.cppmacros)
+            
+            # 检查 string 的特殊处理
+            self.assertIn('pyarr_from_p_string1', f2py_capi.cppmacros)
+    
+    def test_buildcfuncs_empty_map(self):
+        """测试 buildcfuncs 当 c2capi_map 为空时"""
+        with patch.dict('f2py_capi.c2capi_map', {}, clear=True):
+            f2py_capi.buildcfuncs()
+            # 应该不会添加任何内容
+            # 检查是否只有 string 的特殊处理被添加
+            self.assertIn('pyarr_from_p_string1', f2py_capi.cppmacros)
+    
+    def test_initialization_values(self):
+        """测试模块初始化时的各种字典值"""
+        # 检查 includes0 是否包含预期的头文件
+        self.assertIn('math.h', f2py_capi.includes0)
+        self.assertIn('string.h', f2py_capi.includes0)
+        self.assertIn('setjmp.h', f2py_capi.includes0)
+        
+        # 检查 includes 是否包含预期的头文件
+        self.assertIn('arrayobject.h', f2py_capi.includes)
+        self.assertIn('npy_math.h', f2py_capi.includes)
+        self.assertIn('stdarg.h', f2py_capi.includes)
+        
+        # 检查 typedefs 是否包含预期的类型定义
+        self.assertIn('unsigned_char', f2py_capi.typedefs)
+        self.assertIn('long_double', f2py_capi.typedefs)
+        self.assertIn('complex_double', f2py_capi.typedefs)
+        
+        # 检查 cppmacros 是否包含预期的宏定义
+        self.assertIn('F_FUNC', f2py_capi.cppmacros)
+        self.assertIn('MINMAX', f2py_capi.cppmacros)
+        self.assertIn('SWAP', f2py_capi.cppmacros)
+    
+    def test_needs_structure(self):
+        """测试 needs 字典的结构"""
+        # 检查一些已知的依赖关系
+        self.assertIn('pyobj_from_string1', f2py_capi.needs)
+        self.assertIn('string', f2py_capi.needs['pyobj_from_string1'])
+        
+        self.assertIn('MEMCOPY', f2py_capi.needs)
+        self.assertIn('string.h', f2py_capi.needs['MEMCOPY'])
+        self.assertIn('FAILNULL', f2py_capi.needs['MEMCOPY'])
+    
+    def test_cfuncs_existence(self):
+        """测试 cfuncs 字典是否包含预期的函数"""
+        self.assertIn('calcarrindex', f2py_capi.cfuncs)
+        self.assertIn('forcomb', f2py_capi.cfuncs)
+        self.assertIn('int_from_pyobj', f2py_capi.cfuncs)
+        self.assertIn('double_from_pyobj', f2py_capi.cfuncs)
+        self.assertIn('string_from_pyobj', f2py_capi.cfuncs)
+    
+    def test_copy_behavior(self):
+        """测试 copy 模块的使用"""
+        # 测试 get_needs 中的 copy 使用
+        f2py_capi.append_needs('string.h')
+        original_outneeds = copy.copy(f2py_capi.outneeds)
+        result = f2py_capi.get_needs()
+        
+        # 检查是否创建了副本
+        self.assertIsNot(original_outneeds, f2py_capi.outneeds)
+    
+    def test_version_import(self):
+        """测试版本信息的导入"""
+        self.assertTrue(hasattr(f2py_capi, 'f2py_version'))
+        self.assertIsNotNone(f2py_capi.f2py_version)
+    
+    def test_append_needs_invalid_input(self):
+        """测试 append_needs 处理无效输入"""
+        with patch.object(f2py_capi, 'errmess') as mock_errmess:
+            # 测试非字符串非列表的输入
+            f2py_capi.append_needs(123)
+            mock_errmess.assert_called_once()
+            
+            # 重置 mock
+            mock_errmess.reset_mock()
+            
+            # 测试字典输入
+            f2py_capi.append_needs({'key': 'value'})
+            mock_errmess.assert_called_once()
+    
+    def test_get_needs_preserves_order(self):
+        """测试 get_needs 保持依赖顺序"""
+        # 设置多层依赖
+        f2py_capi.needs['level3'] = []
+        f2py_capi.needs['level2'] = ['level3']
+        f2py_capi.needs['level1'] = ['level2']
+        
+        # 添加到相应的字典
+        f2py_capi.cppmacros['level1'] = '#define level1'
+        f2py_capi.cppmacros['level2'] = '#define level2'
+        f2py_capi.cppmacros['level3'] = '#define level3'
+        
+        f2py_capi.append_needs('level1')
+        result = f2py_capi.get_needs()
+        
+        cppmacros_list = result.get('cppmacros', [])
+        # level3 应该在 level2 之前，level2 应该在 level1 之前
+        if 'level1' in cppmacros_list and 'level2' in cppmacros_list and 'level3' in cppmacros_list:
+            idx1 = cppmacros_list.index('level1')
+            idx2 = cppmacros_list.index('level2')
+            idx3 = cppmacros_list.index('level3')
+            self.assertLess(idx3, idx2)
+            self.assertLess(idx2, idx1)
+
+if __name__ == '__main__':
+    unittest.main()

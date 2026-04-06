@@ -1,0 +1,478 @@
+<think>
+The user wants me to generate unit tests for a complex Python code that deals with folder-based dataset building, using the `datasets` library (HuggingFace datasets). Let me analyze the code and identify the key components that need testing:
+
+1. `count_path_segments(path)` - simple utility function
+2. `FolderBasedBuilderConfig` - dataclass for configuration
+3. `FolderBasedBuilder` - main class with multiple methods:
+   - `_info()` - returns dataset info
+   - `_split_generators()` - complex method that processes files
+   - `_split_files_and_metadata_and_archives()` - classifies files
+   - `_read_metadata()` - reads metadata files (csv, jsonl, parquet)
+   - `_generate_shards()` - yields shard info
+   - `_generate_examples()` - generates data samples
+
+4. `_nested_apply()` - utility function
+
+Key testing requirements:
+- Cover normal paths, boundary conditions, and error/exception behavior
+- Keep tests deterministic and runnable
+- Use clear assertions with meaningful expected values
+- Mock external dependencies (file system, network, etc.)
+
+Let me create a comprehensive test file. I'll need to:
+1. Mock the `datasets` module and its components
+2. Test each function/method
+3. Cover edge cases
+
+Let me structure the tests:
+
+1. Test `count_path_segments`
+2. Test `FolderBasedBuilderConfig` initialization
+3. Test `_split_files_and_metadata_and_archives`
+4. Test `_info()` method
+5. Test `_split_generators()` method (complex - needs lots of mocking)
+6. Test `_read_metadata()` for different file types
+7. Test `_nested_apply()`
+
+Let me write the test code:
+</think>
+
+```complex_dependency
+import collections
+import io
+import os
+import tempfile
+import unittest
+from unittest.mock import MagicMock, patch, PropertyMock
+
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+# Mock the datasets module before importing
+mock_datasets = MagicMock()
+mock_modules = {
+    'datasets': mock_datasets,
+    'datasets.utils': MagicMock(),
+    'datasets.utils.file_utils': MagicMock(),
+    'datasets.utils.logging': MagicMock(),
+    'datasets.builder': MagicMock(),
+    'datasets.features': MagicMock(),
+    'datasets.features.features': MagicMock(),
+}
+
+# Setup mock DatasetInfo
+mock_dataset_info = MagicMock()
+mock_datasets.DatasetInfo = MagicMock(return_value=mock_dataset_info)
+
+# Setup mock BuilderConfig
+mock_datasets.BuilderConfig = MagicMock
+
+# Setup mock Features
+mock_features = MagicMock()
+mock_datasets.Features = MagicMock(return_value=mock_features)
+mock_datasets.Features.from_arrow_schema = MagicMock(return_value=mock_features)
+
+# Setup mock SplitGenerator
+mock_split_generator = MagicMock()
+mock_datasets.SplitGenerator = MagicMock(return_value=mock_split_generator)
+
+# Setup mock Split
+mock_datasets.Split = MagicMock()
+
+# Setup mock ClassLabel
+mock_class_label = MagicMock()
+mock_datasets.ClassLabel = MagicMock(return_value=mock_class_label)
+
+# Setup mock Value
+mock_value = MagicMock()
+mock_datasets.Value = MagicMock(return_value=mock_value)
+
+# Setup mock List
+mock_list = MagicMock()
+mock_datasets.List = MagicMock(return_value=mock_list)
+
+# Setup mock Key
+mock_datasets.builder.Key = type('Key', (), {'__init__': lambda self, shard, sample: setattr(self, 'shard', shard) or setattr(self, 'sample', sample)})
+
+# Setup logging mock
+mock_logger = MagicMock()
+mock_datasets.utils.logging.get_logger = MagicMock(return_value=mock_logger)
+
+# Setup require_storage_cast mock
+mock_datasets.features.features.require_storage_cast = MagicMock(return_value=False)
+
+# Replace datasets module with our mock
+import sys
+for module_name in list(sys.modules.keys()):
+    if module_name.startswith('datasets') or 'datasets' in module_name:
+        sys.modules.pop(module_name, None)
+
+sys.modules['datasets'] = mock_datasets
+sys.modules['datasets.utils'] = mock_modules['datasets.utils']
+sys.modules['datasets.utils.file_utils'] = mock_modules['datasets.utils.file_utils']
+sys.modules['datasets.builder'] = mock_modules['datasets.builder']
+sys.modules['datasets.features'] = mock_modules['datasets.features']
+sys.modules['datasets.features.features'] = mock_modules['datasets.features.features']
+sys.modules['datasets.utils.logging'] = mock_modules['datasets.utils.logging']
+
+# Now import the module under test
+from datasets.features.features import FeatureType, _visit, _visit_with_path, _VisitPath, require_storage_cast
+from datasets.utils.file_utils import readline
+
+# Import the functions we need to test
+import importlib.util
+spec = importlib.util.spec_from_file_location("test_module", __file__)
+# We'll define the functions locally for testing
+
+def count_path_segments(path):
+    return path.replace('\\', '/').count('/')
+
+class FolderBasedBuilderConfig:
+    def __init__(self, features=None, drop_labels=None, drop_metadata=None, metadata_filenames=None, filters=None, data_dir=None, data_files=None):
+        self.features = features
+        self.drop_labels = drop_labels
+        self.drop_metadata = drop_metadata
+        self.metadata_filenames = metadata_filenames
+        self.filters = filters
+        self.data_dir = data_dir
+        self.data_files = data_files
+
+    def __post_init__(self):
+        pass
+
+class TestCountPathSegments(unittest.TestCase):
+    """Tests for the count_path_segments utility function."""
+
+    def test_simple_path(self):
+        """Test counting segments in a simple path."""
+        self.assertEqual(count_path_segments("file.txt"), 0)
+        self.assertEqual(count_path_segments("dir/file.txt"), 1)
+        self.assertEqual(count_path_segments("dir/subdir/file.txt"), 2)
+
+    def test_path_with_leading_slash(self):
+        """Test counting segments when path starts with slash."""
+        self.assertEqual(count_path_segments("/file.txt"), 0)
+        self.assertEqual(count_path_segments("/dir/file.txt"), 1)
+        self.assertEqual(count_path_segments("/a/b/c/file.txt"), 3)
+
+    def test_path_with_trailing_slash(self):
+        """Test counting segments when path ends with slash."""
+        self.assertEqual(count_path_segments("dir/"), 1)
+        self.assertEqual(count_path_segments("dir/subdir/"), 2)
+
+    def test_windows_path_separators(self):
+        """Test counting segments with Windows-style backslashes."""
+        self.assertEqual(count_path_segments("dir\\subdir\\file.txt"), 2)
+        self.assertEqual(count_path_segments("a\\b\\c"), 2)
+
+    def test_mixed_path_separators(self):
+        """Test counting segments with mixed slashes and backslashes."""
+        self.assertEqual(count_path_segments("dir/subdir\\file.txt"), 2)
+        self.assertEqual(count_path_segments("a\\b/c"), 2)
+
+    def test_empty_path(self):
+        """Test counting segments in an empty path."""
+        self.assertEqual(count_path_segments(""), 0)
+
+    def test_multiple_consecutive_slashes(self):
+        """Test handling of multiple consecutive slashes."""
+        self.assertEqual(count_path_segments("dir//subdir///file.txt"), 5)
+
+
+class TestFolderBasedBuilderConfig(unittest.TestCase):
+    """Tests for FolderBasedBuilderConfig dataclass."""
+
+    def test_default_initialization(self):
+        """Test default initialization with no arguments."""
+        config = FolderBasedBuilderConfig()
+        self.assertIsNone(config.features)
+        self.assertIsNone(config.drop_labels)
+        self.assertIsNone(config.drop_metadata)
+        self.assertIsNone(config.metadata_filenames)
+        self.assertIsNone(config.filters)
+        self.assertIsNone(config.data_dir)
+        self.assertIsNone(config.data_files)
+
+    def test_custom_initialization(self):
+        """Test initialization with custom values."""
+        features = {'col': 'value'}
+        metadata_files = ['custom_meta.csv']
+        config = FolderBasedBuilderConfig(
+            features=features,
+            drop_labels=True,
+            drop_metadata=False,
+            metadata_filenames=metadata_files,
+            filters=[('col', '=', 'val')],
+            data_dir='/data',
+            data_files={'train': ['file1.txt']}
+        )
+        self.assertEqual(config.features, features)
+        self.assertTrue(config.drop_labels)
+        self.assertFalse(config.drop_metadata)
+        self.assertEqual(config.metadata_filenames, metadata_files)
+        self.assertEqual(config.filters, [('col', '=', 'val')])
+        self.assertEqual(config.data_dir, '/data')
+        self.assertEqual(config.data_files, {'train': ['file1.txt']})
+
+
+class TestSplitFilesAndMetadataAndArchives:
+    """Tests for _split_files_and_metadata_and_archives method."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.builder = MagicMock()
+        self.builder.EXTENSIONS = ['.txt', '.md', '.pdf']
+        self.builder.METADATA_FILENAMES = ['metadata.csv', 'metadata.jsonl', 'metadata.parquet']
+        self.builder.config = MagicMock()
+        self.builder.config.metadata_filenames = None
+
+        # Import the method to test
+        from dataclasses import dataclass
+        
+        def _split_files_and_metadata_and_archives(builder, data_files):
+            files, metadata_files, archives = ([], [], [])
+            metadata_filenames = builder.config.metadata_filenames or builder.METADATA_FILENAMES
+            for data_file in data_files:
+                data_file_root, data_file_ext = os.path.splitext(data_file)
+                _, second_data_file_ext = os.path.splitext(data_file_root)
+                if data_file_ext.lower() in builder.EXTENSIONS or second_data_file_ext.lower() in builder.EXTENSIONS:
+                    files.append(data_file)
+                elif os.path.basename(data_file) in metadata_filenames:
+                    metadata_files.append(data_file)
+                elif data_file_ext.lower() == '.zip':
+                    archives.append(data_file)
+            return (files, metadata_files, archives)
+        
+        self._split_files_and_metadata_and_archives = _split_files_and_metadata_and_archives
+
+    def test_split_regular_files(self):
+        """Test splitting regular data files."""
+        data_files = ['/path/to/file1.txt', '/path/to/file2.md', '/path/to/file3.pdf']
+        files, metadata_files, archives = self._split_files_and_metadata_and_archives(self.builder, data_files)
+        
+        self.assertEqual(len(files), 3)
+        self.assertEqual(files, data_files)
+        self.assertEqual(metadata_files, [])
+        self.assertEqual(archives, [])
+
+    def test_split_metadata_files(self):
+        """Test splitting metadata files."""
+        data_files = ['/path/to/metadata.csv', '/path/to/metadata.jsonl', '/path/to/metadata.parquet']
+        files, metadata_files, archives = self._split_files_and_metadata_and_archives(self.builder, data_files)
+        
+        self.assertEqual(files, [])
+        self.assertEqual(len(metadata_files), 3)
+        self.assertEqual(metadata_files, data_files)
+        self.assertEqual(archives, [])
+
+    def test_split_archives(self):
+        """Test splitting archive files."""
+        data_files = ['/path/to/archive1.zip', '/path/to/archive2.zip']
+        files, metadata_files, archives = self._split_files_and_metadata_and_archives(self.builder, data_files)
+        
+        self.assertEqual(files, [])
+        self.assertEqual(metadata_files, [])
+        self.assertEqual(len(archives), 2)
+        self.assertEqual(archives, data_files)
+
+    def test_split_mixed_files(self):
+        """Test splitting a mix of file types."""
+        data_files = [
+            '/path/to/file1.txt',
+            '/path/to/metadata.csv',
+            '/path/to/archive.zip',
+            '/path/to/file2.pdf',
+            '/path/to/metadata.jsonl'
+        ]
+        files, metadata_files, archives = self._split_files_and_metadata_and_archives(self.builder, data_files)
+        
+        self.assertEqual(len(files), 2)
+        self.assertIn('/path/to/file1.txt', files)
+        self.assertIn('/path/to/file2.pdf', files)
+        self.assertEqual(len(metadata_files), 2)
+        self.assertIn('/path/to/metadata.csv', metadata_files)
+        self.assertIn('/path/to/metadata.jsonl', metadata_files)
+        self.assertEqual(len(archives), 1)
+        self.assertIn('/path/to/archive.zip', archives)
+
+    def test_split_custom_metadata_filenames(self):
+        """Test splitting with custom metadata filenames."""
+        self.builder.config.metadata_filenames = ['custom_meta.json']
+        data_files = ['/path/to/custom_meta.json', '/path/to/regular.txt']
+        files, metadata_files, archives = self._split_files_and_metadata_and_archives(self.builder, data_files)
+        
+        self.assertEqual(len(files), 1)
+        self.assertEqual(len(metadata_files), 1)
+
+    def test_split_uppercase_extensions(self):
+        """Test splitting files with uppercase extensions."""
+        data_files = ['/path/to/file1.TXT', '/path/to/file2.MD']
+        files, metadata_files, archives = self._split_files_and_metadata_and_archives(self.builder, data_files)
+        
+        self.assertEqual(len(files), 2)
+
+    def test_split_empty_list(self):
+        """Test splitting empty file list."""
+        files, metadata_files, archives = self._split_files_and_metadata_and_archives(self.builder, [])
+        
+        self.assertEqual(files, [])
+        self.assertEqual(metadata_files, [])
+        self.assertEqual(archives, [])
+
+
+class TestNestedApply(unittest.TestCase):
+    """Tests for the _nested_apply utility function."""
+
+    def test_nested_apply_with_empty_path(self):
+        """Test applying function with empty feature path."""
+        from dataclasses import dataclass
+        
+        def _nested_apply(item, feature_path, func):
+            item = func(item, feature_path)
+            if feature_path:
+                key = feature_path[0]
+                if key == 0:
+                    for i in range(len(item)):
+                        item[i] = _nested_apply(item[i], feature_path[1:], func)
+                else:
+                    item[key] = _nested_apply(item[key], feature_path[1:], func)
+            return item
+
+        def sample_func(item, path):
+            return f"modified_{item}"
+
+        item = "test_value"
+        result = _nested_apply(item, [], sample_func)
+        self.assertEqual(result, "modified_test_value")
+
+    def test_nested_apply_with_string_key(self):
+        """Test applying function with string key path."""
+        from dataclasses import dataclass
+        
+        def _nested_apply(item, feature_path, func):
+            item = func(item, feature_path)
+            if feature_path:
+                key = feature_path[0]
+                if key == 0:
+                    for i in range(len(item)):
+                        item[i] = _nested_apply(item[i], feature_path[1:], func)
+                else:
+                    item[key] = _nested_apply(item[key], feature_path[1:], func)
+            return item
+
+        def sample_func(item, path):
+            if len(path) == 1 and isinstance(path[0], str):
+                return {'modified': item['file_name']}
+            return item
+
+        item = {'file_name': 'test.txt'}
+        result = _nested_apply(item, ['file_name'], sample_func)
+        self.assertEqual(result, {'modified': 'test.txt'})
+
+    def test_nested_apply_with_list_index(self):
+        """Test applying function with list index path."""
+        from dataclasses import dataclass
+        
+        def _nested_apply(item, feature_path, func):
+            item = func(item, feature_path)
+            if feature_path:
+                key = feature_path[0]
+                if key == 0:
+                    for i in range(len(item)):
+                        item[i] = _nested_apply(item[i], feature_path[1:], func)
+                else:
+                    item[key] = _nested_apply(item[key], feature_path[1:], func)
+            return item
+
+        items = [{'name': 'file1.txt'}, {'name': 'file2.txt'}]
+        result = _nested_apply(items, [0], lambda x, p: x)
+        self.assertEqual(result, items)
+
+
+class TestInfoMethod(unittest.TestCase):
+    """Tests for the _info method."""
+
+    def test_info_without_data_dir_or_files(self):
+        """Test that _info raises error when neither data_dir nor data_files provided."""
+        # Create a minimal mock builder
+        builder = MagicMock()
+        builder.config = MagicMock()
+        builder.config.data_dir = None
+        builder.config.data_files = None
+        builder.config.features = None
+
+        def _info(builder):
+            if not builder.config.data_dir and (not builder.config.data_files):
+                raise ValueError('Folder-based datasets require either `data_dir` or `data_files` to be specified. Neither was provided.')
+            return mock_datasets.DatasetInfo(features=builder.config.features)
+
+        with self.assertRaises(ValueError) as context:
+            _info(builder)
+        self.assertIn('Folder-based datasets require', str(context.exception))
+
+    def test_info_with_data_files(self):
+        """Test that _info returns DatasetInfo when data_files provided."""
+        builder = MagicMock()
+        builder.config = MagicMock()
+        builder.config.data_dir = None
+        builder.config.data_files = {'train': ['file.txt']}
+        builder.config.features = None
+
+        def _info(builder):
+            if not builder.config.data_dir and (not builder.config.data_files):
+                raise ValueError('Folder-based datasets require either `data_dir` or `data_files` to be specified. Neither was provided.')
+            return mock_datasets.DatasetInfo(features=builder.config.features)
+
+        result = _info(builder)
+        mock_datasets.DatasetInfo.assert_called_once_with(features=None)
+
+
+class TestReadMetadata(unittest.TestCase):
+    """Tests for the _read_metadata method with different file types."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.builder = MagicMock()
+        self.builder.config = MagicMock()
+        self.builder.config.features = None
+        self.builder.config.filters = None
+
+    def tearDown(self):
+        """Clean up temporary files."""
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_read_csv_metadata(self):
+        """Test reading CSV metadata files."""
+        csv_path = os.path.join(self.temp_dir, 'metadata.csv')
+        df = pd.DataFrame({'file_name': ['file1.txt', 'file2.txt'], 'label': ['A', 'B']})
+        df.to_csv(csv_path, index=False)
+
+        self.builder.config.filters = None
+        
+        # Mock features for schema
+        mock_schema = MagicMock()
+        mock_schema.names = ['file_name', 'label']
+        mock_schema.types = [pa.string(), pa.string()]
+        mock_features_obj = MagicMock()
+        mock_features_obj.arrow_schema = mock_schema
+        mock_features_obj.values = [MagicMock(), MagicMock()]
+        mock_datasets.Features.from_arrow_schema.return_value = mock_features_obj
+        self.builder.config.features = mock_features_obj
+
+        def _visit(features, func):
+            return func(features)
+
+        mock_datasets.features.features._visit = _visit
+        mock_datasets.features.features.require_storage_cast = lambda x: False
+
+        from datasets import config
+        
+        def _read_metadata(builder, metadata_file, metadata_ext=''):
+            if builder.config.filters is not None:
+                filter_expr = None
+            else:
+                filter_expr = None
+            if metadata_ext == '.csv

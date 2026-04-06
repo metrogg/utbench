@@ -50,6 +50,11 @@ def parse_args() -> argparse.Namespace:
         help="Limit samples per language directory",
     )
     parser.add_argument(
+        "--sample-glob",
+        default=None,
+        help="Glob pattern under each language dir, e.g. boundary/*.py",
+    )
+    parser.add_argument(
         "--retries",
         type=int,
         default=3,
@@ -109,6 +114,7 @@ def main() -> int:
         model_names=_split_csv(args.model),
         languages=_split_csv(args.lang),
         max_samples=args.max_samples,
+        sample_glob=args.sample_glob,
         dry_run=args.dry_run,
         resume=not args.no_resume,
         reset_checkpoint=args.reset_checkpoint,

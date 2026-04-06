@@ -1,0 +1,507 @@
+<think>
+The user wants me to generate high-quality unit tests for the given complex_dependency source code. Let me analyze the code:
+
+1. The code defines several classes for extracting different archive formats (tar, gzip, zip, xz, rar, zstd, bz2, 7z, lz4)
+2. There's an ExtractManager class that manages extraction
+3. There are base classes (BaseExtractor, MagicNumberBaseExtractor) and concrete implementations for each format
+4. The Extractor class is a facade that coordinates between different extractors
+
+I need to write tests that:
+1. Cover normal paths
+2. Cover boundary conditions
+3. Cover error/exception behavior
+4. Are deterministic
+5. Use mocks for external dependencies (file system, network, etc.)
+
+Let me plan the test cases:
+
+1. **ExtractManager tests:**
+   - Test `_get_output_path` method
+   - Test `_do_extract` method with different scenarios
+   - Test `extract` method with force_extract True/False
+   - Test `extract` when extractor format cannot be determined
+
+2. **BaseExtractor tests:**
+   - Test that abstract methods are properly defined
+
+3. **MagicNumberBaseExtractor tests:**
+   - Test `is_extractable` with valid magic numbers
+   - Test `is_extractable` with invalid/empty magic numbers
+   - Test `read_magic_number` error handling
+
+4. **TarExtractor tests:**
+   - Test `is_extractable` with valid tar files
+   - Test `safemembers` with safe and unsafe paths
+   - Test `extract` method
+
+5. **GzipExtractor tests:**
+   - Test `is_extractable` with valid gzip files
+   - Test `extract` method
+
+6. **ZipExtractor tests:**
+   - Test `is_extractable` with valid zip files
+   - Test `safemembers` with safe and unsafe paths
+   - Test `extract` method
+
+7. **XzExtractor, RarExtractor, ZstdExtractor, Bzip2Extractor, SevenZipExtractor, Lz4Extractor tests:**
+   - Test `is_extractable` with valid magic numbers
+   - Test `extract` method (may need mocking for external dependencies)
+
+8. **Extractor tests:**
+   - Test `_get_magic_number_max_length`
+   - Test `_read_magic_number`
+   - Test `is_extractable` (deprecated)
+   - Test `infer_extractor_format`
+   - Test `extract` method
+
+Now I'll write the test code, mocking file system operations and other external dependencies as needed.
+</think>
+
+```complex_dependency
+import bz2
+import gzip
+import io
+import lzma
+import os
+import shutil
+import struct
+import tarfile
+import tempfile
+import unittest
+import warnings
+import zipfile
+from pathlib import Path
+from unittest.mock import MagicMock, mock_open, patch, call, mock
+
+from . import config
+
+
+class TestMagicNumberBaseExtractor(unittest.TestCase):
+    """Tests for MagicNumberBaseExtractor base functionality."""
+
+    def test_read_magic_number_with_valid_file(self):
+        """Test reading magic number from a valid file."""
+        from ._file_utils import MagicNumberBaseExtractor
+        
+        test_data = b'\x1f\x8btest content'
+        
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(test_data)
+            temp_path = f.name
+        
+        try:
+            result = MagicNumberBaseExtractor.read_magic_number(temp_path, 4)
+            self.assertEqual(result, b'\x1f\x8btes')
+        finally:
+            os.unlink(temp_path)
+
+    def test_read_magic_number_file_not_found(self):
+        """Test reading magic number from non-existent file returns empty bytes."""
+        from ._file_utils import MagicNumberBaseExtractor
+        
+        result = MagicNumberBaseExtractor.read_magic_number('/nonexistent/path/file.txt', 4)
+        self.assertEqual(result, b'')
+
+
+class TestTarExtractor(unittest.TestCase):
+    """Tests for TarExtractor class."""
+
+    def test_is_extractable_with_valid_tarfile(self):
+        """Test that is_extractable returns True for valid tar files."""
+        from ._file_utils import TarExtractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.tar', delete=False) as f:
+            temp_path = f.name
+        
+        try:
+            with tarfile.open(temp_path, 'w') as tf:
+                tf.addfile(tarfile.TarInfo(name='test.txt'), io.BytesIO(b'test'))
+            
+            self.assertTrue(TarExtractor.is_extractable(temp_path))
+        finally:
+            os.unlink(temp_path)
+
+    def test_is_extractable_with_invalid_file(self):
+        """Test that is_extractable returns False for non-tar files."""
+        from ._file_utils import TarExtractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.txt', delete=False, mode='w') as f:
+            f.write('not a tar file')
+            temp_path = f.name
+        
+        try:
+            self.assertFalse(TarExtractor.is_extractable(temp_path))
+        finally:
+            os.unlink(temp_path)
+
+    def test_safemembers_allows_safe_paths(self):
+        """Test that safemembers allows safe member paths."""
+        from ._file_utils import TarExtractor
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with tarfile.open(os.path.join(tmpdir, 'test.tar'), 'w') as tf:
+                safe_info = tarfile.TarInfo(name='safe_file.txt')
+                safe_info.size = 5
+                tf.addfile(safe_info, io.BytesIO(b'safe\x00'))
+            
+            with tarfile.open(os.path.join(tmpdir, 'test.tar'), 'r') as tf:
+                members = list(TarExtractor.safemembers(tf, tmpdir))
+                self.assertEqual(len(members), 1)
+                self.assertEqual(members[0].name, 'safe_file.txt')
+
+    def test_extract_creates_output_directory(self):
+        """Test that extract creates the output directory if it doesn't exist."""
+        from ._file_utils import TarExtractor
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tar_path = os.path.join(tmpdir, 'test.tar')
+            output_path = os.path.join(tmpdir, 'output')
+            
+            with tarfile.open(tar_path, 'w') as tf:
+                info = tarfile.TarInfo(name='test.txt')
+                info.size = 5
+                tf.addfile(info, io.BytesIO(b'hello'))
+            
+            TarExtractor.extract(tar_path, output_path)
+            
+            self.assertTrue(os.path.isdir(output_path))
+            self.assertTrue(os.path.exists(os.path.join(output_path, 'test.txt')))
+
+
+class TestGzipExtractor(unittest.TestCase):
+    """Tests for GzipExtractor class."""
+
+    def test_magic_numbers(self):
+        """Test that GzipExtractor has correct magic numbers."""
+        from ._file_utils import GzipExtractor
+        
+        self.assertEqual(GzipExtractor.magic_numbers, [b'\x1f\x8b'])
+
+    def test_is_extractable_with_valid_gzip(self):
+        """Test is_extractable with valid gzip file."""
+        from ._file_utils import GzipExtractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.gz', delete=False) as f:
+            with gzip.GzipFile(fileobj=f, mode='wb') as gz:
+                gz.write(b'test content')
+            temp_path = f.name
+        
+        try:
+            self.assertTrue(GzipExtractor.is_extractable(temp_path))
+        finally:
+            os.unlink(temp_path)
+
+    def test_is_extractable_with_invalid_file(self):
+        """Test is_extractable with invalid file."""
+        from ._file_utils import GzipExtractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.txt', delete=False, mode='wb') as f:
+            f.write(b'not gzip content')
+            temp_path = f.name
+        
+        try:
+            self.assertFalse(GzipExtractor.is_extractable(temp_path))
+        finally:
+            os.unlink(temp_path)
+
+    def test_extract_gzip_file(self):
+        """Test extracting a gzip file."""
+        from ._file_utils import GzipExtractor
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            gzip_path = os.path.join(tmpdir, 'test.gz')
+            output_path = os.path.join(tmpdir, 'output.txt')
+            original_content = b'Hello, World!'
+            
+            with gzip.open(gzip_path, 'wb') as gz:
+                gz.write(original_content)
+            
+            GzipExtractor.extract(gzip_path, output_path)
+            
+            with open(output_path, 'rb') as f:
+                self.assertEqual(f.read(), original_content)
+
+
+class TestZipExtractor(unittest.TestCase):
+    """Tests for ZipExtractor class."""
+
+    def test_magic_numbers(self):
+        """Test that ZipExtractor has correct magic numbers."""
+        from ._file_utils import ZipExtractor
+        
+        self.assertEqual(ZipExtractor.magic_numbers, [b'PK\x03\x04', b'PK\x05\x06', b'PK\x07\x08'])
+
+    def test_is_extractable_with_valid_zip(self):
+        """Test is_extractable with valid zip file."""
+        from ._file_utils import ZipExtractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as f:
+            with zipfile.ZipFile(f, 'w') as zf:
+                zf.writestr('test.txt', 'test content')
+            temp_path = f.name
+        
+        try:
+            self.assertTrue(ZipExtractor.is_extractable(temp_path))
+        finally:
+            os.unlink(temp_path)
+
+    def test_is_extractable_with_empty_zip(self):
+        """Test is_extractable with empty zip file (ZIP file with no entries)."""
+        from ._file_utils import ZipExtractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as f:
+            with zipfile.ZipFile(f, 'w') as zf:
+                pass
+            temp_path = f.name
+        
+        try:
+            result = ZipExtractor.is_extractable(temp_path)
+            self.assertTrue(result)
+        finally:
+            os.unlink(temp_path)
+
+    def test_is_extractable_with_invalid_file(self):
+        """Test is_extractable with invalid file."""
+        from ._file_utils import ZipExtractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.txt', delete=False, mode='wb') as f:
+            f.write(b'not a zip file')
+            temp_path = f.name
+        
+        try:
+            self.assertFalse(ZipExtractor.is_extractable(temp_path))
+        finally:
+            os.unlink(temp_path)
+
+    def test_extract_zip_file(self):
+        """Test extracting a zip file."""
+        from ._file_utils import ZipExtractor
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = os.path.join(tmpdir, 'test.zip')
+            output_path = os.path.join(tmpdir, 'output')
+            original_content = 'Hello, World!'
+            
+            with zipfile.ZipFile(zip_path, 'w') as zf:
+                zf.writestr('test.txt', original_content)
+            
+            ZipExtractor.extract(zip_path, output_path)
+            
+            extracted_file = os.path.join(output_path, 'test.txt')
+            self.assertTrue(os.path.exists(extracted_file))
+            with open(extracted_file, 'r') as f:
+                self.assertEqual(f.read(), original_content)
+
+
+class TestXzExtractor(unittest.TestCase):
+    """Tests for XzExtractor class."""
+
+    def test_magic_numbers(self):
+        """Test that XzExtractor has correct magic numbers."""
+        from ._file_utils import XzExtractor
+        
+        self.assertEqual(XzExtractor.magic_numbers, [b'\xfd7zXZ\x00'])
+
+    def test_is_extractable_with_valid_xz(self):
+        """Test is_extractable with valid xz file."""
+        from ._file_utils import XzExtractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.xz', delete=False) as f:
+            with lzma.open(f, 'wb') as xz:
+                xz.write(b'test content')
+            temp_path = f.name
+        
+        try:
+            self.assertTrue(XzExtractor.is_extractable(temp_path))
+        finally:
+            os.unlink(temp_path)
+
+    def test_is_extractable_with_invalid_file(self):
+        """Test is_extractable with invalid file."""
+        from ._file_utils import XzExtractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.txt', delete=False, mode='wb') as f:
+            f.write(b'not xz content')
+            temp_path = f.name
+        
+        try:
+            self.assertFalse(XzExtractor.is_extractable(temp_path))
+        finally:
+            os.unlink(temp_path)
+
+    def test_extract_xz_file(self):
+        """Test extracting an xz file."""
+        from ._file_utils import XzExtractor
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            xz_path = os.path.join(tmpdir, 'test.xz')
+            output_path = os.path.join(tmpdir, 'output.txt')
+            original_content = b'Hello, World!'
+            
+            with lzma.open(xz_path, 'wb') as xz:
+                xz.write(original_content)
+            
+            XzExtractor.extract(xz_path, output_path)
+            
+            with open(output_path, 'rb') as f:
+                self.assertEqual(f.read(), original_content)
+
+
+class TestBzip2Extractor(unittest.TestCase):
+    """Tests for Bzip2Extractor class."""
+
+    def test_magic_numbers(self):
+        """Test that Bzip2Extractor has correct magic numbers."""
+        from ._file_utils import Bzip2Extractor
+        
+        self.assertEqual(Bzip2Extractor.magic_numbers, [b'BZh'])
+
+    def test_is_extractable_with_valid_bz2(self):
+        """Test is_extractable with valid bz2 file."""
+        from ._file_utils import Bzip2Extractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.bz2', delete=False) as f:
+            with bz2.open(f, 'wb') as bz:
+                bz.write(b'test content')
+            temp_path = f.name
+        
+        try:
+            self.assertTrue(Bzip2Extractor.is_extractable(temp_path))
+        finally:
+            os.unlink(temp_path)
+
+    def test_is_extractable_with_invalid_file(self):
+        """Test is_extractable with invalid file."""
+        from ._file_utils import Bzip2Extractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.txt', delete=False, mode='wb') as f:
+            f.write(b'not bz2 content')
+            temp_path = f.name
+        
+        try:
+            self.assertFalse(Bzip2Extractor.is_extractable(temp_path))
+        finally:
+            os.unlink(temp_path)
+
+    def test_extract_bz2_file(self):
+        """Test extracting a bz2 file."""
+        from ._file_utils import Bzip2Extractor
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bz2_path = os.path.join(tmpdir, 'test.bz2')
+            output_path = os.path.join(tmpdir, 'output.txt')
+            original_content = b'Hello, World!'
+            
+            with bz2.open(bz2_path, 'wb') as bz:
+                bz.write(original_content)
+            
+            Bzip2Extractor.extract(bz2_path, output_path)
+            
+            with open(output_path, 'rb') as f:
+                self.assertEqual(f.read(), original_content)
+
+
+class TestExtractor(unittest.TestCase):
+    """Tests for the Extractor facade class."""
+
+    def test_extractors_dict_contains_all_formats(self):
+        """Test that extractors dictionary contains all expected formats."""
+        from ._file_utils import Extractor
+        
+        expected_formats = {'tar', 'gzip', 'zip', 'xz', 'rar', 'zstd', 'bz2', '7z', 'lz4'}
+        self.assertEqual(set(Extractor.extractors.keys()), expected_formats)
+
+    def test_get_magic_number_max_length(self):
+        """Test _get_magic_number_max_length returns the maximum length."""
+        from ._file_utils import Extractor
+        
+        result = Extractor._get_magic_number_max_length()
+        self.assertIsInstance(result, int)
+        self.assertGreater(result, 0)
+
+    def test_read_magic_number_success(self):
+        """Test _read_magic_number with valid file."""
+        from ._file_utils import Extractor
+        
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b'\x1f\x8btest')
+            temp_path = f.name
+        
+        try:
+            result = Extractor._read_magic_number(temp_path, 4)
+            self.assertEqual(result, b'\x1f\x8bte')
+        finally:
+            os.unlink(temp_path)
+
+    def test_read_magic_number_file_not_found(self):
+        """Test _read_magic_number with non-existent file returns empty bytes."""
+        from ._file_utils import Extractor
+        
+        result = Extractor._read_magic_number('/nonexistent/path/file.txt', 4)
+        self.assertEqual(result, b'')
+
+    def test_infer_extractor_format_gzip(self):
+        """Test infer_extractor_format detects gzip format."""
+        from ._file_utils import Extractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.gz', delete=False) as f:
+            with gzip.GzipFile(fileobj=f, mode='wb') as gz:
+                gz.write(b'test content')
+            temp_path = f.name
+        
+        try:
+            result = Extractor.infer_extractor_format(temp_path)
+            self.assertEqual(result, 'gzip')
+        finally:
+            os.unlink(temp_path)
+
+    def test_infer_extractor_format_tar(self):
+        """Test infer_extractor_format detects tar format."""
+        from ._file_utils import Extractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.tar', delete=False) as f:
+            temp_path = f.name
+        
+        try:
+            with tarfile.open(temp_path, 'w') as tf:
+                tf.addfile(tarfile.TarInfo(name='test.txt'), io.BytesIO(b'test'))
+            
+            result = Extractor.infer_extractor_format(temp_path)
+            self.assertEqual(result, 'tar')
+        finally:
+            os.unlink(temp_path)
+
+    def test_infer_extractor_format_zip(self):
+        """Test infer_extractor_format detects zip format."""
+        from ._file_utils import Extractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as f:
+            with zipfile.ZipFile(f, 'w') as zf:
+                zf.writestr('test.txt', 'test content')
+            temp_path = f.name
+        
+        try:
+            result = Extractor.infer_extractor_format(temp_path)
+            self.assertEqual(result, 'zip')
+        finally:
+            os.unlink(temp_path)
+
+    def test_infer_extractor_format_unknown(self):
+        """Test infer_extractor_format returns None for unknown format."""
+        from ._file_utils import Extractor
+        
+        with tempfile.NamedTemporaryFile(suffix='.txt', delete=False, mode='w') as f:
+            f.write('unknown content')
+            temp_path = f.name
+        
+        try:
+            result = Extractor.infer_extractor_format(temp_path)
+            self.assertIsNone(result)
+        finally:
+            os.unlink(temp_path)
+
+    def test_is_extractable_deprecation_warning(self):
+        """Test that is_extractable raises FutureWarning."""
+        from ._file_utils import Extractor
+        
+        with tempfile.NamedTemporaryFile

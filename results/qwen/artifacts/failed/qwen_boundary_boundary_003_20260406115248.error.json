@@ -1,0 +1,14 @@
+{
+  "model": "qwen",
+  "language": "boundary",
+  "sample_id": "boundary_003",
+  "sample_path": "/mnt/c/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/dataset/python/boundary/boundary_003.py",
+  "created_at_utc": "2026-04-06T11:52:48.764403Z",
+  "success": false,
+  "error": {
+    "kind": "unknown_error",
+    "message": "'latin-1' codec can't encode characters in position 7-8: ordinal not in range(256)",
+    "retryable": false,
+    "status_code": null
+  }
+}

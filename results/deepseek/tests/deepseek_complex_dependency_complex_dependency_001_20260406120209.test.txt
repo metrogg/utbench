@@ -1,0 +1,460 @@
+```complex_dependency
+import base64
+import io
+import os
+import warnings
+from collections import defaultdict
+from pathlib import Path, PurePosixPath
+from unittest.mock import Mock, patch, MagicMock, call
+import pytest
+
+from . import constants
+from .errors import EntryNotFoundError, HfHubHTTPError, XetAuthorizationError, XetRefreshTokenError
+from .file_download import hf_hub_url
+from .lfs import UploadInfo
+from .utils import FORBIDDEN_FOLDERS, XetTokenType, are_progress_bars_disabled, chunk_iterable, fetch_xet_connection_info_from_repo_info, get_session, hf_raise_for_status, http_backoff, logging, sha, tqdm_stream_file
+from .utils import tqdm as hf_tqdm
+from .utils._runtime import is_xet_available
+
+# Import the module under test
+from . import _commit_operations
+
+# Re-export the classes for convenience
+CommitOperationAdd = _commit_operations.CommitOperationAdd
+CommitOperationCopy = _commit_operations.CommitOperationCopy
+CommitOperationDelete = _commit_operations.CommitOperationDelete
+CommitOperation = _commit_operations.CommitOperation
+_validate_path_in_repo = _commit_operations._validate_path_in_repo
+_warn_on_overwriting_operations = _commit_operations._warn_on_overwriting_operations
+_upload_files = _commit_operations._upload_files
+_upload_lfs_files = _commit_operations._upload_lfs_files
+_upload_xet_files = _commit_operations._upload_xet_files
+_validate_preupload_info = _commit_operations._validate_preupload_info
+_fetch_upload_modes = _commit_operations._fetch_upload_modes
+_fetch_files_to_copy = _commit_operations._fetch_files_to_copy
+_prepare_commit_payload = _commit_operations._prepare_commit_payload
+
+logger = logging.get_logger(__name__)
+
+class TestValidatePathInRepo:
+    """Test _validate_path_in_repo function."""
+    
+    def test_valid_paths(self):
+        """Test valid paths."""
+        assert _validate_path_in_repo("data/file.txt") == "data/file.txt"
+        assert _validate_path_in_repo("/data/file.txt") == "data/file.txt"
+        assert _validate_path_in_repo("./data/file.txt") == "data/file.txt"
+        assert _validate_path_in_repo("data/subdir/file.txt") == "data/subdir/file.txt"
+    
+    def test_invalid_paths(self):
+        """Test invalid paths."""
+        with pytest.raises(ValueError, match="Invalid.*path_in_repo.*'..'"):
+            _validate_path_in_repo("..")
+        
+        with pytest.raises(ValueError, match="Invalid.*path_in_repo.*'../data'"):
+            _validate_path_in_repo("../data")
+        
+        with pytest.raises(ValueError, match="Invalid.*path_in_repo.*'./../data'"):
+            _validate_path_in_repo("./../data")
+    
+    def test_forbidden_folders(self):
+        """Test paths containing forbidden folders."""
+        for forbidden in FORBIDDEN_FOLDERS:
+            with pytest.raises(ValueError, match=f"cannot update files under a '{forbidden}/' folder"):
+                _validate_path_in_repo(f"{forbidden}/file.txt")
+            
+            with pytest.raises(ValueError, match=f"cannot update files under a '{forbidden}/' folder"):
+                _validate_path_in_repo(f"data/{forbidden}/file.txt")
+
+class TestCommitOperationDelete:
+    """Test CommitOperationDelete dataclass."""
+    
+    def test_init_with_auto_folder_detection(self):
+        """Test initialization with auto folder detection."""
+        # File path
+        op = CommitOperationDelete(path_in_repo="data/file.txt")
+        assert op.path_in_repo == "data/file.txt"
+        assert op.is_folder is False
+        
+        # Folder path
+        op = CommitOperationDelete(path_in_repo="data/folder/")
+        assert op.path_in_repo == "data/folder/"
+        assert op.is_folder is True
+    
+    def test_init_with_explicit_folder(self):
+        """Test initialization with explicit folder flag."""
+        op = CommitOperationDelete(path_in_repo="data/file.txt", is_folder=True)
+        assert op.is_folder is True
+        
+        op = CommitOperationDelete(path_in_repo="data/folder/", is_folder=False)
+        assert op.is_folder is False
+    
+    def test_invalid_is_folder(self):
+        """Test invalid is_folder values."""
+        with pytest.raises(ValueError, match="Wrong value for `is_folder`"):
+            CommitOperationDelete(path_in_repo="data/file.txt", is_folder="invalid")
+        
+        with pytest.raises(ValueError, match="Wrong value for `is_folder`"):
+            CommitOperationDelete(path_in_repo="data/file.txt", is_folder=123)
+
+class TestCommitOperationCopy:
+    """Test CommitOperationCopy dataclass."""
+    
+    def test_init(self):
+        """Test initialization."""
+        op = CommitOperationCopy(
+            src_path_in_repo="src/file.txt",
+            path_in_repo="dest/file.txt",
+            src_revision="main"
+        )
+        assert op.src_path_in_repo == "src/file.txt"
+        assert op.path_in_repo == "dest/file.txt"
+        assert op.src_revision == "main"
+        assert op._src_oid is None
+        assert op._dest_oid is None
+    
+    def test_init_without_revision(self):
+        """Test initialization without src_revision."""
+        op = CommitOperationCopy(
+            src_path_in_repo="src/file.txt",
+            path_in_repo="dest/file.txt"
+        )
+        assert op.src_revision is None
+
+class TestCommitOperationAdd:
+    """Test CommitOperationAdd dataclass."""
+    
+    def test_init_with_string_path(self, tmp_path):
+        """Test initialization with string file path."""
+        # Create a test file
+        test_file = tmp_path / "test.txt"
+        test_file.write_bytes(b"test content")
+        
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=str(test_file)
+        )
+        assert op.path_in_repo == "data/test.txt"
+        assert op.path_or_fileobj == str(test_file)
+        assert isinstance(op.upload_info, UploadInfo)
+        assert op.upload_info.size == len(b"test content")
+        assert op._upload_mode is None
+        assert op._should_ignore is None
+        assert op._remote_oid is None
+        assert not op._is_uploaded
+        assert not op._is_committed
+    
+    def test_init_with_path_object(self, tmp_path):
+        """Test initialization with Path object."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_bytes(b"test content")
+        
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=test_file
+        )
+        assert op.path_or_fileobj == str(test_file)
+    
+    def test_init_with_bytes(self):
+        """Test initialization with bytes."""
+        content = b"test content"
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=content
+        )
+        assert op.path_or_fileobj == content
+        assert isinstance(op.upload_info, UploadInfo)
+        assert op.upload_info.size == len(content)
+    
+    def test_init_with_binary_io(self):
+        """Test initialization with binary IO object."""
+        fileobj = io.BytesIO(b"test content")
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=fileobj
+        )
+        assert op.path_or_fileobj == fileobj
+        assert isinstance(op.upload_info, UploadInfo)
+    
+    def test_init_with_invalid_file_path(self):
+        """Test initialization with non-existent file path."""
+        with pytest.raises(ValueError, match="is not a file"):
+            CommitOperationAdd(
+                path_in_repo="data/test.txt",
+                path_or_fileobj="/nonexistent/file.txt"
+            )
+    
+    def test_init_with_invalid_type(self):
+        """Test initialization with invalid type."""
+        with pytest.raises(ValueError, match="must be either an instance of str, bytes or io.BufferedIOBase"):
+            CommitOperationAdd(
+                path_in_repo="data/test.txt",
+                path_or_fileobj=123  # Invalid type
+            )
+    
+    def test_init_with_non_seekable_fileobj(self):
+        """Test initialization with non-seekable file-like object."""
+        class NonSeekableIO:
+            def read(self):
+                return b"test"
+        
+        with pytest.raises(ValueError, match="does not implement seek\(\) and tell\(\)"):
+            CommitOperationAdd(
+                path_in_repo="data/test.txt",
+                path_or_fileobj=NonSeekableIO()
+            )
+    
+    def test_as_file_with_string_path(self, tmp_path):
+        """Test as_file context manager with string path."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_bytes(b"test content")
+        
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=str(test_file)
+        )
+        
+        with op.as_file() as file:
+            content = file.read()
+            assert content == b"test content"
+    
+    def test_as_file_with_bytes(self):
+        """Test as_file context manager with bytes."""
+        content = b"test content"
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=content
+        )
+        
+        with op.as_file() as file:
+            assert file.read() == content
+    
+    def test_as_file_with_binary_io(self):
+        """Test as_file context manager with binary IO."""
+        original_content = b"test content"
+        fileobj = io.BytesIO(original_content)
+        
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=fileobj
+        )
+        
+        # Read from the fileobj
+        fileobj.read(4)  # Read "test"
+        
+        with op.as_file() as file:
+            # Should be at beginning
+            assert file.read() == original_content
+        
+        # Original fileobj should be restored to original position
+        assert fileobj.read() == b" content"
+    
+    @patch('tqdm_stream_file')
+    def test_as_file_with_tqdm(self, mock_tqdm_stream, tmp_path):
+        """Test as_file with tqdm enabled."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_bytes(b"test content")
+        
+        mock_file = Mock()
+        mock_tqdm_stream.return_value.__enter__.return_value = mock_file
+        
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=str(test_file)
+        )
+        
+        with op.as_file(with_tqdm=True) as file:
+            assert file == mock_file
+        
+        mock_tqdm_stream.assert_called_once_with(str(test_file))
+    
+    def test_b64content(self, tmp_path):
+        """Test b64content method."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_bytes(b"test content")
+        
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=str(test_file)
+        )
+        
+        encoded = op.b64content()
+        assert base64.b64decode(encoded) == b"test content"
+    
+    def test_local_oid_none(self):
+        """Test _local_oid property when _upload_mode is None."""
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=b"test"
+        )
+        op._upload_mode = None
+        assert op._local_oid is None
+    
+    def test_local_oid_lfs(self):
+        """Test _local_oid property for LFS mode."""
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=b"test"
+        )
+        op._upload_mode = 'lfs'
+        # SHA256 of "test"
+        expected_sha = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        assert op._local_oid == expected_sha
+    
+    def test_local_oid_regular(self):
+        """Test _local_oid property for regular mode."""
+        op = CommitOperationAdd(
+            path_in_repo="data/test.txt",
+            path_or_fileobj=b"test"
+        )
+        op._upload_mode = 'regular'
+        # Git hash of "test"
+        expected_git_hash = "30d74d258442c7c65512eafab474568dd706c430"
+        assert op._local_oid == expected_git_hash
+
+class TestWarnOnOverwritingOperations:
+    """Test _warn_on_overwriting_operations function."""
+    
+    def test_no_warnings_for_unique_paths(self):
+        """Test no warnings when all paths are unique."""
+        operations = [
+            CommitOperationAdd(path_in_repo="file1.txt", path_or_fileobj=b"content1"),
+            CommitOperationAdd(path_in_repo="file2.txt", path_or_fileobj=b"content2"),
+            CommitOperationDelete(path_in_repo="file3.txt"),
+        ]
+        
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _warn_on_overwriting_operations(operations)
+            assert len(w) == 0
+    
+    def test_warning_for_duplicate_additions(self):
+        """Test warning when same file is added multiple times."""
+        operations = [
+            CommitOperationAdd(path_in_repo="file.txt", path_or_fileobj=b"content1"),
+            CommitOperationAdd(path_in_repo="file.txt", path_or_fileobj=b"content2"),
+        ]
+        
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _warn_on_overwriting_operations(operations)
+            assert len(w) == 1
+            assert "update multiple times the same file" in str(w[0].message)
+    
+    def test_warning_for_add_then_delete_file(self):
+        """Test warning when file is added then deleted."""
+        operations = [
+            CommitOperationAdd(path_in_repo="file.txt", path_or_fileobj=b"content"),
+            CommitOperationDelete(path_in_repo="file.txt", is_folder=False),
+        ]
+        
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _warn_on_overwriting_operations(operations)
+            assert len(w) == 1
+            assert "delete a file that have just been updated" in str(w[0].message)
+    
+    def test_warning_for_add_then_delete_folder(self):
+        """Test warning when folder containing added file is deleted."""
+        operations = [
+            CommitOperationAdd(path_in_repo="folder/file.txt", path_or_fileobj=b"content"),
+            CommitOperationDelete(path_in_repo="folder/", is_folder=True),
+        ]
+        
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _warn_on_overwriting_operations(operations)
+            assert len(w) == 1
+            assert "delete a folder containing files" in str(w[0].message)
+
+class TestUploadFiles:
+    """Test _upload_files function."""
+    
+    @patch('post_lfs_batch_info')
+    @patch('is_xet_available')
+    @patch('_upload_lfs_files')
+    @patch('_upload_xet_files')
+    def test_upload_files_lfs_only(self, mock_upload_xet, mock_upload_lfs, mock_is_xet, mock_post_lfs):
+        """Test uploading files with LFS only."""
+        # Mock setup
+        mock_is_xet.return_value = False
+        mock_post_lfs.return_value = (
+            [{'oid': 'sha256-1', 'actions': {'upload': 'url'}}],
+            [],
+            'basic'
+        )
+        
+        # Create test operations
+        additions = [
+            CommitOperationAdd(path_in_repo="file1.txt", path_or_fileobj=b"content1"),
+            CommitOperationAdd(path_in_repo="file2.txt", path_or_fileobj=b"content2"),
+        ]
+        
+        # Call function
+        _upload_files(
+            additions=additions,
+            repo_type="model",
+            repo_id="test/repo",
+            headers={"Authorization": "token"},
+            num_threads=2
+        )
+        
+        # Verify calls
+        mock_post_lfs.assert_called_once()
+        mock_upload_lfs.assert_called_once()
+        mock_upload_xet.assert_not_called()
+    
+    @patch('post_lfs_batch_info')
+    @patch('is_xet_available')
+    @patch('_upload_lfs_files')
+    @patch('_upload_xet_files')
+    def test_upload_files_xet_available(self, mock_upload_xet, mock_upload_lfs, mock_is_xet, mock_post_lfs):
+        """Test uploading files when Xet is available."""
+        # Mock setup
+        mock_is_xet.return_value = True
+        mock_post_lfs.return_value = (
+            [{'oid': 'sha256-1'}],  # No actions means already uploaded
+            [],
+            'xet'
+        )
+        
+        # Create test operations
+        additions = [
+            CommitOperationAdd(path_in_repo="file1.txt", path_or_fileobj=b"content1"),
+        ]
+        
+        # Call function
+        _upload_files(
+            additions=additions,
+            repo_type="model",
+            repo_id="test/repo",
+            headers={"Authorization": "token"},
+            num_threads=2
+        )
+        
+        # Verify calls
+        mock_post_lfs.assert_called_once()
+        mock_upload_lfs.assert_not_called()
+        mock_upload_xet.assert_called_once()
+    
+    @patch('post_lfs_batch_info')
+    @patch('is_xet_available')
+    def test_upload_files_with_errors(self, mock_is_xet, mock_post_lfs):
+        """Test uploading files when LFS API returns errors."""
+        # Mock setup
+        mock_is_xet.return_value = False
+        mock_post_lfs.return_value = (
+            [],
+            [{'oid': 'sha256-1', 'error': {'message': 'Test error'}}],
+            'basic'
+        )
+        
+        # Create test operations
+        additions = [
+            CommitOperationAdd(path_in_repo="file1.txt", path_or_fileobj=b"content1"),
+        ]
+        
+        # Call function and expect error
+        with pytest.raises(ValueError, match="LFS batch API returned errors"):
+            _upload_files(
+                additions

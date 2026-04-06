@@ -1,0 +1,502 @@
+<think>
+The user wants me to generate high-quality unit tests for the provided HTTP2 connection code. Let me analyze the code:
+
+1. This is an HTTP/2 connection implementation with features like:
+   - Connection state management (ACTIVE, IDLE, CLOSED)
+   - Request handling with flow control
+   - Stream management with semaphore for concurrent streams
+   - Protocol error handling
+   - Connection keepalive/expiry
+
+2. Key classes:
+   - `HTTP2Connection` - Main connection class
+   - `HTTP2ConnectionByteStream` - Byte stream for response body
+   - `HTTPConnectionState` - Enum for connection states
+   - `has_body_headers` - Helper function
+
+3. Key methods to test:
+   - `has_body_headers` - simple boolean check
+   - `handle_request` - main request handling logic
+   - `can_handle_request` - origin check
+   - `is_available` - availability check
+   - `has_expired` - expiry check
+   - `is_idle`, `is_closed` - state checks
+   - `close` - cleanup
+   - `_send_connection_init`, `_send_request_headers`, `_send_request_body`
+   - `_receive_response`, `_receive_response_body`
+   - `_response_closed`
+
+4. External dependencies to mock:
+   - `h2.connection.H2Connection`
+   - `h2.config.H2Configuration`
+   - `h2.settings.Settings`
+   - `h2.events` (various event types)
+   - `h2.exceptions`
+   - `NetworkStream`
+   - `Lock`, `Semaphore`, `ShieldCancellation` from synchronization
+   - `Trace` from _trace
+
+Let me create comprehensive unit tests covering:
+1. Normal paths - successful request/response handling
+2. Boundary conditions - empty responses, max streams, etc.
+3. Error/exception behavior - protocol errors, connection errors, etc.
+
+
+4. State transitions - verifying the connection moves through its lifecycle correctly
+5. Concurrency scenarios - testing behavior when multiple requests interact
+
+I need to write tests in a framework-agnostic way using `complex_dependency` as the language identifier, focusing on deterministic test cases with proper mocking of all external dependencies.
+
+The test structure should include fixtures for setting up HTTP2Connection instances and mocking network streams, h2 state, and synchronization primitives. I'll cover core functionality like body header detection, request handling with mock responses, origin validation, availability checks, expiration logic, and connection state management through close operations.
+
+Beyond the basics, I need tests for protocol error handling, maximum stream limits, concurrent request flows, connection termination, request cancellation, and the byte stream iterator interface. The tests will use pytest with unittest.mock to create comprehensive coverage of the connection's behavior under various conditions.
+</think>
+
+```complex_dependency
+from __future__ import annotations
+
+import enum
+import logging
+import time
+import types
+import typing
+import unittest
+import threading
+from unittest import mock
+
+import h2.config
+import h2.connection
+import h2.events
+import h2.exceptions
+import h2.settings
+
+from httpcore._backends.base import NetworkStream
+from httpcore._exceptions import ConnectionNotAvailable, LocalProtocolError, RemoteProtocolError
+from httpcore._models import Origin, Request, Response
+from httpcore._synchronization import Lock, Semaphore, ShieldCancellation
+from httpcore._trace import Trace
+
+from httpcore.http2 import HTTP2Connection, HTTP2ConnectionByteStream, HTTPConnectionState, has_body_headers
+
+
+class MockNetworkStream:
+    """Mock NetworkStream for testing."""
+
+    def __init__(self):
+        self._closed = False
+        self._read_data = b''
+        self._write_data = b''
+        self._read_exception: Exception | None = None
+        self._write_exception: Exception | None = None
+        self._read_timeout: float | None = None
+
+    def read(self, num_bytes: int, timeout: float | None = None) -> bytes:
+        self._read_timeout = timeout
+        if self._read_exception:
+            raise self._read_exception
+        data = self._read_data
+        self._read_data = b''
+        return data
+
+    def write(self, data: bytes, timeout: float | None = None) -> None:
+        if self._write_exception:
+            raise self._write_exception
+        self._write_data += data
+
+    def close(self) -> None:
+        self._closed = True
+
+    @property
+    def written_data(self) -> bytes:
+        return self._write_data
+
+
+class MockH2Connection:
+    """Mock H2Connection for testing."""
+
+    def __init__(self, config=None):
+        self._closed = False
+        self._stream_id = 0
+        self._local_settings = mock.MagicMock()
+        self._local_settings.max_concurrent_streams = 100
+        self._local_flow_windows: dict[int, int] = {}
+        self._max_outbound_frame_size = 16384
+        self._data_to_send_buffer = b''
+        self._events: list[h2.events.Event] = []
+        self._state_machine = mock.MagicMock()
+        self._state_machine.state = h2.connection.ConnectionState.IDLE
+
+    def get_next_available_stream_id(self) -> int:
+        self._stream_id += 2
+        return self._stream_id - 2
+
+    def send_headers(self, stream_id: int, headers: list, end_stream: bool = False) -> None:
+        pass
+
+    def send_data(self, stream_id: int, data: bytes) -> None:
+        pass
+
+    def end_stream(self, stream_id: int) -> None:
+        pass
+
+    def receive_data(self, data: bytes) -> list[h2.events.Event]:
+        events = self._events[:]
+        self._events = []
+        return events
+
+    def data_to_send(self) -> bytes:
+        data = self._data_to_send_buffer
+        self._data_to_send_buffer = b''
+        return data
+
+    def initiate_connection(self) -> None:
+        self._data_to_send_buffer = b'\x50\x72\x69\x6d\x65\x2d\x73\x65\x6c\x65\x63\x74'  # Fake ALPN
+
+    def increment_flow_control_window(self, increment: int, stream_id: int | None = None) -> None:
+        if stream_id is not None:
+            self._local_flow_windows[stream_id] = self._local_flow_windows.get(stream_id, 65535) + increment
+        else:
+            for sid in self._local_flow_windows:
+                self._local_flow_windows[sid] += increment
+
+    def local_flow_control_window(self, stream_id: int) -> int:
+        return self._local_flow_windows.get(stream_id, 65535)
+
+    def max_outbound_frame_size(self) -> int:
+        return self._max_outbound_frame_size
+
+    def close_connection(self) -> None:
+        self._closed = True
+
+    @property
+    def local_settings(self):
+        return self._local_settings
+
+    @local_settings.setter
+    def local_settings(self, value):
+        self._local_settings = value
+
+    @property
+    def state_machine(self):
+        return self._state_machine
+
+    def add_event(self, event: h2.events.Event) -> None:
+        self._events.append(event)
+
+    def acknowledge_received_data(self, amount: int, stream_id: int) -> None:
+        pass
+
+
+class MockTrace:
+    """Mock Trace context manager for testing."""
+
+    def __init__(self, name: str, logger: logging.Logger, request: Request, kwargs: dict):
+        self.name = name
+        self.logger = logger
+        self.request = request
+        self.kwargs = kwargs
+        self.return_value = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return None
+
+
+class MockSemaphore:
+    """Mock Semaphore for testing."""
+
+    def __init__(self, value: int):
+        self._value = value
+        self._lock = threading.Lock()
+
+    def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
+        with self._lock:
+            if self._value > 0:
+                self._value -= 1
+                return True
+            if not blocking:
+                return False
+            raise threading.Semaphore模拟Error()
+
+    def release(self) -> None:
+        with self._lock:
+            self._value += 1
+
+    @property
+    def _value_getter(self) -> int:
+        return self._value
+
+
+class MockLock:
+    """Mock Lock for testing."""
+
+    def __init__(self):
+        self._locked = False
+
+    def __enter__(self):
+        self._locked = True
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._locked = False
+        return None
+
+
+def create_mock_request(
+    method: bytes = b'GET',
+    url: str = 'https://example.com/test',
+    headers: list[tuple[bytes, bytes]] | None = None,
+    content: bytes | None = None
+) -> Request:
+    """Helper to create mock Request objects."""
+    if headers is None:
+        headers = [(b'host', b'example.com')]
+
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+
+    request = mock.MagicMock(spec=Request)
+    request.method = method
+    request.url = mock.MagicMock()
+    request.url.origin = Origin('https', 'example.com', 443)
+    request.url.scheme = parsed.scheme.encode()
+    request.url.host = parsed.hostname.encode() if parsed.hostname else b''
+    request.url.target = parsed.path.encode() if parsed.path else b'/'
+    request.headers = headers
+    request.stream = content if content else iter([])
+    request.extensions = {'timeout': {'read': 30.0, 'write': 30.0}}
+
+    def iterate_content():
+        if content:
+            yield content
+
+    request.stream = iterate_content() if content else iter([])
+
+    return request
+
+
+def create_mock_response(status: int = 200, headers: list[tuple[bytes, bytes]] | None = None) -> h2.events.ResponseReceived:
+    """Helper to create mock ResponseReceived events."""
+    if headers is None:
+        headers = [(b'content-type', b'text/plain')]
+
+    event = mock.MagicMock(spec=h2.events.ResponseReceived)
+    event.headers = [(b':status', str(status).encode())] + headers
+    event.stream_id = 1
+    return event
+
+
+class TestHasBodyHeaders(unittest.TestCase):
+    """Tests for has_body_headers function."""
+
+    def test_has_content_length(self):
+        """Test detection of Content-Length header."""
+        request = create_mock_request(headers=[(b'Content-Length', b'100')])
+        self.assertTrue(has_body_headers(request))
+
+    def test_has_transfer_encoding(self):
+        """Test detection of Transfer-Encoding header."""
+        request = create_mock_request(headers=[(b'Transfer-Encoding', b'chunked')])
+        self.assertTrue(has_body_headers(request))
+
+    def test_case_insensitive_content_length(self):
+        """Test that Content-Length is case-insensitive."""
+        request = create_mock_request(headers=[(b'content-length', b'100')])
+        self.assertTrue(has_body_headers(request))
+
+    def test_case_insensitive_transfer_encoding(self):
+        """Test that Transfer-Encoding is case-insensitive."""
+        request = create_mock_request(headers=[(b'transfer-encoding', b'chunked')])
+        self.assertTrue(has_body_headers(request))
+
+    def test_no_body_headers(self):
+        """Test when no body headers are present."""
+        request = create_mock_request(headers=[(b'Accept', b'*/*')])
+        self.assertFalse(has_body_headers(request))
+
+    def test_empty_headers(self):
+        """Test with empty headers."""
+        request = create_mock_request(headers=[])
+        self.assertFalse(has_body_headers(request))
+
+
+class TestHTTPConnectionState(unittest.TestCase):
+    """Tests for HTTPConnectionState enum."""
+
+    def test_enum_values(self):
+        """Test enum values are correct."""
+        self.assertEqual(HTTPConnectionState.ACTIVE, 1)
+        self.assertEqual(HTTPConnectionState.IDLE, 2)
+        self.assertEqual(HTTPConnectionState.CLOSED, 3)
+
+
+class TestHTTP2Connection(unittest.TestCase):
+    """Tests for HTTP2Connection class."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.mock_h2_state = MockH2Connection()
+        self.mock_stream = MockNetworkStream()
+
+        self.origin = Origin('https', 'example.com', 443)
+
+    def _create_connection(self) -> HTTP2Connection:
+        """Create HTTP2Connection with mocked dependencies."""
+        with mock.patch('httpcore.http2.h2.connection.H2Connection', return_value=self.mock_h2_state):
+            with mock.patch('httpcore.http2.h2.config.H2Configuration') as mock_config:
+                with mock.patch('httpcore.http2.Lock', return_value=MockLock()):
+                    with mock.patch('httpcore.http2.Semaphore') as mock_semaphore:
+                        mock_semaphore.return_value = MockSemaphore(100)
+                        with mock.patch('httpcore.http2.Trace', MockTrace):
+                            connection = HTTP2Connection(self.origin, self.mock_stream)
+                            return connection
+
+    def test_initialization(self):
+        """Test connection initialization."""
+        connection = self._create_connection()
+        self.assertEqual(connection._origin, self.origin)
+        self.assertEqual(connection._state, HTTPConnectionState.IDLE)
+        self.assertEqual(connection._request_count, 0)
+        self.assertFalse(connection._sent_connection_init)
+        self.assertFalse(connection._used_all_stream_ids)
+
+    def test_can_handle_request_same_origin(self):
+        """Test can_handle_request with matching origin."""
+        connection = self._create_connection()
+        self.assertTrue(connection.can_handle_request(self.origin))
+
+    def test_can_handle_request_different_origin(self):
+        """Test can_handle_request with different origin."""
+        connection = self._create_connection()
+        other_origin = Origin('https', 'other.com', 443)
+        self.assertFalse(connection.can_handle_request(other_origin))
+
+    def test_is_available_when_idle(self):
+        """Test is_available returns True when idle."""
+        connection = self._create_connection()
+        self.assertTrue(connection.is_available())
+
+    def test_is_available_when_closed(self):
+        """Test is_available returns False when closed."""
+        connection = self._create_connection()
+        connection._state = HTTPConnectionState.CLOSED
+        self.assertFalse(connection.is_available())
+
+    def test_is_available_with_connection_error(self):
+        """Test is_available returns False on connection error."""
+        connection = self._create_connection()
+        connection._connection_error = True
+        self.assertFalse(connection.is_available())
+
+    def test_is_available_with_used_all_stream_ids(self):
+        """Test is_available returns False when all stream IDs used."""
+        connection = self._create_connection()
+        connection._used_all_stream_ids = True
+        self.assertFalse(connection.is_available())
+
+    def test_is_idle_when_idle(self):
+        """Test is_idle returns True when state is IDLE."""
+        connection = self._create_connection()
+        self.assertTrue(connection.is_idle())
+
+    def test_is_idle_when_active(self):
+        """Test is_idle returns False when state is ACTIVE."""
+        connection = self._create_connection()
+        connection._state = HTTPConnectionState.ACTIVE
+        self.assertFalse(connection.is_idle())
+
+    def test_is_closed_when_closed(self):
+        """Test is_closed returns True when state is CLOSED."""
+        connection = self._create_connection()
+        connection._state = HTTPConnectionState.CLOSED
+        self.assertTrue(connection.is_closed())
+
+    def test_is_closed_when_idle(self):
+        """Test is_closed returns False when state is IDLE."""
+        connection = self._create_connection()
+        self.assertFalse(connection.is_closed())
+
+    def test_has_expired_when_no_expiry(self):
+        """Test has_expired returns False when no expiry set."""
+        connection = self._create_connection()
+        self.assertFalse(connection.has_expired())
+
+    def test_has_expired_when_not_expired(self):
+        """Test has_expired returns False when not yet expired."""
+        connection = self._create_connection()
+        connection._expire_at = time.monotonic() + 3600
+        self.assertFalse(connection.has_expired())
+
+    def test_has_expired_when_expired(self):
+        """Test has_expired returns True when expired."""
+        connection = self._create_connection()
+        connection._expire_at = time.monotonic() - 1
+        self.assertTrue(connection.has_expired())
+
+    def test_close(self):
+        """Test close method."""
+        connection = self._create_connection()
+        connection.close()
+        self.assertEqual(connection._state, HTTPConnectionState.CLOSED)
+        self.assertTrue(self.mock_stream._closed)
+        self.assertTrue(self.mock_h2_state._closed)
+
+    def test_info(self):
+        """Test info method returns expected format."""
+        connection = self._create_connection()
+        info = connection.info()
+        self.assertIn('HTTP/2', info)
+        self.assertIn('IDLE', info)
+        self.assertIn('Request Count: 0', info)
+
+    def test_repr(self):
+        """Test __repr__ method."""
+        connection = self._create_connection()
+        repr_str = repr(connection)
+        self.assertIn('HTTP2Connection', repr_str)
+        self.assertIn('example.com', repr_str)
+
+    def test_context_manager_enter(self):
+        """Test __enter__ returns self."""
+        connection = self._create_connection()
+        result = connection.__enter__()
+        self.assertIs(result, connection)
+
+    def test_context_manager_exit(self):
+        """Test __exit__ calls close."""
+        connection = self._create_connection()
+        connection.__exit__(None, None, None)
+        self.assertEqual(connection._state, HTTPConnectionState.CLOSED)
+
+
+class TestHTTP2ConnectionHandleRequest(unittest.TestCase):
+    """Tests for HTTP2Connection.handle_request method."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.origin = Origin('https', 'example.com', 443)
+        self.mock_stream = MockNetworkStream()
+        self.mock_h2_state = MockH2Connection()
+
+    def _create_connection(self, max_streams: int = 100) -> HTTP2Connection:
+        """Create HTTP2Connection with mocked dependencies."""
+        with mock.patch('httpcore.http2.h2.connection.H2Connection', return_value=self.mock_h2_state):
+            with mock.patch('httpcore.http2.h2.config.H2Configuration') as mock_config:
+                with mock.patch('httpcore.http2.Lock', return_value=MockLock()):
+                    with mock.patch('httpcore.http2.Semaphore') as mock_semaphore:
+                        mock_semaphore.return_value = MockSemaphore(max_streams)
+                        with mock.patch('httpcore.http2.Trace', MockTrace):
+                            connection = HTTP2Connection(self.origin, self.mock_stream)
+                            return connection
+
+    def test_handle_request_wrong_origin(self):
+        """Test handle_request raises RuntimeError for wrong origin."""
+        connection = self._create_connection()
+        request = create_mock_request()
+        request.url.origin = Origin('https', 'other.com', 443)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            connection.handle_request(request)
+        self.assertIn('Attempted to send request

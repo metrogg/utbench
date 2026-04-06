@@ -3,8 +3,8 @@
 This directory contains benchmark-related modules:
 
 - `runner/`: send dataset samples to model APIs and save generated tests
-- `evaluator/`: quality evaluation pipeline (to be implemented)
-- `reporter/`: report generation module (to be implemented)
+- `evaluator/`: quality evaluation pipeline
+- `reporter/`: report generation module
 - `config/`: benchmark configuration (`models.yaml`)
 
 ## Runner quick start
@@ -53,6 +53,71 @@ results/
     tests/      # generated test files
     reports/    # metadata json files
     artifacts/  # raw API responses and failure logs
+```
+
+## Evaluator quick start
+
+Evaluate existing generated tests:
+
+```bash
+python -m benchmark.evaluator --results-root results
+```
+
+Scoped evaluation:
+
+```bash
+python -m benchmark.evaluator --results-root results --model deepseek --lang python
+```
+
+## Reporter quick start
+
+Generate report artifacts (JSON/CSV/HTML) from evaluator outputs:
+
+```bash
+python -m benchmark.reporter --results-root results
+```
+
+Default HTML report is Chinese and visualized (summary + analysis + appendix), including:
+
+- model comparison bar chart
+- complexity trend line chart
+- multi-dimension radar chart
+- model-language heatmap
+
+Specify evaluator summary file:
+
+```bash
+python -m benchmark.reporter --results-root results --evaluator-summary results/evaluator_summary_20260406T064045963256Z.json
+```
+
+Advanced options:
+
+```bash
+python -m benchmark.reporter \
+  --results-root results \
+  --formats json,csv,html \
+  --chart-style teal \
+  --threshold-test 0.7 \
+  --threshold-line 0.7 \
+  --threshold-branch 0.6 \
+  --threshold-mutation 0.85
+```
+
+Shell wrapper:
+
+```bash
+bash scripts/gen_report.sh --results-root results
+```
+
+Reporter outputs follow:
+
+```text
+results/reports/
+  reporter_summary_*.json
+  reporter_by_model_*.csv
+  reporter_by_language_*.csv
+  reporter_samples_*.csv
+  reporter_report_*.html
 ```
 
 ## Prompt module design
