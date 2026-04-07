@@ -513,6 +513,13 @@ class Runner:
             lang.strip().lower() for lang in (languages or []) if lang.strip()
         }
         samples: list[Path] = []
+        language_source_ext = {
+            "java": {".java"},
+            "python": {".py"},
+            "go": {".go"},
+            "cpp": {".cpp", ".cc", ".cxx"},
+            "javascript": {".js", ".ts"},
+        }
         for lang_dir in sorted(self.dataset_root.iterdir()):
             if not lang_dir.is_dir():
                 continue
@@ -521,7 +528,17 @@ class Runner:
                 continue
 
             pattern = sample_glob or "*"
-            files = sorted([p for p in lang_dir.rglob(pattern) if p.is_file()])
+            candidates = sorted([p for p in lang_dir.rglob(pattern) if p.is_file()])
+            allowed_ext = language_source_ext.get(language)
+            files: list[Path] = []
+            for candidate in candidates:
+                rel = candidate.relative_to(lang_dir)
+                if any(part.startswith(".") for part in rel.parts):
+                    continue
+                if allowed_ext and candidate.suffix.lower() not in allowed_ext:
+                    continue
+                files.append(candidate)
+
             if max_samples is not None and max_samples > 0:
                 files = files[:max_samples]
             samples.extend(files)

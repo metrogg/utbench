@@ -19,29 +19,27 @@ def collect_coverage(
     language: str,
     generated_test_path: Path,
     source_path: Path | None,
-) -> tuple[float | None, float | None, float | None, str | None]:
+) -> tuple[float | None, float | None, float | None, float | None, float | None, float | None, str | None]:
     """阶段3：覆盖率分析。
 
-    Python 真实执行 coverage.py：
-    - coverage run -m pytest
-    - coverage json
-    先输出 line coverage；branch/function 在 MVP 阶段先保留为 None。
+    Returns:
+        (line_cov, branch_cov, func_cov, passed_line_cov, passed_branch_cov, passed_func_cov, error)
     """
     if language == "python":
         return _collect_python_coverage(generated_test_path, source_path)
 
     if language in {"java", "go", "cpp", "javascript"}:
-        return None, None, None, None
+        return None, None, None, None, None, None, None
 
-    return None, None, None, f"Unsupported language: {language}"
+    return None, None, None, None, None, None, f"Unsupported language: {language}"
 
 
 def _collect_python_coverage(
     generated_test_path: Path,
     source_path: Path | None,
-) -> tuple[float | None, float | None, float | None, str | None]:
+) -> tuple[float | None, float | None, float | None, float | None, float | None, float | None, str | None]:
     if source_path is None or not source_path.exists():
-        return None, None, None, "Missing source file for coverage"
+        return None, None, None, None, None, None, "Missing source file for coverage"
 
     workdir, target_test = prepare_python_execution_workspace(
         generated_test_path=generated_test_path,
@@ -55,82 +53,75 @@ def _collect_python_coverage(
             generated_test_path=generated_test_path,
         )
         source_aliases.add(source_name)
-        json_report = workdir / "coverage.json"
-
-        run_cmd = [
-            sys.executable,
-            "-m",
-            "coverage",
-            "run",
-            "--branch",
-            "-m",
-            "pytest",
-            str(target_test.name),
-            "-q",
-        ]
-        proc = subprocess.run(
-            run_cmd,
-            cwd=str(workdir),
-            capture_output=True,
-            text=True,
-            timeout=40,
-            check=False,
-        )
-        if proc.returncode != 0:
-            error = (proc.stdout + "\n" + proc.stderr).strip()
-            return None, None, None, f"coverage run failed: {error[-3000:]}"
-
-        json_cmd = [
-            sys.executable,
-            "-m",
-            "coverage",
-            "json",
-            "-o",
-            str(json_report),
-        ]
-        proc_json = subprocess.run(
-            json_cmd,
-            cwd=str(workdir),
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=False,
-        )
-        if proc_json.returncode != 0:
-            error = (proc_json.stdout + "\n" + proc_json.stderr).strip()
-            return None, None, None, f"coverage json failed: {error[-3000:]}"
-
-        if not json_report.exists():
-            return None, None, None, "coverage json report not found"
-
-        payload = json.loads(json_report.read_text(encoding="utf-8"))
-        files = payload.get("files", {})
 
         line_coverage = None
         branch_coverage = None
         function_coverage = None
-        # 优先用被测源码文件对应的覆盖率。
-        for file_path, details in files.items():
-            file_name = Path(file_path).name
-            file_stem = Path(file_path).stem
-            if file_name in source_aliases or file_stem in source_aliases:
+        passed_line_coverage = None
+        passed_branch_coverage = None
+        passed_function_coverage = None
+
+        for run_mode, pytest_args in [
+            ("all", [str(target_test.name), "-q", "--maxfail=9999"]),
+            ("passed", [str(target_test.name), "-q", "--tb=no", "--maxfail=9999", "-k", "passed"]),
+        ]:
+            json_report = workdir / f"coverage_{run_mode}.json"
+
+            run_cmd = [
+                sys.executable, "-m", "coverage", "run", "--branch",
+                "-m", "pytest",
+            ] + pytest_args
+            proc = subprocess.run(
+                run_cmd, cwd=str(workdir), capture_output=True, text=True,
+                timeout=40, check=False,
+            )
+
+            json_cmd = [
+                sys.executable, "-m", "coverage", "json", "-o", str(json_report),
+            ]
+            proc_json = subprocess.run(
+                json_cmd, cwd=str(workdir), capture_output=True, text=True,
+                timeout=20, check=False,
+            )
+            if proc_json.returncode != 0 or not json_report.exists():
+                continue
+
+            try:
+                payload = json.loads(json_report.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+
+            files = payload.get("files", {})
+            for file_path, details in files.items():
+                file_name = Path(file_path).name
+                file_stem = Path(file_path).stem
+                if file_name not in source_aliases and file_stem not in source_aliases:
+                    continue
                 summary = details.get("summary", {})
-                line_coverage = _extract_line_coverage(summary)
-                branch_coverage = _extract_branch_coverage(summary)
-                function_coverage = _extract_function_coverage(source_path, details)
+                if run_mode == "all":
+                    line_coverage = _extract_line_coverage(summary)
+                    branch_coverage = _extract_branch_coverage(summary)
+                    function_coverage = _extract_function_coverage(source_path, details)
+                else:
+                    passed_line_coverage = _extract_line_coverage(summary)
+                    passed_branch_coverage = _extract_branch_coverage(summary)
+                    passed_function_coverage = _extract_function_coverage(source_path, details)
                 break
 
         if line_coverage is None:
-            return None, None, None, (
+            return None, None, None, None, None, None, (
                 f"source file not found in coverage report: {source_name}; aliases={sorted(source_aliases)}"
             )
 
-        # 源码命中后，若分支覆盖率缺失再回退到 totals（兼容不同 coverage 版本输出差异）。
         if branch_coverage is None:
             totals = payload.get("totals", {})
             branch_coverage = _extract_branch_coverage(totals)
 
-        return line_coverage, branch_coverage, function_coverage, None
+        return (
+            line_coverage, branch_coverage, function_coverage,
+            passed_line_coverage, passed_branch_coverage, passed_function_coverage,
+            None,
+        )
     finally:
         cleanup_execution_workspace(workdir)
 
@@ -242,6 +233,29 @@ def collect_mutation_score(
     return None, f"Unsupported language: {language}", None
 
 
+def _collect_failing_test_names(target_test: Path, workdir: Path) -> list[str]:
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", target_test.name, "-q", "--tb=no", "--maxfail=9999"],
+        cwd=str(workdir),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    failing: list[str] = []
+    for line in (proc.stdout + proc.stderr).splitlines():
+        if "::" in line and "FAILED" in line:
+            line = line.rstrip()
+            if "PASSED" in line:
+                continue
+            parts = line.split("::")
+            if len(parts) >= 3:
+                class_name = parts[-2].strip()
+                test_name = parts[-1].split("[")[0].strip()
+                if test_name:
+                    failing.append(f"({class_name} and {test_name})")
+    return failing
+
+
 def _collect_python_mutation_score(
     generated_test_path: Path,
     source_path: Path | None,
@@ -260,14 +274,16 @@ def _collect_python_mutation_score(
         fallback_source=source_path.name,
     )
 
+    failing_tests = _collect_failing_test_names(target_test, workdir)
+
     pyproject_file = workdir / "pyproject.toml"
     pyproject_file.write_text(
-        _build_mutmut_pyproject(source_names=mutation_targets, test_name=target_test.name),
+        _build_mutmut_pyproject(source_names=mutation_targets, test_name=target_test.name, failing_tests=failing_tests),
         encoding="utf-8",
     )
     mutmut_env = _build_mutmut_env(workdir)
 
-    run_cmd = [sys.executable, "-m", "mutmut", "run", "--max-children", "1"]
+    run_cmd = [sys.executable, "-m", "mutmut", "run"]
     run_proc = subprocess.run(
         run_cmd,
         cwd=str(workdir),
@@ -309,6 +325,7 @@ def _collect_python_mutation_score(
     meta_stats = _extract_meta_mutation_stats(workdir, mutation_targets)
     if meta_stats is not None:
         stats = meta_stats
+        payload = {"killed": stats.get("killed"), "total": stats.get("total")}
 
     killed = _to_int(payload.get("killed"))
     total = _to_int(payload.get("total"))
@@ -318,13 +335,13 @@ def _collect_python_mutation_score(
         return None, "mutmut produced zero mutants", stats
 
     processed = _processed_mutants(stats)
-    if processed <= 0:
+    if processed <= 0 and total > 0:
         return None, _format_mutmut_error(
             prefix="mutmut did not execute any mutants",
             run_proc=run_proc,
             export_proc=export_proc,
         ), stats
-    if (run_proc.returncode != 0 or stats.get("not_checked", 0) > 0) and processed < total:
+    if processed < total and stats.get("not_checked", 0) > 0:
         return None, _format_mutmut_error(
             prefix=f"mutmut run incomplete ({processed}/{total})",
             run_proc=run_proc,
@@ -335,14 +352,18 @@ def _collect_python_mutation_score(
     return score, None, stats
 
 
-def _build_mutmut_pyproject(source_names: list[str], test_name: str) -> str:
+def _build_mutmut_pyproject(source_names: list[str], test_name: str, failing_tests: list[str] | None = None) -> str:
     source_literal = json.dumps(source_names)
     test_literal = json.dumps(test_name)
+    extra_args = '["-q", "--tb=no", "--maxfail=9999"]'
+    if failing_tests:
+        exclude = " and ".join(f"not {t}" for t in failing_tests)
+        extra_args = f'["-q", "--tb=no", "--maxfail=9999", "-k", "{exclude}"]'
     return (
         "[tool.mutmut]\n"
         f"paths_to_mutate = {source_literal}\n"
         f"pytest_add_cli_args_test_selection = [{test_literal}]\n"
-        "pytest_add_cli_args = [\"-q\"]\n"
+        f"pytest_add_cli_args = {extra_args}\n"
     )
 
 
@@ -352,20 +373,18 @@ def _build_mutmut_env(workdir: Path) -> dict[str, str]:
     shim_dir.mkdir(parents=True, exist_ok=True)
     sitecustomize = shim_dir / "sitecustomize.py"
     sitecustomize.write_text(
-        (
-            "import multiprocessing as _mp\n"
-            "import multiprocessing.context as _mpc\n"
-            "_orig_set_start_method = _mpc._default_context.set_start_method\n"
-            "def _safe_set_start_method(method, force=False):\n"
-            "    try:\n"
-            "        return _orig_set_start_method(method, force=force)\n"
-            "    except RuntimeError as exc:\n"
-            "        if 'context has already been set' in str(exc):\n"
-            "            return None\n"
-            "        raise\n"
-            "_mp.set_start_method = _safe_set_start_method\n"
-            "_mpc.set_start_method = _safe_set_start_method\n"
-        ),
+        "import multiprocessing as _mp\n"
+        "import multiprocessing.context as _mpc\n"
+        "_orig = _mpc._default_context.set_start_method\n"
+        "def _safe(method, force=False):\n"
+        "    try:\n"
+        "        return _orig(method, force=force)\n"
+        "    except RuntimeError as e:\n"
+        "        if 'context has already been set' in str(e):\n"
+        "            return None\n"
+        "        raise\n"
+        "_mpc._default_context.set_start_method = _safe\n"
+        "_mp.set_start_method = _safe\n",
         encoding="utf-8",
     )
 

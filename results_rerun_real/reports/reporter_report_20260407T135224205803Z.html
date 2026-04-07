@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ut-bench 可视化评测报告</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: linear-gradient(180deg, #f6fbff 0%, #f7f8fc 100%);
+      --card: #ffffff;
+      --text: #102a43;
+      --muted: #6b7280;
+      --accent: #0f766e;
+      --accent-soft: rgba(15, 118, 110, 0.20);
+      --accent-2: rgba(12, 74, 110, 0.75);
+      --warn: #b45309;
+      --ok: #166534;
+      --line: #e5e7eb;
+    }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif; }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .hero { background: radial-gradient(circle at right top, var(--accent-soft), #fff 55%); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+    .hero h1 { margin: 0; font-size: 28px; letter-spacing: 0.3px; }
+    .hero .sub { margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .meta { color: var(--muted); font-size: 12px; margin-top: 10px; }
+    .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); margin-bottom: 24px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+    .card .k { color: var(--muted); font-size: 12px; }
+    .card .v { margin-top: 4px; font-size: 22px; font-weight: 700; color: var(--accent); }
+    h2 { margin: 24px 0 10px; font-size: 20px; }
+    h3 { margin: 16px 0 10px; font-size: 16px; color: #334e68; }
+    .section { margin-bottom: 26px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+    .chart-box { height: 300px; }
+    .chart-box canvas { width: 100% !important; height: 100% !important; }
+    .conclusion { margin: 0; padding-left: 18px; color: #243b53; line-height: 1.7; }
+    .conclusion li strong { color: var(--accent); }
+    table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+    th, td { border-bottom: 1px solid var(--line); padding: 8px 10px; font-size: 13px; text-align: left; vertical-align: top; }
+    th { background: #f8fbff; }
+    tr:last-child td { border-bottom: none; }
+    .filters { display: flex; gap: 12px; margin: 10px 0; flex-wrap: wrap; }
+    select, input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+    .small { color: var(--muted); font-size: 12px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin-left: 6px; background: #eef2ff; color: #3730a3; }
+    @media (max-width: 900px) {
+      .grid-2 { grid-template-columns: 1fr; }
+      .wrap { padding: 14px; }
+      .hero h1 { font-size: 22px; }
+      .chart-box { height: 260px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <h1>ut-bench 多模型单测生成可视化报告</h1>
+      <div class="sub">摘要 + 详细分析 + 附录三段式呈现。支持按模型、语言、复杂度进行多维分析，并输出 JSON/CSV/HTML 产物。</div>
+      <div class="meta">生成时间：2026-04-07T13:52:24.202384+00:00 | 数据源：results_rerun_real/evaluator_summary_20260407T135223979737Z.json</div>
+    </div>
+
+    <div class="section">
+      <h2>摘要</h2>
+      <div class="cards"><div class="card"><div class="k">样本总数</div><div class="v">1</div></div><div class="card"><div class="k">编译通过率</div><div class="v">100.00%</div></div><div class="card"><div class="k">测试通过率</div><div class="v">0.00%</div></div><div class="card"><div class="k">平均行覆盖率</div><div class="v">N/A</div></div><div class="card"><div class="k">平均分支覆盖率</div><div class="v">N/A</div></div><div class="card"><div class="k">平均变异得分</div><div class="v">N/A</div></div><div class="card"><div class="k">有效变异杀死率</div><div class="v">0.00%</div></div><div class="card"><div class="k">平均生成耗时(ms)</div><div class="v">42792</div></div><div class="card"><div class="k">平均总 Token</div><div class="v">3199</div></div></div>
+      <h3>模型综合排名 <span class="pill">按测试通过率→覆盖率→变异得分</span></h3>
+      <table><thead><tr><th>排名</th><th>模型</th><th>测试通过率</th><th>平均行覆盖率</th><th>平均变异得分</th><th>平均生成耗时(ms)</th><th>平均总Token</th></tr></thead><tbody><tr><td>1</td><td>deepseek</td><td>0.00%</td><td>N/A</td><td>N/A</td><td>42792</td><td>3199</td></tr></tbody></table>
+    </div>
+
+    <div class="section">
+      <h2>详细分析</h2>
+      <div class="grid-2">
+        <div class="panel">
+          <h3>模型关键指标柱状图</h3>
+          <div class="chart-box"><canvas id="barModel"></canvas></div>
+        </div>
+        <div class="panel">
+          <h3>复杂度-测试通过率折线图</h3>
+          <div class="chart-box"><canvas id="lineComplexity"></canvas></div>
+        </div>
+        <div class="panel">
+          <h3>五维能力雷达图（模型均值）</h3>
+          <div class="chart-box"><canvas id="radarDimensions"></canvas></div>
+        </div>
+        <div class="panel">
+          <h3>模型×语言热力图（测试通过率）</h3>
+          <div class="chart-box"><canvas id="heatmapModelLang"></canvas></div>
+        </div>
+      </div>
+      <h3>失败类型统计</h3>
+      <table><thead><tr><th>阶段</th><th>错误类型</th><th>数量</th><th>示例模型</th><th>示例样本</th><th>示例信息</th></tr></thead><tbody><tr><td>测试</td><td>断言失败</td><td>1</td><td>deepseek</td><td>simple_function_python_simple_function_0</td><td>.........................F.........F.F..........                         [100%] =================================== FAILURES =================================== ___________ TestHasCloseElements.tes...</td></tr></tbody></table>
+      <h3>结论摘要</h3>
+      <ul class="conclusion">
+        <li><strong>正确性：</strong>整体编译通过率 100.00%，测试通过率 0.00%。</li>
+        <li><strong>覆盖率：</strong>行覆盖率 N/A，分支覆盖率 N/A。</li>
+        <li><strong>有效性：</strong>变异得分均值 N/A，有效变异杀死率 0.00%，与目标 85.00% 对比可持续优化。</li>
+        <li><strong>效率：</strong>平均生成耗时 42792 ms，平均总 Token 3199。</li>
+      </ul>
+      <h3>数据质量说明</h3>
+      <table><thead><tr><th>指标</th><th>数量</th><th>占比</th><th>解释</th></tr></thead><tbody><tr><td>Metadata 完整样本</td><td>1</td><td>100.00%</td><td>来自 runner metadata 的样本比例，决定耗时/Token 指标可信度。</td></tr><tr><td>覆盖率有效样本</td><td>0</td><td>0.00%</td><td>line_coverage 非空样本比例，反映测试是否命中真实源码。</td></tr><tr><td>变异统计有效样本</td><td>0</td><td>0.00%</td><td>mutation_total 非空样本比例，反映 mutmut 是否完成统计写出。</td></tr><tr><td>生成耗时缺失</td><td>0</td><td>0.00%</td><td>历史样本缺 metadata，当前仅新一轮 runner 样本有完整时延与 token。</td></tr><tr><td>Token 缺失</td><td>0</td><td>0.00%</td><td>同上，属于历史数据源不完整，不是 reporter 计算错误。</td></tr><tr><td>测试通过但无覆盖率</td><td>0</td><td>0.00%</td><td>多数是测试未命中真实被测源码（导入占位模块/测到测试内函数）。</td></tr><tr><td>变异体总数>0但杀死/存活都为0</td><td>0</td><td>0.00%</td><td>通常为 mutmut 未真正执行到变异体（not checked），需结合 mutation_error 诊断。</td></tr></tbody></table>
+    </div>
+
+    <div class="section">
+      <h2>附录</h2>
+      <h3>按模型统计表</h3>
+      <table><thead><tr><th>模型</th><th>样本数</th><th>编译通过率</th><th>测试通过率</th><th>平均行覆盖率</th><th>平均分支覆盖率</th><th>平均变异得分</th><th>平均生成耗时(ms)</th><th>平均总Token</th></tr></thead><tbody><tr><td>deepseek</td><td>1</td><td>100.00%</td><td>0.00%</td><td>N/A</td><td>N/A</td><td>N/A</td><td>42792</td><td>3199</td></tr></tbody></table>
+      <h3>按语言统计表</h3>
+      <table><thead><tr><th>语言</th><th>样本数</th><th>编译通过率</th><th>测试通过率</th><th>平均行覆盖率</th><th>平均分支覆盖率</th><th>平均变异得分</th><th>平均生成耗时(ms)</th><th>平均总Token</th></tr></thead><tbody><tr><td>python</td><td>1</td><td>100.00%</td><td>0.00%</td><td>N/A</td><td>N/A</td><td>N/A</td><td>42792</td><td>3199</td></tr></tbody></table>
+      <h3>原始样本明细（支持筛选）</h3>
+    <div class="filters">
+      <label>模型
+        <select id="modelFilter">
+          <option value="all">全部</option>
+          <option value="deepseek">deepseek</option>
+        </select>
+      </label>
+      <label>语言
+        <select id="languageFilter">
+          <option value="all">全部</option>
+          <option value="python">python</option>
+        </select>
+      </label>
+      <label>测试状态
+        <select id="testStatusFilter">
+          <option value="pass" selected>仅通过</option>
+          <option value="all">全部</option>
+          <option value="fail">仅失败</option>
+          <option value="none">未执行</option>
+        </select>
+      </label>
+      <label>覆盖率
+        <select id="coverageFilter">
+          <option value="all">全部</option>
+          <option value="has">有覆盖率</option>
+          <option value="none">无覆盖率</option>
+        </select>
+      </label>
+      <label>变异状态
+        <select id="mutationFilter">
+          <option value="all">全部</option>
+          <option value="has_score">有变异得分</option>
+          <option value="has_stats">有变异统计</option>
+          <option value="stats_no_score">有统计但无得分</option>
+          <option value="none">无变异统计</option>
+          <option value="error">变异阶段报错</option>
+        </select>
+      </label>
+      <label>样本关键词
+        <input id="sampleKeywordFilter" type="text" placeholder="输入 sample_id 关键字" />
+      </label>
+    </div>
+    <p id="filterStats" class="small"></p>
+    <table id="sampleTable"><thead><tr><th>模型</th><th>语言</th><th>样本ID</th><th>复杂度</th><th>场景</th><th>样本分层</th><th>分层说明</th><th>编译通过</th><th>测试通过</th><th>行覆盖率</th><th>变异得分</th><th>变异体总数</th><th>已杀死</th><th>存活</th><th>未覆盖(no_tests)</th><th>未执行(not_checked)</th><th>超时(timeout)</th><th>跳过(skipped)</th><th>可疑(suspicious)</th><th>生成耗时(ms)</th><th>总Token</th><th>生成指标来源</th><th>生成指标缺失原因</th></tr></thead><tbody><tr data-model="deepseek" data-language="python" data-sample-id="simple_function_python_simple_function_0" data-test-pass="false" data-has-coverage="false" data-has-mutation-score="false" data-has-mutation-stats="false" data-has-mutation-error="false"><td>deepseek</td><td>python</td><td>simple_function_python_simple_function_0</td><td>simple_function</td><td>simple_function</td><td>self_contained</td><td>N/A</td><td>是</td><td>否</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>42792</td><td>3199</td><td>metadata</td><td>N/A</td></tr></tbody></table>
+    <p class="small">提示：默认仅显示测试通过样本；可切换筛选查看失败样本和异常样本。</p>
+  </div>
+
+  <script>
+    const styleConfig = {"accent": "#0f766e", "accent_soft": "rgba(15, 118, 110, 0.20)", "accent_2": "rgba(12, 74, 110, 0.75)", "warn": "#b45309", "ok": "#166534"};
+    const modelNames = ["deepseek"];
+    const testPassRates = [0.0];
+    const lineCoverages = [0.0];
+    const mutationScores = [0.0];
+    const complexityNames = ["simple_function"];
+    const complexityTestRates = [0.0];
+    const radarCompile = [1.0];
+    const radarBranch = [0.0];
+    const heatmapModels = ["deepseek"];
+    const heatmapLanguages = ["python"];
+    const heatmapValues = [[0.0]];
+
+    const thresholdCompile = 1.0;
+    const thresholdTest = 0.7;
+    const thresholdLine = 0.7;
+    const thresholdBranch = 0.6;
+    const thresholdMutation = 0.85;
+
+    function avg(arr) {
+      if (!arr || arr.length === 0) return 0;
+      return arr.reduce((sum, value) => sum + value, 0) / arr.length;
+    }
+
+    const barCtx = document.getElementById('barModel');
+    if (barCtx && modelNames.length > 0) {
+      new Chart(barCtx, {
+        type: 'bar',
+        data: {
+          labels: modelNames,
+          datasets: [
+            { label: '测试通过率', data: testPassRates.map(v => v * 100), backgroundColor: styleConfig.accent },
+            { label: '行覆盖率', data: lineCoverages.map(v => v * 100), backgroundColor: styleConfig.accentSoft },
+            { label: '变异得分', data: mutationScores.map(v => v * 100), backgroundColor: styleConfig.accent2 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { y: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' } } },
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+
+    const lineCtx = document.getElementById('lineComplexity');
+    if (lineCtx && complexityNames.length > 0) {
+      new Chart(lineCtx, {
+        type: 'line',
+        data: {
+          labels: complexityNames,
+          datasets: [
+            {
+              label: '测试通过率',
+              data: complexityTestRates.map(v => v * 100),
+              borderColor: styleConfig.accent,
+              backgroundColor: styleConfig.accentSoft,
+              tension: 0.3,
+              fill: true,
+            },
+            {
+              label: '测试通过率阈值',
+              data: complexityNames.map(() => thresholdTest * 100),
+              borderColor: styleConfig.warn,
+              borderDash: [6, 4],
+              pointRadius: 0,
+              tension: 0,
+            },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { y: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' } } },
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+
+    const radarCtx = document.getElementById('radarDimensions');
+    if (radarCtx) {
+      new Chart(radarCtx, {
+        type: 'radar',
+        data: {
+          labels: ['编译通过率', '测试通过率', '行覆盖率', '分支覆盖率', '变异得分'],
+          datasets: [
+            {
+              label: '模型均值',
+              data: [
+                avg(radarCompile) * 100,
+                avg(testPassRates) * 100,
+                avg(lineCoverages) * 100,
+                avg(radarBranch) * 100,
+                avg(mutationScores) * 100,
+              ],
+              borderColor: styleConfig.accent,
+              backgroundColor: styleConfig.accentSoft,
+            },
+            {
+              label: '目标阈值',
+              data: [
+                thresholdCompile * 100,
+                thresholdTest * 100,
+                thresholdLine * 100,
+                thresholdBranch * 100,
+                thresholdMutation * 100,
+              ],
+              borderColor: styleConfig.warn,
+              backgroundColor: 'rgba(0,0,0,0)',
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { r: { min: 0, max: 100, ticks: { callback: (v) => v + '%' } } },
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+
+    function drawHeatmap() {
+      const canvas = document.getElementById('heatmapModelLang');
+      if (!canvas || heatmapModels.length === 0 || heatmapLanguages.length === 0) return;
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+
+      const paddingLeft = 90;
+      const paddingTop = 30;
+      const paddingRight = 20;
+      const paddingBottom = 40;
+      const gridWidth = width - paddingLeft - paddingRight;
+      const gridHeight = height - paddingTop - paddingBottom;
+      const cellW = gridWidth / heatmapLanguages.length;
+      const cellH = gridHeight / heatmapModels.length;
+
+      function colorFor(value) {
+        const v = Math.max(0, Math.min(1, value));
+        const r = Math.round(240 - 90 * v);
+        const g = Math.round(249 - 120 * v);
+        const b = Math.round(255 - 180 * v);
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+
+      ctx.font = '12px "Noto Sans SC", "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      for (let i = 0; i < heatmapModels.length; i++) {
+        for (let j = 0; j < heatmapLanguages.length; j++) {
+          const x = paddingLeft + j * cellW;
+          const y = paddingTop + i * cellH;
+          const value = heatmapValues[i][j];
+          ctx.fillStyle = colorFor(value);
+          ctx.fillRect(x, y, cellW, cellH);
+          ctx.strokeStyle = '#dbe7f5';
+          ctx.strokeRect(x, y, cellW, cellH);
+          ctx.fillStyle = value >= 0.6 ? '#102a43' : '#334e68';
+          ctx.fillText((value * 100).toFixed(1) + '%', x + cellW / 2, y + cellH / 2);
+        }
+      }
+
+      ctx.fillStyle = '#334e68';
+      ctx.textAlign = 'right';
+      for (let i = 0; i < heatmapModels.length; i++) {
+        const y = paddingTop + i * cellH + cellH / 2;
+        ctx.fillText(heatmapModels[i], paddingLeft - 8, y);
+      }
+
+      ctx.textAlign = 'center';
+      for (let j = 0; j < heatmapLanguages.length; j++) {
+        const x = paddingLeft + j * cellW + cellW / 2;
+        ctx.fillText(heatmapLanguages[j], x, height - 18);
+      }
+    }
+
+    drawHeatmap();
+    window.addEventListener('resize', drawHeatmap);
+
+    function applyFilters() {
+      const model = document.getElementById('modelFilter').value;
+      const lang = document.getElementById('languageFilter').value;
+      const testStatus = document.getElementById('testStatusFilter').value;
+      const coverageStatus = document.getElementById('coverageFilter').value;
+      const mutationStatus = document.getElementById('mutationFilter').value;
+      const sampleKeyword = (document.getElementById('sampleKeywordFilter').value || '').trim().toLowerCase();
+      const rows = document.querySelectorAll('#sampleTable tbody tr');
+      let visible = 0;
+      rows.forEach((row) => {
+        const rowModel = row.getAttribute('data-model');
+        const rowLang = row.getAttribute('data-language');
+        const rowSampleId = (row.getAttribute('data-sample-id') || '').toLowerCase();
+        const rowTestPass = row.getAttribute('data-test-pass');
+        const rowHasCoverage = row.getAttribute('data-has-coverage');
+        const rowHasMutationScore = row.getAttribute('data-has-mutation-score');
+        const rowHasMutationStats = row.getAttribute('data-has-mutation-stats');
+        const rowHasMutationError = row.getAttribute('data-has-mutation-error');
+
+        const modelOk = (model === 'all') || (rowModel === model);
+        const langOk = (lang === 'all') || (rowLang === lang);
+        const sampleOk = (!sampleKeyword) || rowSampleId.includes(sampleKeyword);
+
+        let testOk = true;
+        if (testStatus === 'pass') testOk = rowTestPass === 'true';
+        else if (testStatus === 'fail') testOk = rowTestPass === 'false';
+        else if (testStatus === 'none') testOk = rowTestPass === 'none';
+
+        let coverageOk = true;
+        if (coverageStatus === 'has') coverageOk = rowHasCoverage === 'true';
+        else if (coverageStatus === 'none') coverageOk = rowHasCoverage !== 'true';
+
+        let mutationOk = true;
+        if (mutationStatus === 'has_score') mutationOk = rowHasMutationScore === 'true';
+        else if (mutationStatus === 'has_stats') mutationOk = rowHasMutationStats === 'true';
+        else if (mutationStatus === 'stats_no_score') mutationOk = (rowHasMutationStats === 'true') && (rowHasMutationScore !== 'true');
+        else if (mutationStatus === 'none') mutationOk = rowHasMutationStats !== 'true';
+        else if (mutationStatus === 'error') mutationOk = rowHasMutationError === 'true';
+
+        const show = modelOk && langOk && sampleOk && testOk && coverageOk && mutationOk;
+        if (show) visible += 1;
+        row.style.display = show ? '' : 'none';
+      });
+      const stats = document.getElementById('filterStats');
+      if (stats) {
+        stats.textContent = `当前筛选：${visible} / ${rows.length} 条样本`;
+      }
+    }
+    document.getElementById('modelFilter').addEventListener('change', applyFilters);
+    document.getElementById('languageFilter').addEventListener('change', applyFilters);
+    document.getElementById('testStatusFilter').addEventListener('change', applyFilters);
+    document.getElementById('coverageFilter').addEventListener('change', applyFilters);
+    document.getElementById('mutationFilter').addEventListener('change', applyFilters);
+    document.getElementById('sampleKeywordFilter').addEventListener('input', applyFilters);
+    applyFilters();
+  </script>
+</body>
+</html>

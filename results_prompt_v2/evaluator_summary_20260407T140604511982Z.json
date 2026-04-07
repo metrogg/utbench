@@ -1,0 +1,77 @@
+{
+  "evaluated_at_utc": "2026-04-07T14:06:04.508792+00:00",
+  "filters": {
+    "models": [
+      "deepseek"
+    ],
+    "languages": [
+      "python"
+    ],
+    "latest_only": true,
+    "only_self_contained": true
+  },
+  "summary": {
+    "total_samples": 1,
+    "compile_pass_count": 1,
+    "compile_pass_rate": 1.0,
+    "test_pass_count": 0,
+    "test_pass_rate": 0.0,
+    "avg_line_coverage": null,
+    "avg_branch_coverage": null,
+    "avg_function_coverage": null,
+    "avg_mutation_score": null,
+    "stage2_executable_samples": 1,
+    "mutation_stats_samples": 0,
+    "mutation_executed_samples": 0,
+    "mutation_total_mutants": 0,
+    "mutation_killed_mutants": 0,
+    "mutation_survived_mutants": 0,
+    "mutation_no_tests_mutants": 0,
+    "mutation_not_checked_mutants": 0,
+    "mutation_timeout_mutants": 0,
+    "mutation_skipped_mutants": 0,
+    "mutation_suspicious_mutants": 0,
+    "mutation_kill_rate": 0.0,
+    "mutation_effective_mutants": 0,
+    "mutation_effective_kill_rate": 0.0,
+    "sample_bucket_counts": {
+      "self_contained": 1,
+      "non_self_contained": 0,
+      "unknown": 0
+    },
+    "self_contained_compile_pass_rate": 1.0,
+    "self_contained_test_pass_rate": 0.0,
+    "non_self_contained_compile_pass_rate": 0.0,
+    "non_self_contained_test_pass_rate": 0.0
+  },
+  "results": [
+    {
+      "model": "deepseek",
+      "language": "python",
+      "sample_id": "simple_function_python_simple_function_0",
+      "generated_test_path": "results_prompt_v2/deepseek/tests/deepseek_python_simple_function_python_simple_function_0_20260407140556.test.py",
+      "source_path": "/mnt/c/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/dataset/python/simple_function_python_simple_function_0.py",
+      "compile_pass": true,
+      "test_pass": false,
+      "line_coverage": null,
+      "branch_coverage": null,
+      "function_coverage": null,
+      "mutation_score": null,
+      "compile_error": null,
+      "test_error": "alue, bool):\n            raise NumberValidationError(f\"numbers[{index}] must be numeric, got bool\")\n        if not isinstance(value, (int, float)):\n>           raise NumberValidationError(\n                f\"numbers[{index}] must be numeric, got {type(value).__name__}\"\n            )\nE           simple_function_python_simple_function_0.NumberValidationError: numbers[1] must be numeric, got str\n\nsimple_function_python_simple_function_0.py:25: NumberValidationError\n________________ TestCountClosePairs.test_normalization_applied ________________\n\nself = <test_deepseek_python_simple_function_python_simple_function_0_20260407140556_test.TestCountClosePairs object at 0x7a293ff51510>\n\n    def test_normalization_applied(self):\n>       assert count_close_pairs([1, \"2.0\", 2.1], 0.5) == 1\n\ntest_deepseek_python_simple_function_python_simple_function_0_20260407140556_test.py:169: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \nsimple_function_python_simple_function_0.py:87: in count_close_pairs\n    normalized = _normalize_numbers(numbers)\nsimple_function_python_simple_function_0.py:37: in _normalize_numbers\n    normalized.append(_coerce_number(raw, index=idx))\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nvalue = '2.0'\n\n    def _coerce_number(value: object, *, index: int) -> float:\n        if isinstance(value, bool):\n            raise NumberValidationError(f\"numbers[{index}] must be numeric, got bool\")\n        if not isinstance(value, (int, float)):\n>           raise NumberValidationError(\n                f\"numbers[{index}] must be numeric, got {type(value).__name__}\"\n            )\nE           simple_function_python_simple_function_0.NumberValidationError: numbers[1] must be numeric, got str\n\nsimple_function_python_simple_function_0.py:25: NumberValidationError\n__________________ TestMinDistance.test_normalization_applied __________________\n\nself = <test_deepseek_python_simple_function_python_simple_function_0_20260407140556_test.TestMinDistance object at 0x7a293ff57220>\n\n    def test_normalization_applied(self):\n>       assert min_distance([1, \"2.5\", 3.0]) == 0.5\n\ntest_deepseek_python_simple_function_python_simple_function_0_20260407140556_test.py:189: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \nsimple_function_python_simple_function_0.py:99: in min_distance\n    normalized = _normalize_numbers(numbers)\nsimple_function_python_simple_function_0.py:37: in _normalize_numbers\n    normalized.append(_coerce_number(raw, index=idx))\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nvalue = '2.5'\n\n    def _coerce_number(value: object, *, index: int) -> float:\n        if isinstance(value, bool):\n            raise NumberValidationError(f\"numbers[{index}] must be numeric, got bool\")\n        if not isinstance(value, (int, float)):\n>           raise NumberValidationError(\n                f\"numbers[{index}] must be numeric, got {type(value).__name__}\"\n            )\nE           simple_function_python_simple_function_0.NumberValidationError: numbers[1] must be numeric, got str\n\nsimple_function_python_simple_function_0.py:25: NumberValidationError\n=========================== short test summary info ============================\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407140556_test.py::TestNormalizeNumbers::test_mixed_valid\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407140556_test.py::TestNearestPair::test_two_elements\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407140556_test.py::TestHasCloseElements::test_normalization_applied\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407140556_test.py::TestCountClosePairs::test_normalization_applied\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407140556_test.py::TestMinDistance::test_normalization_applied\n5 failed, 42 passed in 0.09s",
+      "coverage_error": null,
+      "mutation_error": null,
+      "runtime_ms": 645,
+      "sample_bucket": "self_contained",
+      "sample_bucket_reason": null,
+      "mutation_total": null,
+      "mutation_killed": null,
+      "mutation_survived": null,
+      "mutation_no_tests": null,
+      "mutation_not_checked": null,
+      "mutation_timeout": null,
+      "mutation_skipped": null,
+      "mutation_suspicious": null
+    }
+  ]
+}

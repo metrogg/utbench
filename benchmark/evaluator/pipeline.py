@@ -65,6 +65,8 @@ class Evaluator:
             test_pass: bool | None = None
             test_error: str | None = None
             runtime_ms: int | None = None
+            test_pass_count: int | None = None
+            test_total_count: int | None = None
             source_precheck_error: str | None = None
             if compile_pass and sample.language == "python":
                 source_precheck_error = python_source_precheck(source_path)
@@ -74,15 +76,22 @@ class Evaluator:
                     test_pass = False
                     test_error = f"source precheck failed: {source_precheck_error}"
                 else:
-                    test_pass, test_error, runtime_ms = execute_tests(
+                    test_pass, test_error, runtime_ms, test_pass_count, test_total_count = execute_tests(
                         language=sample.language,
                         generated_test_path=generated_test_path,
                         source_path=source_path,
                     )
 
+            test_pass_rate: float | None = None
+            if test_pass_count is not None and test_total_count is not None and test_total_count > 0:
+                test_pass_rate = test_pass_count / test_total_count
+
             line_cov = None
             branch_cov = None
             function_cov = None
+            passed_line_cov = None
+            passed_branch_cov = None
+            passed_function_cov = None
             coverage_error = None
             mutation_score = None
             mutation_error = None
@@ -95,26 +104,29 @@ class Evaluator:
             mutation_skipped = None
             mutation_suspicious = None
 
-            if test_pass:
-                line_cov, branch_cov, function_cov, coverage_error = collect_coverage(
+            if test_pass is True or (test_pass_rate is not None and test_pass_rate >= 0.85):
+                line_cov, branch_cov, function_cov, passed_line_cov, passed_branch_cov, passed_function_cov, coverage_error = collect_coverage(
                     language=sample.language,
                     generated_test_path=generated_test_path,
                     source_path=source_path,
                 )
-                mutation_score, mutation_error, mutation_stats = collect_mutation_score(
-                    language=sample.language,
-                    generated_test_path=generated_test_path,
-                    source_path=source_path,
-                )
-                if mutation_stats:
-                    mutation_total = mutation_stats.get("total")
-                    mutation_killed = mutation_stats.get("killed")
-                    mutation_survived = mutation_stats.get("survived")
-                    mutation_no_tests = mutation_stats.get("no_tests")
-                    mutation_not_checked = mutation_stats.get("not_checked")
-                    mutation_timeout = mutation_stats.get("timeout")
-                    mutation_skipped = mutation_stats.get("skipped")
-                    mutation_suspicious = mutation_stats.get("suspicious")
+                if coverage_error is None:
+                    mutation_score, mutation_error, mutation_stats = collect_mutation_score(
+                        language=sample.language,
+                        generated_test_path=generated_test_path,
+                        source_path=source_path,
+                    )
+                    if mutation_stats:
+                        mutation_total = mutation_stats.get("total")
+                        mutation_killed = mutation_stats.get("killed")
+                        mutation_survived = mutation_stats.get("survived")
+                        mutation_no_tests = mutation_stats.get("no_tests")
+                        mutation_not_checked = mutation_stats.get("not_checked")
+                        mutation_timeout = mutation_stats.get("timeout")
+                        mutation_skipped = mutation_stats.get("skipped")
+                        mutation_suspicious = mutation_stats.get("suspicious")
+                else:
+                    mutation_error = f"mutation skipped: coverage unavailable ({coverage_error})"
 
             eval_results.append(
                 EvaluationResult(
@@ -128,6 +140,9 @@ class Evaluator:
                     line_coverage=line_cov,
                     branch_coverage=branch_cov,
                     function_coverage=function_cov,
+                    passed_line_coverage=passed_line_cov,
+                    passed_branch_coverage=passed_branch_cov,
+                    passed_function_coverage=passed_function_cov,
                     mutation_score=mutation_score,
                     compile_error=compile_error,
                     test_error=test_error,
@@ -144,6 +159,8 @@ class Evaluator:
                     mutation_timeout=mutation_timeout,
                     mutation_skipped=mutation_skipped,
                     mutation_suspicious=mutation_suspicious,
+                    test_pass_count=test_pass_count,
+                    test_total_count=test_total_count,
                 )
             )
 

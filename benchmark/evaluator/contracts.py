@@ -42,6 +42,11 @@ class EvaluationResult:
     mutation_timeout: int | None = None
     mutation_skipped: int | None = None
     mutation_suspicious: int | None = None
+    test_pass_count: int | None = None
+    test_total_count: int | None = None
+    passed_line_coverage: float | None = None
+    passed_branch_coverage: float | None = None
+    passed_function_coverage: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

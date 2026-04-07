@@ -1,0 +1,85 @@
+{
+  "evaluated_at_utc": "2026-04-07T15:48:30.709037+00:00",
+  "filters": {
+    "models": [
+      "deepseek"
+    ],
+    "languages": [
+      "python"
+    ],
+    "latest_only": true,
+    "only_self_contained": true
+  },
+  "summary": {
+    "total_samples": 1,
+    "compile_pass_count": 1,
+    "compile_pass_rate": 1.0,
+    "test_pass_count": 0,
+    "test_pass_rate": 0.0,
+    "avg_line_coverage": 1.0,
+    "avg_branch_coverage": 1.0,
+    "avg_function_coverage": 1.0,
+    "avg_passed_line_coverage": 0.283582,
+    "avg_passed_branch_coverage": 0.0,
+    "avg_passed_function_coverage": 0.0,
+    "avg_mutation_score": null,
+    "stage2_executable_samples": 1,
+    "mutation_stats_samples": 1,
+    "mutation_executed_samples": 0,
+    "mutation_total_mutants": 102,
+    "mutation_killed_mutants": 0,
+    "mutation_survived_mutants": 0,
+    "mutation_no_tests_mutants": 0,
+    "mutation_not_checked_mutants": 102,
+    "mutation_timeout_mutants": 0,
+    "mutation_skipped_mutants": 0,
+    "mutation_suspicious_mutants": 0,
+    "mutation_kill_rate": 0.0,
+    "mutation_effective_mutants": 0,
+    "mutation_effective_kill_rate": 0.0,
+    "sample_bucket_counts": {
+      "self_contained": 1,
+      "non_self_contained": 0,
+      "unknown": 0
+    },
+    "self_contained_compile_pass_rate": 1.0,
+    "self_contained_test_pass_rate": 0.0,
+    "non_self_contained_compile_pass_rate": 0.0,
+    "non_self_contained_test_pass_rate": 0.0
+  },
+  "results": [
+    {
+      "model": "deepseek",
+      "language": "python",
+      "sample_id": "simple_function_python_simple_function_0",
+      "generated_test_path": "results_v4/deepseek/tests/deepseek_python_simple_function_python_simple_function_0_20260407153616.test.py",
+      "source_path": "/mnt/c/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/dataset/python/simple_function_python_simple_function_0.py",
+      "compile_pass": true,
+      "test_pass": false,
+      "line_coverage": 1.0,
+      "branch_coverage": 1.0,
+      "function_coverage": 1.0,
+      "mutation_score": null,
+      "compile_error": null,
+      "test_error": "............F..F.............................                            [100%]\n=================================== FAILURES ===================================\n_____________________ TestNearestPair.test_two_descending ______________________\n\nself = <test_deepseek_python_simple_function_python_simple_function_0_20260407153616_test.TestNearestPair object at 0x771c544c0e50>\n\n    def test_two_descending(self):\n        result = nearest_pair([3.0, 1.0])\n        expected = PairDistance(\n            left_index=1,\n            right_index=0,\n            left_value=1.0,\n            right_value=3.0,\n            distance=2.0,\n        )\n>       assert result == expected\nE       AssertionError: assert PairDistance(... distance=2.0) == PairDistance(... distance=2.0)\nE         \nE         Omitting 3 identical items, use -vv to show\nE         Differing attributes:\nE         ['left_index', 'right_index']\nE         \nE         Drill down into differing attribute left_index:\nE           left_index: 0 != 1...\nE         \nE         ...Full output truncated (3 lines hidden), use '-vv' to show\n\ntest_deepseek_python_simple_function_python_simple_function_0_20260407153616_test.py:82: AssertionError\n____________________ TestNearestPair.test_negative_numbers _____________________\n\nself = <test_deepseek_python_simple_function_python_simple_function_0_20260407153616_test.TestNearestPair object at 0x771c544c2500>\n\n    def test_negative_numbers(self):\n        result = nearest_pair([-10.0, -5.0, 0.0])\n        expected = PairDistance(\n            left_index=1,\n            right_index=2,\n            left_value=-5.0,\n            right_value=0.0,\n            distance=5.0,\n        )\n>       assert result == expected\nE       AssertionError: assert PairDistance(... distance=5.0) == PairDistance(... distance=5.0)\nE         \nE         Omitting 1 identical items, use -vv to show\nE         Differing attributes:\nE         ['left_index', 'right_index', 'left_value', 'right_value']\nE         \nE         Drill down into differing attribute left_index:\nE           left_index: 0 != 1...\nE         \nE         ...Full output truncated (9 lines hidden), use '-vv' to show\n\ntest_deepseek_python_simple_function_python_simple_function_0_20260407153616_test.py:117: AssertionError\n=========================== short test summary info ============================\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407153616_test.py::TestNearestPair::test_two_descending\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407153616_test.py::TestNearestPair::test_negative_numbers\n2 failed, 43 passed in 0.06s",
+      "coverage_error": null,
+      "mutation_error": "mutmut did not execute any mutants; mutmut run rc=1; mutmut export rc=0; run_stdout='ib/python3.10/site-packages/pluggy/_callers.py\", line 121, in _multicall\\n    res = hook_impl.function(*args)\\n  File \"/home/wzx/.local/lib/python3.10/site-packages/_pytest/python.py\", line 166, in pytest_pyfunc_call\\n    result = testfunction(**testargs)\\n  File \"/tmp/utbench_eval_kv_w9zr9/mutants/test_deepseek_python_simple_function_python_simple_function_0_20260407153616_test.py\", line 117, in test_negative_numbers\\n    assert result == expected\\nAssertionError: assert PairDistance(... distance=5.0) == PairDistance(... distance=5.0)\\n  \\n  Omitting 1 identical items, use -vv to show\\n  Differing attributes:\\n  [\\'left_index\\', \\'right_index\\', \\'left_value\\', \\'right_value\\']\\n  \\n  Drill down into differing attribute left_index:\\n    left_index: 0 != 1...\\n  \\n  ...Full output truncated (9 lines hidden), use \\'-vv\\' to show\\n=========================== short test summary info ============================\\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407153616_test.py::TestNearestPair::test_two_descending\\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407153616_test.py::TestNearestPair::test_negative_numbers\\nfailed to collect stats. runner returned 1'; run_stderr=''; export_stdout='Saved CI/CD stats to mutants/mutmut-cicd-stats.json'; export_stderr=''",
+      "runtime_ms": 520,
+      "sample_bucket": "self_contained",
+      "sample_bucket_reason": null,
+      "mutation_total": 102,
+      "mutation_killed": 0,
+      "mutation_survived": 0,
+      "mutation_no_tests": 0,
+      "mutation_not_checked": 102,
+      "mutation_timeout": 0,
+      "mutation_skipped": 0,
+      "mutation_suspicious": 0,
+      "test_pass_count": 43,
+      "test_total_count": 45,
+      "passed_line_coverage": 0.283582,
+      "passed_branch_coverage": 0.0,
+      "passed_function_coverage": 0.0
+    }
+  ]
+}

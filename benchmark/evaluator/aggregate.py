@@ -15,8 +15,12 @@ def build_summary(results: list[EvaluationResult]) -> dict[str, Any]:
     line_cov_values = [row.line_coverage for row in results if row.line_coverage is not None]
     branch_cov_values = [row.branch_coverage for row in results if row.branch_coverage is not None]
     func_cov_values = [row.function_coverage for row in results if row.function_coverage is not None]
+    passed_line_cov_values = [row.passed_line_coverage for row in results if row.passed_line_coverage is not None]
+    passed_branch_cov_values = [row.passed_branch_coverage for row in results if row.passed_branch_coverage is not None]
+    passed_func_cov_values = [row.passed_function_coverage for row in results if row.passed_function_coverage is not None]
     mutation_values = [row.mutation_score for row in results if row.mutation_score is not None]
-    mutation_executed = [row for row in results if row.mutation_total is not None]
+    mutation_stats = [row for row in results if row.mutation_total is not None]
+    mutation_executed = [row for row in results if _mutation_processed(row) > 0]
     mutation_total_mutants = sum(row.mutation_total or 0 for row in results)
     mutation_killed_mutants = sum(row.mutation_killed or 0 for row in results)
     mutation_survived_mutants = sum(row.mutation_survived or 0 for row in results)
@@ -48,8 +52,12 @@ def build_summary(results: list[EvaluationResult]) -> dict[str, Any]:
         "avg_line_coverage": _avg(line_cov_values),
         "avg_branch_coverage": _avg(branch_cov_values),
         "avg_function_coverage": _avg(func_cov_values),
+        "avg_passed_line_coverage": _avg(passed_line_cov_values),
+        "avg_passed_branch_coverage": _avg(passed_branch_cov_values),
+        "avg_passed_function_coverage": _avg(passed_func_cov_values),
         "avg_mutation_score": _avg(mutation_values),
         "stage2_executable_samples": len(executable_rows),
+        "mutation_stats_samples": len(mutation_stats),
         "mutation_executed_samples": len(mutation_executed),
         "mutation_total_mutants": mutation_total_mutants,
         "mutation_killed_mutants": mutation_killed_mutants,
@@ -75,6 +83,18 @@ def build_summary(results: list[EvaluationResult]) -> dict[str, Any]:
         ),
         "non_self_contained_test_pass_rate": _rate(nsc_test_pass_count, nsc_compile_pass_count),
     }
+
+
+def _mutation_processed(row: EvaluationResult) -> int:
+    fields = (
+        row.mutation_killed,
+        row.mutation_survived,
+        row.mutation_no_tests,
+        row.mutation_timeout,
+        row.mutation_skipped,
+        row.mutation_suspicious,
+    )
+    return sum(value or 0 for value in fields)
 
 
 def _avg(values: list[float]) -> float | None:

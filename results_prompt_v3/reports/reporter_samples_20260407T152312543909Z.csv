@@ -1,0 +1,27 @@
+branch_coverage,compile_error,compile_pass,completion_tokens,complexity,coverage_error,eval_runtime_ms,function_coverage,generated_test_path,generation_latency_ms,generation_metrics_reason,generation_metrics_source,language,line_coverage,model,mutation_error,mutation_killed,mutation_no_tests,mutation_not_checked,mutation_score,mutation_skipped,mutation_survived,mutation_suspicious,mutation_timeout,mutation_total,prompt_tokens,sample_bucket,sample_bucket_reason,sample_id,scenario,source_path,test_error,test_pass,total_tokens
+1.0,,true,2763,simple_function,,553,1.0,results_prompt_v3/deepseek/tests/deepseek_python_simple_function_python_simple_function_0_20260407143317.test.py,57668,,metadata,python,1.0,deepseek,"mutmut did not execute any mutants; mutmut run rc=1; mutmut export rc=0; run_stdout='e-packages/pluggy/_manager.py"", line 120, in _hookexec\n    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)\n  File ""/home/wzx/.local/lib/python3.10/site-packages/pluggy/_callers.py"", line 167, in _multicall\n    raise exception\n  File ""/home/wzx/.local/lib/python3.10/site-packages/pluggy/_callers.py"", line 121, in _multicall\n    res = hook_impl.function(*args)\n  File ""/home/wzx/.local/lib/python3.10/site-packages/_pytest/python.py"", line 166, in pytest_pyfunc_call\n    result = testfunction(**testargs)\n  File ""/tmp/utbench_eval_6k6b1tnq/mutants/test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.py"", line 243, in test_count_close_pairs_unsorted_input\n    assert result == 1\nAssertionError: assert 0 == 1\n=========================== short test summary info ============================\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.py::TestCountClosePairs::test_count_close_pairs_exact_threshold_not_counted\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.py::TestCountClosePairs::test_count_close_pairs_unsorted_input\nfailed to collect stats. runner returned 1'; run_stderr=''; export_stdout='Saved CI/CD stats to mutants/mutmut-cicd-stats.json'; export_stderr=''",0,0,102,,0,0,0,0,102,1662,self_contained,,simple_function_python_simple_function_0,simple_function,/mnt/c/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/dataset/python/simple_function_python_simple_function_0.py,"..............................................FF........                 [100%]
+=================================== FAILURES ===================================
+____ TestCountClosePairs.test_count_close_pairs_exact_threshold_not_counted ____
+
+self = <test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.TestCountClosePairs object at 0x727678b573d0>
+
+    def test_count_close_pairs_exact_threshold_not_counted(self):
+        result = count_close_pairs([1.0, 2.0, 3.0], 1.0)
+>       assert result == 1
+E       assert 0 == 1
+
+test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.py:239: AssertionError
+__________ TestCountClosePairs.test_count_close_pairs_unsorted_input ___________
+
+self = <test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.TestCountClosePairs object at 0x727678b56e90>
+
+    def test_count_close_pairs_unsorted_input(self):
+        result = count_close_pairs([3.0, 1.0, 2.0], 1.0)
+>       assert result == 1
+E       assert 0 == 1
+
+test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.py:243: AssertionError
+=========================== short test summary info ============================
+FAILED test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.py::TestCountClosePairs::test_count_close_pairs_exact_threshold_not_counted
+FAILED test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.py::TestCountClosePairs::test_count_close_pairs_unsorted_input
+2 failed, 54 passed in 0.07s",false,4425

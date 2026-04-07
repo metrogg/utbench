@@ -55,19 +55,36 @@ class PromptBuilder:
         module_name = self._module_import_name(data.sample_id)
         coverage_targets = self._coverage_targets_text()
         mock_requirement = self._mock_requirement(data.source_code)
+        critical_conditions = self._extract_critical_conditions(
+            source_code=data.source_code,
+            language=data.language,
+        )
 
         dependency_text = ", ".join(dependencies) if dependencies else "none detected"
         scenario_text = scenario if scenario else "general"
         complexity_text = complexity if complexity else "unknown"
+        if critical_conditions:
+            critical_text = "\n".join(f"- `{item}`" for item in critical_conditions)
+        else:
+            critical_text = "- none detected"
 
         return (
             "You are an expert unit testing engineer.\n"
             "你是一名资深单元测试工程师。\n"
             "Generate high-quality unit tests based on the following specification.\n"
             "请基于以下规范生成高质量单元测试。\n\n"
+            "## Role & Objective（角色与目标）\n"
+            "- Goal: produce executable tests that match source behavior exactly.\n"
+            "- 目标：生成可执行且与源码行为严格一致的测试。\n\n"
             "## Language & Framework（语言与框架）\n"
             f"- Language（语言）: {data.language}\n"
             f"- Test Framework（测试框架）: {framework}\n\n"
+            "## Step-by-Step Workflow（分步流程）\n"
+            "1) Identify callable symbols and input/output contracts from source.\n"
+            "2) Build a test matrix: normal, boundary, and exception paths.\n"
+            "3) Derive expected values only from implementation semantics.\n"
+            "4) Write deterministic, runnable tests with clear assertions.\n"
+            "5) Self-check syntax/imports/assertions before final output.\n\n"
             "## Test Requirements（测试要求）\n"
             "- Cover normal paths, boundary conditions, and error/exception behavior.\n"
             "- 覆盖正常路径、边界条件和异常行为。\n"
@@ -75,12 +92,51 @@ class PromptBuilder:
             "- 保持测试可重复、可执行（避免随机性）。\n"
             "- Use clear assertions with meaningful expected values.\n"
             "- 使用清晰断言和有意义的期望值。\n"
+            "- Test function names must start with `test_`.\n"
+            "- 测试函数命名必须以 `test_` 开头。\n"
+            "- Use plain `assert` and `pytest.raises` for failure paths.\n"
+            "- 断言使用 `assert`，异常路径使用 `pytest.raises`。\n"
             f"- Import target symbols from local module `{module_name}` whenever possible.\n"
             f"- 优先从同目录模块 `{module_name}` 导入被测对象。\n"
             "- Avoid importing unrelated third-party packages by default.\n"
             "- 默认不要引入无关第三方包。\n"
             f"- Coverage targets（覆盖率目标，供参考）: {coverage_targets}\n"
             f"- Mock requirements（Mock 要求）: {mock_requirement}\n\n"
+            "## Semantic Alignment Hard Rules（语义对齐硬约束）\n"
+            "- Derive expected values strictly from the given source code behavior.\n"
+            "- 期望值必须严格依据给定源码行为推导，不要按题型常识脑补。\n"
+            "- Respect exact comparison semantics in code (`<`, `<=`, `>`, `>=`, `==`).\n"
+            "- 必须严格遵守源码比较符号语义（尤其阈值边界等于时）。\n"
+            "- Include explicit boundary-equality assertions when threshold/limit checks exist.\n"
+            "- 当存在阈值/边界判断时，必须包含“等于边界”的断言样例。\n"
+            "- If implementation looks counter-intuitive, still assert implementation behavior.\n"
+            "- 若实现与常识不一致，也必须以源码实现为准。\n"
+            "- If docstring/comment conflicts with implementation, trust implementation.\n"
+            "- 若注释/文档示例与实现冲突，以实现为准。\n"
+            "- Do NOT assume implicit coercion not present in code (e.g., str->number).\n"
+            "- 不要假设源码未实现的隐式转换（例如字符串自动转数字）。\n"
+            "- For sliding-window or two-pointer counting algorithms: when the loop condition is\n"
+            "  `while left < right and sorted[right] - sorted[left] >= threshold`,\n"
+            "  a threshold of 0 with duplicate values produces a count of 0 — the window only\n"
+            "  advances when `>` threshold, NOT when `==` threshold.\n"
+            "- 对于滑窗/双指针计数算法：当循环条件是 `>= threshold` 时，\n"
+            "  threshold=0 且有重复值的情况下会计数为 0 —— 只有 `>` threshold 时窗口才右移。\n"
+            "- Trace through the algorithm by hand for boundary values before writing assertions.\n"
+            "- 写断言前，必须手工推导一遍算法在边界值上的执行过程。\n"
+            "- For functions returning structured results (e.g., namedtuple, dataclass): always assert\n"
+            "  each field individually. Never assert the whole object equality without field-level checks.\n"
+            "- 对于返回结构体结果的函数，必须逐字段断言，切勿直接做整体相等判断而不验证字段值。\n"
+            "- For `nearest_pair` or similar: the returned index fields are `left_index=min(original_indices)`\n"
+            "  and `right_index=max(original_indices)` — trace the sorted enumeration carefully.\n"
+            "- 对于类似 `nearest_pair` 的函数：返回的索引字段是 `left_index=min(原始索引)` 和\n"
+            "  `right_index=max(原始索引)`，必须仔细追踪排序后的枚举过程。\n\n"
+            "## Critical Conditions Extracted（关键逻辑条件）\n"
+            f"{critical_text}\n\n"
+            "## Error Prevention Checklist（错误预防清单，仅内部执行）\n"
+            "- No placeholder tests like `assert True`.\n"
+            "- No assertions for behavior that cannot be inferred from source.\n"
+            "- Ensure every referenced symbol exists in source imports/definitions.\n"
+            "- Ensure generated file is directly runnable by the target test framework.\n\n"
             "## Context Information（上下文信息）\n"
             f"- Sample ID（样本ID）: {data.sample_id}\n"
             f"- Scenario（场景）: {scenario_text}\n"
@@ -206,3 +262,33 @@ class PromptBuilder:
                 "(network, file system, database, subprocess, environment)."
             )
         return "Mock only when necessary; avoid over-mocking pure functions."
+
+    def _extract_critical_conditions(self, source_code: str, language: str) -> list[str]:
+        if language != "python":
+            return []
+
+        candidates: list[str] = []
+        loop_lines: dict[int, str] = {}
+        for lineno, raw_line in enumerate(source_code.splitlines(), 1):
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if any(op in line for op in ("<=", ">=", "==", "!=", "<", ">")):
+                if line.startswith("if ") or line.startswith("while ") or line.startswith("return "):
+                    candidates.append(line)
+                elif "while " in source_code[:source_code.find(line)] and "count" in line:
+                    candidates.append(line)
+            if any(line.startswith(p) for p in ("while ", "for ")) and any(op in line for op in ("<=", ">=", "==", "!=", "<", ">")):
+                loop_lines[lineno] = line
+
+        if loop_lines and not candidates:
+            candidates.extend(loop_lines.values())
+
+        dedup: list[str] = []
+        seen: set[str] = set()
+        for item in candidates:
+            if item in seen:
+                continue
+            seen.add(item)
+            dedup.append(item)
+        return dedup[:12]

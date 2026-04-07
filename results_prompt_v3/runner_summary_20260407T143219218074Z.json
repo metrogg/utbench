@@ -1,0 +1,37 @@
+{
+  "run_id": "20260407T143219218074Z",
+  "created_at_utc": "2026-04-07T14:33:17.933957Z",
+  "dry_run": false,
+  "total": 1,
+  "success": 1,
+  "failed": 0,
+  "results": [
+    {
+      "success": true,
+      "model": "deepseek",
+      "language": "python",
+      "sample_id": "simple_function_python_simple_function_0",
+      "sample_path": "/mnt/c/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/dataset/python/simple_function_python_simple_function_0.py",
+      "generated_test_path": "/mnt/c/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/results_prompt_v3/deepseek/tests/deepseek_python_simple_function_python_simple_function_0_20260407143317.test.py",
+      "metadata_path": "/mnt/c/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/results_prompt_v3/deepseek/reports/deepseek_python_simple_function_python_simple_function_0_20260407143317.metadata.json",
+      "latency_ms": 57668,
+      "prompt_tokens": 1662,
+      "completion_tokens": 2763,
+      "total_tokens": 4425,
+      "error": null
+    }
+  ],
+  "resume": true,
+  "checkpoint_file": "/mnt/c/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/results_prompt_v3/checkpoints/runner_cb4bdd74f32e.checkpoint.json",
+  "pending_tasks": 1,
+  "skipped_by_checkpoint": 0,
+  "max_workers": 8,
+  "progress_by_model": {
+    "deepseek": {
+      "total": 1,
+      "done": 1,
+      "success": 1,
+      "failed": 0
+    }
+  }
+}

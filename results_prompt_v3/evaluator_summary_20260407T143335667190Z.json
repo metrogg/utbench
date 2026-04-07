@@ -1,0 +1,77 @@
+{
+  "evaluated_at_utc": "2026-04-07T14:33:35.664374+00:00",
+  "filters": {
+    "models": [
+      "deepseek"
+    ],
+    "languages": [
+      "python"
+    ],
+    "latest_only": true,
+    "only_self_contained": true
+  },
+  "summary": {
+    "total_samples": 1,
+    "compile_pass_count": 1,
+    "compile_pass_rate": 1.0,
+    "test_pass_count": 0,
+    "test_pass_rate": 0.0,
+    "avg_line_coverage": null,
+    "avg_branch_coverage": null,
+    "avg_function_coverage": null,
+    "avg_mutation_score": null,
+    "stage2_executable_samples": 1,
+    "mutation_stats_samples": 0,
+    "mutation_executed_samples": 0,
+    "mutation_total_mutants": 0,
+    "mutation_killed_mutants": 0,
+    "mutation_survived_mutants": 0,
+    "mutation_no_tests_mutants": 0,
+    "mutation_not_checked_mutants": 0,
+    "mutation_timeout_mutants": 0,
+    "mutation_skipped_mutants": 0,
+    "mutation_suspicious_mutants": 0,
+    "mutation_kill_rate": 0.0,
+    "mutation_effective_mutants": 0,
+    "mutation_effective_kill_rate": 0.0,
+    "sample_bucket_counts": {
+      "self_contained": 1,
+      "non_self_contained": 0,
+      "unknown": 0
+    },
+    "self_contained_compile_pass_rate": 1.0,
+    "self_contained_test_pass_rate": 0.0,
+    "non_self_contained_compile_pass_rate": 0.0,
+    "non_self_contained_test_pass_rate": 0.0
+  },
+  "results": [
+    {
+      "model": "deepseek",
+      "language": "python",
+      "sample_id": "simple_function_python_simple_function_0",
+      "generated_test_path": "results_prompt_v3/deepseek/tests/deepseek_python_simple_function_python_simple_function_0_20260407143317.test.py",
+      "source_path": "/mnt/c/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/dataset/python/simple_function_python_simple_function_0.py",
+      "compile_pass": true,
+      "test_pass": false,
+      "line_coverage": null,
+      "branch_coverage": null,
+      "function_coverage": null,
+      "mutation_score": null,
+      "compile_error": null,
+      "test_error": "..............................................FF........                 [100%]\n=================================== FAILURES ===================================\n____ TestCountClosePairs.test_count_close_pairs_exact_threshold_not_counted ____\n\nself = <test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.TestCountClosePairs object at 0x7da81a6bf370>\n\n    def test_count_close_pairs_exact_threshold_not_counted(self):\n        result = count_close_pairs([1.0, 2.0, 3.0], 1.0)\n>       assert result == 1\nE       assert 0 == 1\n\ntest_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.py:239: AssertionError\n__________ TestCountClosePairs.test_count_close_pairs_unsorted_input ___________\n\nself = <test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.TestCountClosePairs object at 0x7da81a6bee30>\n\n    def test_count_close_pairs_unsorted_input(self):\n        result = count_close_pairs([3.0, 1.0, 2.0], 1.0)\n>       assert result == 1\nE       assert 0 == 1\n\ntest_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.py:243: AssertionError\n=========================== short test summary info ============================\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.py::TestCountClosePairs::test_count_close_pairs_exact_threshold_not_counted\nFAILED test_deepseek_python_simple_function_python_simple_function_0_20260407143317_test.py::TestCountClosePairs::test_count_close_pairs_unsorted_input\n2 failed, 54 passed in 0.08s",
+      "coverage_error": null,
+      "mutation_error": null,
+      "runtime_ms": 626,
+      "sample_bucket": "self_contained",
+      "sample_bucket_reason": null,
+      "mutation_total": null,
+      "mutation_killed": null,
+      "mutation_survived": null,
+      "mutation_no_tests": null,
+      "mutation_not_checked": null,
+      "mutation_timeout": null,
+      "mutation_skipped": null,
+      "mutation_suspicious": null
+    }
+  ]
+}
