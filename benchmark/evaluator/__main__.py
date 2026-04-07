@@ -24,6 +24,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Evaluate all historical test files per sample instead of latest only",
     )
+    parser.add_argument(
+        "--only-self-contained",
+        action="store_true",
+        help="Evaluate only Python samples in self-contained allowlist",
+    )
     return parser.parse_args()
 
 
@@ -35,6 +40,7 @@ def main() -> int:
         languages=_split_csv(args.lang),
         output_dir=args.output_dir,
         latest_only=not args.all_history,
+        only_self_contained=args.only_self_contained,
     )
     print(json.dumps(payload["summary"], ensure_ascii=False, indent=2))
     return 0

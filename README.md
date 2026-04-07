@@ -52,6 +52,12 @@ ut-bench/
 pip install pyyaml
 ```
 
+或使用脚本一键初始化：
+
+```bash
+bash scripts/setup.sh
+```
+
 ## 模型配置
 
 配置文件：`benchmark/config/models.yaml`
@@ -91,6 +97,12 @@ $env:VOLCENGINE_API_KEY="你的 key"
 python -m benchmark.runner
 ```
 
+也可使用一键流水线脚本（runner -> evaluator -> reporter）：
+
+```bash
+bash scripts/run_benchmark.sh
+```
+
 ### 2) 指定模型/语言
 
 ```bash
@@ -99,22 +111,13 @@ python -m benchmark.runner --model doubao-seed,glm-4.7 --lang python,java
 
 ### 2.1) 指定样本子集（按 glob）
 
-例如仅跑 realworld 扩展集中 `boundary` 目录前 5 个：
+例如仅跑当前 Python 基线集中 1 条：
 
 ```bash
 python -m benchmark.runner \
   --lang python \
-  --sample-glob "boundary/*.py" \
-  --max-samples 5
-```
-
-分别跑四个扩展目录的前 5 个：
-
-```bash
-python -m benchmark.runner --lang python --sample-glob "boundary/*.py" --max-samples 5
-python -m benchmark.runner --lang python --sample-glob "complex_dependency/*.py" --max-samples 5
-python -m benchmark.runner --lang python --sample-glob "interface_mock/*.py" --max-samples 5
-python -m benchmark.runner --lang python --sample-glob "simple_function/*.py" --max-samples 5
+  --sample-glob "*_python_*_0.py" \
+  --max-samples 1
 ```
 
 ### 3) 并发 + 断点续跑
@@ -158,6 +161,15 @@ python -m benchmark.runner --dry-run --model doubao-seed --lang python --max-sam
 ```bash
 python -m benchmark.evaluator --results-root results
 ```
+
+只看自包含白名单样本（推荐用于主对比口径）：
+
+```bash
+python -m benchmark.evaluator --results-root results --lang python --only-self-contained
+```
+
+说明：Python 样本会按 `benchmark/config/python_self_contained_allowlist.txt` 自动分层，
+汇总中包含 `sample_bucket_counts`、`self_contained_*` 和 `non_self_contained_*` 指标。
 
 运行 reporter（默认读取最新 evaluator summary）：
 

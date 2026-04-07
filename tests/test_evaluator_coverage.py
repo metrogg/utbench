@@ -40,7 +40,8 @@ def test_add():
     # 由于 add 函数无分支，branch_cov 可能为 None；若有值应在合法区间。
     if branch_cov is not None:
         assert 0.0 <= branch_cov <= 1.0
-    assert func_cov is None
+    assert func_cov is not None
+    assert 0.0 <= func_cov <= 1.0
 
 
 def test_collect_coverage_python_requires_source_in_report(tmp_path: Path) -> None:
@@ -75,3 +76,36 @@ def test_ok():
     assert func_cov is None
     assert err is not None
     assert "source file not found in coverage report" in err
+
+
+def test_collect_coverage_python_function_coverage_partial(tmp_path: Path) -> None:
+    src = tmp_path / "module_under_test.py"
+    src.write_text(
+        "def used():\n"
+        "    return 1\n"
+        "\n"
+        "def unused():\n"
+        "    return 2\n",
+        encoding="utf-8",
+    )
+
+    test_file = tmp_path / "test_generated.py"
+    test_file.write_text(
+        "from module_under_test import used\n"
+        "\n"
+        "def test_used():\n"
+        "    assert used() == 1\n",
+        encoding="utf-8",
+    )
+
+    line_cov, branch_cov, func_cov, err = collect_coverage(
+        language="python",
+        generated_test_path=test_file,
+        source_path=src,
+    )
+
+    assert err is None
+    assert line_cov is not None
+    assert branch_cov is None or 0.0 <= branch_cov <= 1.0
+    assert func_cov is not None
+    assert 0.0 < func_cov < 1.0

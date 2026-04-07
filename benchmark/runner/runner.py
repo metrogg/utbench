@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import concurrent.futures
 import hashlib
 import json
@@ -97,6 +98,10 @@ class Runner:
             self._max_concurrent_models * self._max_concurrent_samples,
         )
         self._prompt_builder = PromptBuilder(self._config.get("benchmark", {}))
+        runner_cfg = self._config.get("benchmark", {}).get("runner", {})
+        self._max_generation_attempts = int(runner_cfg.get("max_generation_attempts", 2))
+        if self._max_generation_attempts < 1:
+            self._max_generation_attempts = 1
 
     def run(
         self,
@@ -114,7 +119,12 @@ class Runner:
         run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
         selected_models = [m.model_name for m in models]
 
-        checkpoint_file = self._checkpoint_path(selected_models, languages, max_samples)
+        checkpoint_file = self._checkpoint_path(
+            model_names=selected_models,
+            languages=languages,
+            max_samples=max_samples,
+            sample_glob=sample_glob,
+        )
         if reset_checkpoint and checkpoint_file.exists():
             checkpoint_file.unlink()
         checkpoint = self._load_checkpoint(checkpoint_file) if resume else {"completed": []}
@@ -123,7 +133,7 @@ class Runner:
         tasks: list[tuple[ModelConfig, Path, str, str]] = []
         for model in models:
             for sample_path in samples:
-                language = sample_path.parent.name.lower()
+                language = self._infer_sample_language(sample_path)
                 sample_id = sample_path.stem
                 key = self._task_key(model.model_name, language, sample_id)
                 if resume and key in completed:
@@ -255,13 +265,47 @@ class Runner:
             if dry_run:
                 test_code = self._make_dry_run_content(sample_id, language)
             else:
-                raw_response, latency_ms = self.call_model_api(prompt, model_config)
-                usage = self._extract_usage(raw_response)
-                prompt_tokens = usage.get("prompt_tokens")
-                completion_tokens = usage.get("completion_tokens")
-                total_tokens = usage.get("total_tokens")
-                content = self._extract_response_text(raw_response, model_config.provider)
-                test_code = self._extract_code(content, language)
+                test_code = ""
+                current_prompt = prompt
+                quality_error: str | None = None
+                for gen_attempt in range(1, self._max_generation_attempts + 1):
+                    raw_response, latency_ms = self.call_model_api(current_prompt, model_config)
+                    usage = self._extract_usage(raw_response)
+                    prompt_tokens = usage.get("prompt_tokens")
+                    completion_tokens = usage.get("completion_tokens")
+                    total_tokens = usage.get("total_tokens")
+
+                    content = self._extract_response_text(raw_response, model_config.provider)
+                    content = self._sanitize_model_output(content, language)
+                    test_code = self._extract_code(content, language)
+
+                    quality_error = self._validate_generated_test(
+                        code=test_code,
+                        language=language,
+                        completion_tokens=completion_tokens,
+                        model_config=model_config,
+                    )
+                    if quality_error is None:
+                        break
+
+                    if gen_attempt < self._max_generation_attempts:
+                        self.logger.warning(
+                            "RETRY_GEN model=%s lang=%s sample=%s attempt=%s/%s reason=%s",
+                            model_config.model_name,
+                            language,
+                            sample_id,
+                            gen_attempt,
+                            self._max_generation_attempts,
+                            quality_error,
+                        )
+                        current_prompt = self._build_repair_prompt(
+                            base_prompt=prompt,
+                            reason=quality_error,
+                            language=language,
+                        )
+                        continue
+
+                    raise RuntimeError(f"Generated test rejected: {quality_error}")
 
             test_file, metadata_file, response_file = self._write_outputs(
                 model=model_config.model_name,
@@ -486,6 +530,36 @@ class Runner:
             raise ValueError(f"No dataset samples found. languages={languages}")
         return samples
 
+    def _infer_sample_language(self, sample_path: Path) -> str:
+        """Infer language from dataset layout first, then file extension."""
+        try:
+            rel = sample_path.resolve().relative_to(self.dataset_root.resolve())
+            if rel.parts:
+                top_level = rel.parts[0].lower()
+                if top_level in self.LANGUAGE_EXT:
+                    return top_level
+        except Exception:
+            pass
+
+        ext_map = {
+            ".py": "python",
+            ".java": "java",
+            ".go": "go",
+            ".cpp": "cpp",
+            ".cc": "cpp",
+            ".cxx": "cpp",
+            ".js": "javascript",
+            ".ts": "javascript",
+        }
+        ext = sample_path.suffix.lower()
+        if ext in ext_map:
+            return ext_map[ext]
+
+        parent = sample_path.parent.name.lower()
+        if parent in self.LANGUAGE_EXT:
+            return parent
+        return parent
+
     def _resolve_endpoint(self, model_config: ModelConfig) -> str:
         base = model_config.endpoint.rstrip("/")
         if model_config.provider == "dashscope":
@@ -581,9 +655,9 @@ class Runner:
         }
 
     def _extract_code(self, content: str, language: str) -> str:
-        blocks = re.findall(r"```([a-zA-Z0-9_]*)\n(.*?)```", content, flags=re.DOTALL)
+        blocks = re.findall(r"```([a-zA-Z0-9_+-]*)\s*\n(.*?)```", content, flags=re.DOTALL)
         if not blocks:
-            return content.strip()
+            return self._strip_markdown_fence(content)
 
         lang = language.lower()
         aliases = {lang}
@@ -598,6 +672,97 @@ class Runner:
             if tag.strip().lower() in aliases:
                 return code.strip()
         return blocks[0][1].strip()
+
+    def _sanitize_model_output(self, content: str, language: str) -> str:
+        text = content or ""
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<analysis>.*?</analysis>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        text = text.strip()
+        if language == "python":
+            text = self._trim_non_code_prefix(text)
+        return text
+
+    def _trim_non_code_prefix(self, text: str) -> str:
+        lines = text.splitlines()
+        if not lines:
+            return text
+
+        code_start = re.compile(
+            r"^\s*(from\s+\w|import\s+\w|def\s+\w|class\s+\w|@|if\s+__name__|#|\"\"\"|''')"
+        )
+        for idx, line in enumerate(lines):
+            if code_start.search(line):
+                return "\n".join(lines[idx:]).strip()
+        return text
+
+    def _validate_generated_test(
+        self,
+        code: str,
+        language: str,
+        completion_tokens: int | None,
+        model_config: ModelConfig,
+    ) -> str | None:
+        stripped = code.strip()
+        if not stripped:
+            return "empty output"
+
+        if "<think>" in stripped.lower() or "</think>" in stripped.lower():
+            return "contains leaked reasoning tags"
+
+        if language == "python":
+            try:
+                ast.parse(stripped)
+            except Exception as exc:  # pylint: disable=broad-except
+                max_tokens = self._safe_int(model_config.parameters.get("max_tokens"))
+                if (
+                    completion_tokens is not None
+                    and max_tokens is not None
+                    and completion_tokens >= max_tokens
+                ):
+                    return f"syntax error near token limit ({completion_tokens}/{max_tokens}): {exc}"
+                return f"syntax error: {exc}"
+
+        return None
+
+    def _safe_int(self, value: object) -> int | None:
+        try:
+            if value is None:
+                return None
+            return int(value)
+        except Exception:
+            return None
+
+    def _build_repair_prompt(self, base_prompt: str, reason: str, language: str) -> str:
+        return (
+            f"{base_prompt}\n\n"
+            "## Regenerate Strictly\n"
+            "Previous output is rejected and must be regenerated.\n"
+            f"Reject reason: {reason}\n"
+            f"Return only complete, syntactically valid `{language}` test code.\n"
+            "Do not include markdown fences, explanations, or thinking tags.\n"
+        )
+
+    def _strip_markdown_fence(self, content: str) -> str:
+        stripped = content.strip()
+        if not stripped:
+            return stripped
+
+        lines = stripped.splitlines()
+        first_non_empty = next((idx for idx, line in enumerate(lines) if line.strip()), None)
+        if first_non_empty is None:
+            return stripped
+
+        if lines[first_non_empty].strip().startswith("```"):
+            lines = lines[first_non_empty + 1 :]
+            while lines and not lines[-1].strip():
+                lines.pop()
+            if lines and lines[-1].strip().startswith("```"):
+                lines.pop()
+            candidate = "\n".join(lines).strip()
+            if candidate:
+                return candidate
+
+        return stripped
 
     def _write_outputs(
         self,
@@ -737,11 +902,16 @@ class Runner:
         model_names: list[str],
         languages: list[str] | None,
         max_samples: int | None,
+        sample_glob: str | None,
     ) -> Path:
         models_norm = ",".join(sorted(model_names))
         langs_norm = ",".join(sorted([x.lower() for x in (languages or [])])) or "all"
         max_samples_norm = str(max_samples) if max_samples is not None else "all"
-        scope = f"models={models_norm};langs={langs_norm};max={max_samples_norm}"
+        sample_glob_norm = sample_glob.strip() if sample_glob else "*"
+        scope = (
+            f"models={models_norm};langs={langs_norm};max={max_samples_norm};"
+            f"glob={sample_glob_norm}"
+        )
         scope_hash = hashlib.sha1(scope.encode("utf-8")).hexdigest()[:12]
         ckpt_dir = self.results_root / "checkpoints"
         ckpt_dir.mkdir(parents=True, exist_ok=True)

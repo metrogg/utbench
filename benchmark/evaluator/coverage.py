@@ -8,7 +8,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .compiler import prepare_python_execution_workspace, python_source_alias_candidates
+from .compiler import (
+    cleanup_execution_workspace,
+    prepare_python_execution_workspace,
+    python_source_alias_candidates,
+)
 
 
 def collect_coverage(
@@ -44,86 +48,91 @@ def _collect_python_coverage(
         source_path=source_path,
     )
 
-    source_name = source_path.name
-    source_aliases = python_source_alias_candidates(
-        source_path=source_path,
-        generated_test_path=generated_test_path,
-    )
-    source_aliases.add(source_name)
-    json_report = workdir / "coverage.json"
-
-    run_cmd = [
-        sys.executable,
-        "-m",
-        "coverage",
-        "run",
-        "--branch",
-        "-m",
-        "pytest",
-        str(target_test.name),
-        "-q",
-    ]
-    proc = subprocess.run(
-        run_cmd,
-        cwd=str(workdir),
-        capture_output=True,
-        text=True,
-        timeout=40,
-        check=False,
-    )
-    if proc.returncode != 0:
-        error = (proc.stdout + "\n" + proc.stderr).strip()
-        return None, None, None, f"coverage run failed: {error[-3000:]}"
-
-    json_cmd = [
-        sys.executable,
-        "-m",
-        "coverage",
-        "json",
-        "-o",
-        str(json_report),
-    ]
-    proc_json = subprocess.run(
-        json_cmd,
-        cwd=str(workdir),
-        capture_output=True,
-        text=True,
-        timeout=20,
-        check=False,
-    )
-    if proc_json.returncode != 0:
-        error = (proc_json.stdout + "\n" + proc_json.stderr).strip()
-        return None, None, None, f"coverage json failed: {error[-3000:]}"
-
-    if not json_report.exists():
-        return None, None, None, "coverage json report not found"
-
-    payload = json.loads(json_report.read_text(encoding="utf-8"))
-    files = payload.get("files", {})
-
-    line_coverage = None
-    branch_coverage = None
-    # 优先用被测源码文件对应的覆盖率。
-    for file_path, details in files.items():
-        file_name = Path(file_path).name
-        file_stem = Path(file_path).stem
-        if file_name in source_aliases or file_stem in source_aliases:
-            summary = details.get("summary", {})
-            line_coverage = _extract_line_coverage(summary)
-            branch_coverage = _extract_branch_coverage(summary)
-            break
-
-    if line_coverage is None:
-        return None, None, None, (
-            f"source file not found in coverage report: {source_name}; aliases={sorted(source_aliases)}"
+    try:
+        source_name = source_path.name
+        source_aliases = python_source_alias_candidates(
+            source_path=source_path,
+            generated_test_path=generated_test_path,
         )
+        source_aliases.add(source_name)
+        json_report = workdir / "coverage.json"
 
-    # 源码命中后，若分支覆盖率缺失再回退到 totals（兼容不同 coverage 版本输出差异）。
-    if branch_coverage is None:
-        totals = payload.get("totals", {})
-        branch_coverage = _extract_branch_coverage(totals)
+        run_cmd = [
+            sys.executable,
+            "-m",
+            "coverage",
+            "run",
+            "--branch",
+            "-m",
+            "pytest",
+            str(target_test.name),
+            "-q",
+        ]
+        proc = subprocess.run(
+            run_cmd,
+            cwd=str(workdir),
+            capture_output=True,
+            text=True,
+            timeout=40,
+            check=False,
+        )
+        if proc.returncode != 0:
+            error = (proc.stdout + "\n" + proc.stderr).strip()
+            return None, None, None, f"coverage run failed: {error[-3000:]}"
 
-    return line_coverage, branch_coverage, None, None
+        json_cmd = [
+            sys.executable,
+            "-m",
+            "coverage",
+            "json",
+            "-o",
+            str(json_report),
+        ]
+        proc_json = subprocess.run(
+            json_cmd,
+            cwd=str(workdir),
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        if proc_json.returncode != 0:
+            error = (proc_json.stdout + "\n" + proc_json.stderr).strip()
+            return None, None, None, f"coverage json failed: {error[-3000:]}"
+
+        if not json_report.exists():
+            return None, None, None, "coverage json report not found"
+
+        payload = json.loads(json_report.read_text(encoding="utf-8"))
+        files = payload.get("files", {})
+
+        line_coverage = None
+        branch_coverage = None
+        function_coverage = None
+        # 优先用被测源码文件对应的覆盖率。
+        for file_path, details in files.items():
+            file_name = Path(file_path).name
+            file_stem = Path(file_path).stem
+            if file_name in source_aliases or file_stem in source_aliases:
+                summary = details.get("summary", {})
+                line_coverage = _extract_line_coverage(summary)
+                branch_coverage = _extract_branch_coverage(summary)
+                function_coverage = _extract_function_coverage(source_path, details)
+                break
+
+        if line_coverage is None:
+            return None, None, None, (
+                f"source file not found in coverage report: {source_name}; aliases={sorted(source_aliases)}"
+            )
+
+        # 源码命中后，若分支覆盖率缺失再回退到 totals（兼容不同 coverage 版本输出差异）。
+        if branch_coverage is None:
+            totals = payload.get("totals", {})
+            branch_coverage = _extract_branch_coverage(totals)
+
+        return line_coverage, branch_coverage, function_coverage, None
+    finally:
+        cleanup_execution_workspace(workdir)
 
 
 def _extract_line_coverage(summary: dict) -> float | None:
@@ -155,6 +164,67 @@ def _extract_branch_coverage(summary: dict) -> float | None:
     if percent_branches is not None:
         return round(float(percent_branches) / 100.0, 6)
     return None
+
+
+def _extract_function_coverage(source_path: Path, details: dict) -> float | None:
+    executed_lines_raw = details.get("executed_lines")
+    if not isinstance(executed_lines_raw, list):
+        return None
+
+    executed_lines = {
+        int(line_no)
+        for line_no in executed_lines_raw
+        if isinstance(line_no, (int, float, str)) and str(line_no).strip().lstrip("-").isdigit()
+    }
+
+    try:
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    except Exception:  # pylint: disable=broad-except
+        return None
+
+    function_nodes = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    if not function_nodes:
+        return None
+
+    covered = 0
+    for node in function_nodes:
+        start = _function_body_start_lineno(node)
+        end = int(getattr(node, "end_lineno", 0) or start)
+        if start <= 0:
+            continue
+        if end < start:
+            end = start
+        if any(start <= line_no <= end for line_no in executed_lines):
+            covered += 1
+
+    total = len(function_nodes)
+    if total <= 0:
+        return None
+    return round(covered / total, 6)
+
+
+def _function_body_start_lineno(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    start = int(getattr(node, "lineno", 0) or 0)
+    body = list(getattr(node, "body", []) or [])
+    if not body:
+        return start
+
+    first = body[0]
+    if (
+        isinstance(first, ast.Expr)
+        and isinstance(getattr(first, "value", None), ast.Constant)
+        and isinstance(getattr(first.value, "value", None), str)
+    ):
+        body = body[1:]
+
+    if not body:
+        return start
+
+    return int(getattr(body[0], "lineno", start) or start)
 
 
 def collect_mutation_score(

@@ -60,3 +60,8 @@ def test_build_summary_basic_rates() -> None:
     assert summary["mutation_kill_rate"] == 0.0
     assert summary["mutation_effective_mutants"] == 0
     assert summary["mutation_effective_kill_rate"] == 0.0
+    assert summary["sample_bucket_counts"] == {
+        "self_contained": 0,
+        "non_self_contained": 0,
+        "unknown": 2,
+    }

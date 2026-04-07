@@ -28,6 +28,8 @@ _COLUMN_LABELS_ZH = {
     "sample_id": "样本ID",
     "complexity": "复杂度",
     "scenario": "场景",
+    "sample_bucket": "样本分层",
+    "sample_bucket_reason": "分层说明",
     "compile_pass": "编译通过",
     "test_pass": "测试通过",
     "line_coverage": "行覆盖率",
@@ -235,6 +237,8 @@ def _enrich_result_row(
         "sample_id": sample_id,
         "complexity": complexity,
         "scenario": scenario,
+        "sample_bucket": row.get("sample_bucket"),
+        "sample_bucket_reason": row.get("sample_bucket_reason"),
         "generated_test_path": row.get("generated_test_path"),
         "source_path": row.get("source_path"),
         "compile_pass": row.get("compile_pass"),
@@ -391,6 +395,20 @@ def _build_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     mutation_skipped_mutants = sum(_to_int(row.get("mutation_skipped")) or 0 for row in rows)
     mutation_suspicious_mutants = sum(_to_int(row.get("mutation_suspicious")) or 0 for row in rows)
     mutation_effective_mutants = mutation_killed_mutants + mutation_survived_mutants
+    self_contained_rows = [row for row in rows if row.get("sample_bucket") == "self_contained"]
+    non_self_contained_rows = [row for row in rows if row.get("sample_bucket") == "non_self_contained"]
+    unknown_bucket_rows = [
+        row
+        for row in rows
+        if row.get("sample_bucket") not in {"self_contained", "non_self_contained"}
+    ]
+
+    sc_compile_pass_count = sum(1 for row in self_contained_rows if row.get("compile_pass") is True)
+    sc_test_pass_count = sum(1 for row in self_contained_rows if row.get("test_pass") is True)
+    nsc_compile_pass_count = sum(
+        1 for row in non_self_contained_rows if row.get("compile_pass") is True
+    )
+    nsc_test_pass_count = sum(1 for row in non_self_contained_rows if row.get("test_pass") is True)
 
     return {
         "total_samples": total,
@@ -419,6 +437,18 @@ def _build_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "mutation_kill_rate": _rate(mutation_killed_mutants, mutation_total_mutants),
         "mutation_effective_mutants": mutation_effective_mutants,
         "mutation_effective_kill_rate": _rate(mutation_killed_mutants, mutation_effective_mutants),
+        "sample_bucket_counts": {
+            "self_contained": len(self_contained_rows),
+            "non_self_contained": len(non_self_contained_rows),
+            "unknown": len(unknown_bucket_rows),
+        },
+        "self_contained_compile_pass_rate": _rate(sc_compile_pass_count, len(self_contained_rows)),
+        "self_contained_test_pass_rate": _rate(sc_test_pass_count, sc_compile_pass_count),
+        "non_self_contained_compile_pass_rate": _rate(
+            nsc_compile_pass_count,
+            len(non_self_contained_rows),
+        ),
+        "non_self_contained_test_pass_rate": _rate(nsc_test_pass_count, nsc_compile_pass_count),
     }
 
 
@@ -637,6 +667,8 @@ def _build_html_report(payload: dict[str, Any]) -> str:
             "sample_id": row.get("sample_id"),
             "complexity": row.get("complexity"),
             "scenario": row.get("scenario"),
+            "sample_bucket": row.get("sample_bucket"),
+            "sample_bucket_reason": row.get("sample_bucket_reason"),
             "compile_pass": row.get("compile_pass"),
             "test_pass": row.get("test_pass"),
             "line_coverage": row.get("line_coverage"),
@@ -1166,6 +1198,8 @@ def _sample_table_html(rows: list[dict[str, Any]]) -> str:
         "sample_id",
         "complexity",
         "scenario",
+        "sample_bucket",
+        "sample_bucket_reason",
         "compile_pass",
         "test_pass",
         "line_coverage",

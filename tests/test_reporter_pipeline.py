@@ -74,6 +74,8 @@ def test_reporter_generates_json_csv_html(tmp_path: Path) -> None:
                     "test_error": None,
                     "coverage_error": None,
                     "runtime_ms": 321,
+                    "sample_bucket": "self_contained",
+                    "sample_bucket_reason": None,
                 }
             ],
         },
@@ -93,6 +95,7 @@ def test_reporter_generates_json_csv_html(tmp_path: Path) -> None:
     assert payload["summary"]["mutation_not_checked_mutants"] == 0
     assert payload["summary"]["mutation_effective_mutants"] == 10
     assert payload["summary"]["mutation_effective_kill_rate"] == 0.7
+    assert payload["summary"]["sample_bucket_counts"]["self_contained"] == 1
     sample = payload["report"]["sample_rows"][0]
     assert sample["mutation_total"] == 10
     assert sample["mutation_killed"] == 7
@@ -138,6 +141,8 @@ def test_reporter_failure_breakdown_extracts_types(tmp_path: Path) -> None:
                     "coverage_error": None,
                     "mutation_error": None,
                     "runtime_ms": 100,
+                    "sample_bucket": "non_self_contained",
+                    "sample_bucket_reason": "not allowlisted",
                     "mutation_total": None,
                     "mutation_killed": None,
                     "mutation_survived": None,
@@ -164,6 +169,8 @@ def test_reporter_failure_breakdown_extracts_types(tmp_path: Path) -> None:
                     "coverage_error": None,
                     "mutation_error": None,
                     "runtime_ms": None,
+                    "sample_bucket": "unknown",
+                    "sample_bucket_reason": "outside dataset/python",
                     "mutation_total": None,
                     "mutation_killed": None,
                     "mutation_survived": None,
@@ -221,6 +228,8 @@ def test_reporter_data_quality_panel_metrics_present(tmp_path: Path) -> None:
                     "coverage_error": None,
                     "mutation_error": None,
                     "runtime_ms": 100,
+                    "sample_bucket": "self_contained",
+                    "sample_bucket_reason": None,
                 }
             ],
         },
@@ -261,6 +270,8 @@ def test_reporter_respects_export_formats(tmp_path: Path) -> None:
                     "coverage_error": None,
                     "mutation_error": None,
                     "runtime_ms": 100,
+                    "sample_bucket": "self_contained",
+                    "sample_bucket_reason": None,
                 }
             ],
         },

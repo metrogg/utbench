@@ -1,0 +1,8 @@
+# Python self-contained sample allowlist
+# Path format is relative to dataset/python/
+
+# Baseline single-file curated samples
+boundary_python_boundary_0.py
+complex_dependency_python_complex_dependency_0.py
+interface_mock_python_interface_mock_0.py
+simple_function_python_simple_function_0.py

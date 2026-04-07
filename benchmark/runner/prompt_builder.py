@@ -33,7 +33,11 @@ class PromptBuilder:
         benchmark_config = benchmark_config or {}
         self._thresholds = benchmark_config.get("thresholds", {}) or {}
 
-    def read_sample(self , sample_path: str | Path, default_language: str | None = None) -> PromptInput:
+    def read_sample(
+        self,
+        sample_path: str | Path,
+        default_language: str | None = None,
+    ) -> PromptInput:
         sample = Path(sample_path)
         source_code = sample.read_text(encoding="utf-8")
         language = self._infer_language(sample, default_language)
@@ -47,7 +51,8 @@ class PromptBuilder:
     def build_prompt(self, data: PromptInput) -> str:
         framework = self.LANGUAGE_FRAMEWORK.get(data.language, "the standard test framework")
         dependencies = self._extract_dependencies(data.source_code, data.language)
-        scenario, complexity = self._parse_sample_meta(data.sample_id)
+        scenario, complexity = self._parse_sample_meta(data.sample_id, data.sample_path)
+        module_name = self._module_import_name(data.sample_id)
         coverage_targets = self._coverage_targets_text()
         mock_requirement = self._mock_requirement(data.source_code)
 
@@ -70,6 +75,10 @@ class PromptBuilder:
             "- 保持测试可重复、可执行（避免随机性）。\n"
             "- Use clear assertions with meaningful expected values.\n"
             "- 使用清晰断言和有意义的期望值。\n"
+            f"- Import target symbols from local module `{module_name}` whenever possible.\n"
+            f"- 优先从同目录模块 `{module_name}` 导入被测对象。\n"
+            "- Avoid importing unrelated third-party packages by default.\n"
+            "- 默认不要引入无关第三方包。\n"
             f"- Coverage targets（覆盖率目标，供参考）: {coverage_targets}\n"
             f"- Mock requirements（Mock 要求）: {mock_requirement}\n\n"
             "## Context Information（上下文信息）\n"
@@ -78,13 +87,21 @@ class PromptBuilder:
             f"- Complexity（复杂度）: {complexity_text}\n"
             f"- Dependencies detected（检测到依赖）: {dependency_text}\n\n"
             "## Output Format（输出格式）\n"
-            f"- Return only test code in one fenced code block tagged with `{data.language}`.\n"
-            f"- 仅输出一个代码块，语言标签必须是 `{data.language}`。\n"
+            "- Return raw test code only (no Markdown fences).\n"
+            "- 仅输出原始测试代码，不要 Markdown 代码块。\n"
             "- Do not include explanations.\n"
             "- 不要输出解释文字。\n\n"
             "## Source Code Under Test（被测源码）\n"
             f"```{data.language}\n{data.source_code}\n```"
         )
+
+    def _module_import_name(self, sample_id: str) -> str:
+        normalized = re.sub(r"[^a-zA-Z0-9_]", "_", sample_id).strip("_")
+        if not normalized:
+            return "solution"
+        if re.match(r"^[0-9]", normalized):
+            return f"sample_{normalized}"
+        return normalized
 
     def _infer_language(self, sample_path: Path, default_language: str | None) -> str:
         if default_language:
@@ -119,11 +136,17 @@ class PromptBuilder:
             f"function >= {pct('function_coverage', 0.8)}"
         )
 
-    def _parse_sample_meta(self, sample_id: str) -> tuple[str | None, str | None]:
+    def _parse_sample_meta(
+        self,
+        sample_id: str,
+        sample_path: Path,
+    ) -> tuple[str | None, str | None]:
         # Expected shape: <complexity>_<language>_<scenario>_<index>
         parts = sample_id.split("_")
         if len(parts) < 4:
-            return None, None
+            parent = sample_path.parent.name.lower()
+            scenario = parent if parent and parent != sample_path.parent.parent.name.lower() else None
+            return scenario, None
         complexity = parts[0].lower()
         scenario = "_".join(parts[2:-1]).lower()
         return scenario, complexity

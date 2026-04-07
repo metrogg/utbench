@@ -26,6 +26,18 @@ def build_summary(results: list[EvaluationResult]) -> dict[str, Any]:
     mutation_skipped_mutants = sum(row.mutation_skipped or 0 for row in results)
     mutation_suspicious_mutants = sum(row.mutation_suspicious or 0 for row in results)
     mutation_effective_mutants = mutation_killed_mutants + mutation_survived_mutants
+    self_contained_samples = [row for row in results if row.sample_bucket == "self_contained"]
+    non_self_contained_samples = [row for row in results if row.sample_bucket == "non_self_contained"]
+    unknown_bucket_samples = [
+        row
+        for row in results
+        if row.sample_bucket not in {"self_contained", "non_self_contained"}
+    ]
+
+    sc_compile_pass_count = sum(1 for row in self_contained_samples if row.compile_pass)
+    sc_test_pass_count = sum(1 for row in self_contained_samples if row.test_pass is True)
+    nsc_compile_pass_count = sum(1 for row in non_self_contained_samples if row.compile_pass)
+    nsc_test_pass_count = sum(1 for row in non_self_contained_samples if row.test_pass is True)
 
     return {
         "total_samples": total,
@@ -50,6 +62,18 @@ def build_summary(results: list[EvaluationResult]) -> dict[str, Any]:
         "mutation_kill_rate": _rate(mutation_killed_mutants, mutation_total_mutants),
         "mutation_effective_mutants": mutation_effective_mutants,
         "mutation_effective_kill_rate": _rate(mutation_killed_mutants, mutation_effective_mutants),
+        "sample_bucket_counts": {
+            "self_contained": len(self_contained_samples),
+            "non_self_contained": len(non_self_contained_samples),
+            "unknown": len(unknown_bucket_samples),
+        },
+        "self_contained_compile_pass_rate": _rate(sc_compile_pass_count, len(self_contained_samples)),
+        "self_contained_test_pass_rate": _rate(sc_test_pass_count, sc_compile_pass_count),
+        "non_self_contained_compile_pass_rate": _rate(
+            nsc_compile_pass_count,
+            len(non_self_contained_samples),
+        ),
+        "non_self_contained_test_pass_rate": _rate(nsc_test_pass_count, nsc_compile_pass_count),
     }
 
 

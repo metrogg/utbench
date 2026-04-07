@@ -5,7 +5,7 @@ import sys
 import time
 from pathlib import Path
 
-from .compiler import prepare_python_execution_workspace
+from .compiler import cleanup_execution_workspace, prepare_python_execution_workspace
 
 
 def execute_tests(
@@ -16,8 +16,7 @@ def execute_tests(
 ) -> tuple[bool | None, str | None, int | None]:
     """阶段2：执行测试。"""
     if language != "python":
-        # 非 Python 语言先占位，待工具链接入后补齐。
-        return None, None, None
+        return None, f"Language test execution not implemented yet: {language}", None
 
     workdir, target_test = prepare_python_execution_workspace(
         generated_test_path=generated_test_path,
@@ -45,3 +44,5 @@ def execute_tests(
     except subprocess.TimeoutExpired:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         return False, f"pytest timeout after {timeout_seconds}s", elapsed_ms
+    finally:
+        cleanup_execution_workspace(workdir)

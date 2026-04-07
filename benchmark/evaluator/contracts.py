@@ -32,6 +32,8 @@ class EvaluationResult:
     coverage_error: str | None
     mutation_error: str | None
     runtime_ms: int | None
+    sample_bucket: str | None = None
+    sample_bucket_reason: str | None = None
     mutation_total: int | None = None
     mutation_killed: int | None = None
     mutation_survived: int | None = None

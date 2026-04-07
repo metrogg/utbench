@@ -10,7 +10,9 @@ def test_loader_collects_generated_tests() -> None:
     assert isinstance(samples, list)
     # 当前仓库通常已有历史生成结果；若为空也不应报错。
     for row in samples[:5]:
-        assert row.generated_test_path.endswith((".test.py", ".test.java", ".test.go", ".test.cpp"))
+        assert row.generated_test_path.endswith(
+            (".test.py", ".test.java", ".test.go", ".test.cpp", ".test.txt")
+        )
 
 
 def test_loader_keeps_latest_test_per_sample(tmp_path: Path) -> None:
@@ -41,3 +43,34 @@ def test_loader_can_include_all_history(tmp_path: Path) -> None:
     samples = load_generated_samples_with_mode(tmp_path, latest_only=False)
     names = sorted(Path(s.generated_test_path).name for s in samples)
     assert names == sorted([old_file.name, new_file.name])
+
+
+def test_loader_supports_legacy_language_token_and_metadata_source_path(tmp_path: Path) -> None:
+    model = "m1"
+    test_dir = tmp_path / model / "tests"
+    report_dir = tmp_path / model / "reports"
+    test_dir.mkdir(parents=True)
+    report_dir.mkdir(parents=True)
+
+    test_file = test_dir / "m1_complex_dependency_complex_dependency_000_20260402010101.test.txt"
+    test_file.write_text("def test_placeholder():\n    assert True\n", encoding="utf-8")
+
+    source_file = tmp_path / "dataset" / "python" / "complex_dependency" / "complex_dependency_000.py"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    metadata_file = report_dir / "m1_complex_dependency_complex_dependency_000_20260402010101.metadata.json"
+    metadata_file.write_text(
+        (
+            "{\n"
+            f"  \"sample_path\": \"{str(source_file.resolve()).replace('\\\\', '/')}\"\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    samples = load_generated_samples_with_mode(tmp_path, latest_only=True)
+    assert len(samples) == 1
+    assert samples[0].language == "python"
+    assert samples[0].sample_id == "complex_dependency_000"
+    assert samples[0].source_path == str(source_file.resolve())

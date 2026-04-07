@@ -113,6 +113,9 @@ benchmark:
     max_concurrent_models: 2
     max_concurrent_samples: 4
 
+  runner:
+    max_generation_attempts: 2
+
 # language toolchain config
 languages:
   java:
