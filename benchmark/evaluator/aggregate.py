@@ -11,6 +11,7 @@ def build_summary(results: list[EvaluationResult]) -> dict[str, Any]:
     compile_pass_count = sum(1 for row in results if row.compile_pass)
     executable_rows = [row for row in results if row.test_pass is not None]
     test_pass_count = sum(1 for row in results if row.test_pass is True)
+    test_pass_rate_values = [row.test_pass_rate for row in results if row.test_pass_rate is not None]
 
     line_cov_values = [row.line_coverage for row in results if row.line_coverage is not None]
     branch_cov_values = [row.branch_coverage for row in results if row.branch_coverage is not None]
@@ -49,6 +50,7 @@ def build_summary(results: list[EvaluationResult]) -> dict[str, Any]:
         "compile_pass_rate": _rate(compile_pass_count, total),
         "test_pass_count": test_pass_count,
         "test_pass_rate": _rate(test_pass_count, compile_pass_count),
+        "avg_test_pass_rate": _avg(test_pass_rate_values),
         "avg_line_coverage": _avg(line_cov_values),
         "avg_branch_coverage": _avg(branch_cov_values),
         "avg_function_coverage": _avg(func_cov_values),

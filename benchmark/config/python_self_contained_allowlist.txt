@@ -2,7 +2,13 @@
 # Path format is relative to dataset/python/
 
 # Baseline single-file curated samples
-boundary_python_boundary_0.py
-complex_dependency_python_complex_dependency_0.py
-interface_mock_python_interface_mock_0.py
-simple_function_python_simple_function_0.py
+boundary_000.py
+complex_dependency_000.py
+interface_mock_000.py
+simple_function_000.py
+
+# 新增样本（来自同事数据集）
+boundary_001.py
+simple_function_001.py
+complex_dependency_001.py
+interface_mock_001.py

@@ -16,7 +16,6 @@ _COLUMN_LABELS_ZH = {
     "total_samples": "样本数",
     "compile_pass_rate": "编译通过率",
     "test_pass_rate": "测试通过率",
-    "avg_test_pass_rate": "平均测试通过率",
     "avg_line_coverage": "平均行覆盖率",
     "avg_branch_coverage": "平均分支覆盖率",
     "avg_function_coverage": "平均函数覆盖率",
@@ -33,9 +32,6 @@ _COLUMN_LABELS_ZH = {
     "sample_bucket_reason": "分层说明",
     "compile_pass": "编译通过",
     "test_pass": "测试通过",
-    "test_pass_count": "通过数",
-    "test_total_count": "总数",
-    "test_pass_rate": "测试通过率",
     "line_coverage": "行覆盖率",
     "branch_coverage": "分支覆盖率",
     "mutation_score": "变异得分",
@@ -247,9 +243,6 @@ def _enrich_result_row(
         "source_path": row.get("source_path"),
         "compile_pass": row.get("compile_pass"),
         "test_pass": row.get("test_pass"),
-        "test_pass_count": _to_int(row.get("test_pass_count")),
-        "test_total_count": _to_int(row.get("test_total_count")),
-        "test_pass_rate": _to_float(row.get("test_pass_rate")),
         "line_coverage": _to_float(row.get("line_coverage")),
         "branch_coverage": _to_float(row.get("branch_coverage")),
         "function_coverage": _to_float(row.get("function_coverage")),
@@ -423,7 +416,6 @@ def _build_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "compile_pass_rate": _rate(compile_pass_count, total),
         "test_pass_count": test_pass_count,
         "test_pass_rate": _rate(test_pass_count, compile_pass_count),
-        "avg_test_pass_rate": _avg(_numeric_values(rows, "test_pass_rate")),
         "stage2_executable_samples": executable,
         "avg_line_coverage": _avg(_numeric_values(rows, "line_coverage")),
         "avg_branch_coverage": _avg(_numeric_values(rows, "branch_coverage")),
@@ -614,20 +606,20 @@ def _build_html_report(payload: dict[str, Any]) -> str:
     top_models = sorted(
         by_model,
         key=lambda row: (
-            -float(row.get("avg_test_pass_rate") or 0.0),
+            -float(row.get("test_pass_rate") or 0.0),
             -float(row.get("avg_line_coverage") or 0.0),
             -float(row.get("avg_mutation_score") or 0.0),
         ),
     )
     model_names = [str(row.get("model") or "unknown") for row in by_model]
-    test_pass_rates = [float(row.get("avg_test_pass_rate") or 0.0) for row in by_model]
+    test_pass_rates = [float(row.get("test_pass_rate") or 0.0) for row in by_model]
     line_covs = [float(row.get("avg_line_coverage") or 0.0) for row in by_model]
     mutation_scores = [float(row.get("avg_mutation_score") or 0.0) for row in by_model]
     compile_rates = [float(row.get("compile_pass_rate") or 0.0) for row in by_model]
     branch_covs = [float(row.get("avg_branch_coverage") or 0.0) for row in by_model]
 
     complexity_names = [str(row.get("complexity") or "unknown") for row in by_complexity]
-    complexity_test_rates = [float(row.get("avg_test_pass_rate") or 0.0) for row in by_complexity]
+    complexity_test_rates = [float(row.get("test_pass_rate") or 0.0) for row in by_complexity]
 
     heatmap_models = sorted({str(row.get("model") or "unknown") for row in by_model_language})
     heatmap_languages = sorted({str(row.get("language") or "unknown") for row in by_model_language})
@@ -645,7 +637,7 @@ def _build_html_report(payload: dict[str, Any]) -> str:
     summary_cards = [
         _summary_card("样本总数", overall.get("total_samples")),
         _summary_card("编译通过率", _format_pct(overall.get("compile_pass_rate"))),
-        _summary_card("平均测试通过率", _format_pct(overall.get("avg_test_pass_rate"))),
+        _summary_card("测试通过率", _format_pct(overall.get("test_pass_rate"))),
         _summary_card("平均行覆盖率", _format_pct(overall.get("avg_line_coverage"))),
         _summary_card("平均分支覆盖率", _format_pct(overall.get("avg_branch_coverage"))),
         _summary_card("平均变异得分", _format_pct(overall.get("avg_mutation_score"))),
@@ -660,7 +652,7 @@ def _build_html_report(payload: dict[str, Any]) -> str:
             {
                 "排名": index,
                 "模型": row.get("model"),
-                "平均测试通过率": _format_pct(row.get("avg_test_pass_rate")),
+                "测试通过率": _format_pct(row.get("test_pass_rate")),
                 "平均行覆盖率": _format_pct(row.get("avg_line_coverage")),
                 "平均变异得分": _format_pct(row.get("avg_mutation_score")),
                 "平均生成耗时(ms)": _format_num(row.get("avg_generation_latency_ms")),
@@ -679,9 +671,6 @@ def _build_html_report(payload: dict[str, Any]) -> str:
             "sample_bucket_reason": row.get("sample_bucket_reason"),
             "compile_pass": row.get("compile_pass"),
             "test_pass": row.get("test_pass"),
-            "test_pass_count": row.get("test_pass_count"),
-            "test_total_count": row.get("test_total_count"),
-            "test_pass_rate": row.get("test_pass_rate"),
             "line_coverage": row.get("line_coverage"),
             "branch_coverage": row.get("branch_coverage"),
             "mutation_score": row.get("mutation_score"),
@@ -771,7 +760,7 @@ def _build_html_report(payload: dict[str, Any]) -> str:
       <h2>摘要</h2>
       <div class=\"cards\">{''.join(summary_cards)}</div>
       <h3>模型综合排名 <span class=\"pill\">按测试通过率→覆盖率→变异得分</span></h3>
-      {_table_html(rank_rows, ['排名', '模型', '平均测试通过率', '平均行覆盖率', '平均变异得分', '平均生成耗时(ms)', '平均总Token'])}
+      {_table_html(rank_rows, ['排名', '模型', '测试通过率', '平均行覆盖率', '平均变异得分', '平均生成耗时(ms)', '平均总Token'])}
     </div>
 
     <div class=\"section\">
@@ -798,7 +787,7 @@ def _build_html_report(payload: dict[str, Any]) -> str:
       {_table_html(failures, ['stage', 'error_type', 'count', 'example_model', 'example_sample', 'example_message'])}
       <h3>结论摘要</h3>
       <ul class=\"conclusion\">
-        <li><strong>正确性：</strong>整体编译通过率 {_format_pct(overall.get('compile_pass_rate'))}，平均测试通过率 {_format_pct(overall.get('avg_test_pass_rate'))}。</li>
+        <li><strong>正确性：</strong>整体编译通过率 {_format_pct(overall.get('compile_pass_rate'))}，测试通过率 {_format_pct(overall.get('test_pass_rate'))}。</li>
         <li><strong>覆盖率：</strong>行覆盖率 {_format_pct(overall.get('avg_line_coverage'))}，分支覆盖率 {_format_pct(overall.get('avg_branch_coverage'))}。</li>
         <li><strong>有效性：</strong>变异得分均值 {_format_pct(overall.get('avg_mutation_score'))}，有效变异杀死率 {_format_pct(overall.get('mutation_effective_kill_rate'))}，与目标 {_format_pct(threshold_mutation)} 对比可持续优化。</li>
         <li><strong>效率：</strong>平均生成耗时 {_format_num(overall.get('avg_generation_latency_ms'))} ms，平均总 Token {_format_num(overall.get('avg_total_tokens'))}。</li>
@@ -810,9 +799,9 @@ def _build_html_report(payload: dict[str, Any]) -> str:
     <div class=\"section\">
       <h2>附录</h2>
       <h3>按模型统计表</h3>
-      {_table_html(by_model, ['model', 'total_samples', 'compile_pass_rate', 'avg_test_pass_rate', 'avg_line_coverage', 'avg_branch_coverage', 'avg_mutation_score', 'avg_generation_latency_ms', 'avg_total_tokens'])}
+      {_table_html(by_model, ['model', 'total_samples', 'compile_pass_rate', 'test_pass_rate', 'avg_line_coverage', 'avg_branch_coverage', 'avg_mutation_score', 'avg_generation_latency_ms', 'avg_total_tokens'])}
       <h3>按语言统计表</h3>
-      {_table_html(by_language, ['language', 'total_samples', 'compile_pass_rate', 'avg_test_pass_rate', 'avg_line_coverage', 'avg_branch_coverage', 'avg_mutation_score', 'avg_generation_latency_ms', 'avg_total_tokens'])}
+      {_table_html(by_language, ['language', 'total_samples', 'compile_pass_rate', 'test_pass_rate', 'avg_line_coverage', 'avg_branch_coverage', 'avg_mutation_score', 'avg_generation_latency_ms', 'avg_total_tokens'])}
       <h3>原始样本明细（支持筛选）</h3>
     <div class=\"filters\">
       <label>模型
@@ -1113,7 +1102,7 @@ def _build_heatmap_matrix(
     for row in rows:
         model = str(row.get("model") or "unknown")
         language = str(row.get("language") or "unknown")
-        value_map[(model, language)] = float(row.get("avg_test_pass_rate") or 0.0)
+        value_map[(model, language)] = float(row.get("test_pass_rate") or 0.0)
 
     matrix: list[list[float]] = []
     for model in models:
@@ -1213,9 +1202,6 @@ def _sample_table_html(rows: list[dict[str, Any]]) -> str:
         "sample_bucket_reason",
         "compile_pass",
         "test_pass",
-        "test_pass_count",
-        "test_total_count",
-        "test_pass_rate",
         "line_coverage",
         "mutation_score",
         "mutation_total",

@@ -6,9 +6,10 @@ This file is the operating guide for agentic coding tools working in `ut-bench`.
 Follow these rules for implementation, validation, and reporting.
 
 Project focus (current branch state):
-- Runner is implemented and actively used.
-- Evaluator exists and is being extended.
-- Reporter is not fully implemented.
+- Python evaluation pipeline is fully functional (compile → test → coverage → mutation).
+- Java/Go/Cpp/JavaScript are placeholder-only in evaluator (no real toolchain integration yet).
+- Runner works for all languages, but evaluator only processes Python.
+- Mutation testing requires Linux (mutmut not validated on Windows).
 
 Primary objective:
 - Evaluate multi-model unit-test generation quality across languages.
@@ -44,15 +45,25 @@ Run commands from repository root.
 
 ### 4.1 Environment
 
+Python 3.9+ required. Install dependencies:
+
 ```bash
-python --version
-python -m pip install pyyaml
+# Minimal (Python chain only)
+python -m pip install pyyaml pytest coverage mutmut
+
+# Full multi-language toolchain
+sudo apt install -y openjdk-17-jdk golang-go nodejs npm g++
+go install github.com/zimmski/go-mutesting/cmd/go-mutesting@latest
+sudo npm install -g eslint jest stryker-cli
+python -m pip install pyyaml pytest coverage mutmut pylint
 ```
 
-If evaluator coverage is used:
-
+API keys must be set as environment variables before running runner:
 ```bash
-python -m pip install pytest coverage
+export DEEPSEEK_API_KEY="..."
+export DASHSCOPE_API_KEY="..."
+export MINIMAX_API_KEY="..."
+export VOLCENGINE_API_KEY="..."
 ```
 
 ### 4.2 Runner commands
@@ -114,6 +125,8 @@ Keyword filter:
 ```bash
 python -m pytest -k coverage -q
 ```
+
+**Note**: `test_evaluator_pipeline.py::test_evaluator_pipeline_runs_and_returns_summary` relies on existing `results/` directory. For hermetic tests, prefer isolated fixtures in other test files.
 
 ## 5) Configuration Rules
 
@@ -188,6 +201,26 @@ $env:VOLCENGINE_API_KEY="..."
 
 Runner outputs are stored under `results/<model>/...`.
 Evaluator should consume generated tests from `results/<model>/tests/`.
+
+### 7.1 Language inference
+
+Runner infers language from dataset layout, not file extension or parent directory:
+- Priority: `dataset/<lang>/...` top-level directory name
+- Fallback: file extension (`.py` → `python`, etc.)
+- Never use scenario folder names (`boundary`, `complex_dependency`) as language
+
+Generated test files follow pattern: `<model>_<language>_<sample_id>_<timestamp>.test.<ext>`
+
+Examples:
+- `deepseek_python_boundary_001_20260406120000.test.py` (correct)
+- `deepseek_boundary_boundary_001_20260406120000.test.txt` (legacy bug, now supported)
+
+### 7.2 Evaluator compatibility
+
+Loader supports legacy artifacts where language token was scenario folder:
+- `boundary`, `simple_function`, `complex_dependency`, `interface_mock` → mapped to `python`
+- Source path resolution: metadata `sample_path` > dataset search by `sample_id`
+- Always check metadata first to avoid source mismatch
 
 When extending evaluator:
 - Keep fields stable in summary JSON.

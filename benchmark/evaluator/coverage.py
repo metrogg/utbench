@@ -250,9 +250,21 @@ def _collect_failing_test_names(target_test: Path, workdir: Path) -> list[str]:
             parts = line.split("::")
             if len(parts) >= 3:
                 class_name = parts[-2].strip()
-                test_name = parts[-1].split("[")[0].strip()
+                if class_name.startswith("FAILED "):
+                    class_name = class_name[7:]
+                test_part = parts[-1].split("[")[0].strip()
+                test_name = test_part.split(" - ")[0].strip()
                 if test_name:
                     failing.append(f"({class_name} and {test_name})")
+            elif len(parts) == 2:
+                module_part = parts[-2].strip()
+                if module_part.startswith("FAILED "):
+                    module_part = module_part[7:]
+                module_name = module_part.split("/")[-1].replace(".py", "")
+                test_part = parts[-1].split("[")[0].strip()
+                test_name = test_part.split(" - ")[0].strip()
+                if test_name:
+                    failing.append(f"({module_name} and {test_name})")
     return failing
 
 
@@ -486,7 +498,8 @@ def _extract_meta_mutation_stats(
     has_any = False
 
     for target in mutation_targets:
-        meta_file = mutants_dir / f"{target}.meta"
+        target_name = target if not target.endswith(".py") else target[:-3]
+        meta_file = mutants_dir / f"{target_name}.meta"
         if not meta_file.exists():
             continue
         has_any = True

@@ -96,6 +96,8 @@ class PromptBuilder:
             "- 测试函数命名必须以 `test_` 开头。\n"
             "- Use plain `assert` and `pytest.raises` for failure paths.\n"
             "- 断言使用 `assert`，异常路径使用 `pytest.raises`。\n"
+            "- Use function-based tests (e.g., `def test_xxx()`) instead of class-based.\n"
+            "- 使用函数式测试（如 `def test_xxx()`），不要用 class-based（如 `class Test:`）。\n"
             f"- Import target symbols from local module `{module_name}` whenever possible.\n"
             f"- 优先从同目录模块 `{module_name}` 导入被测对象。\n"
             "- Avoid importing unrelated third-party packages by default.\n"

@@ -104,7 +104,7 @@ class Evaluator:
             mutation_skipped = None
             mutation_suspicious = None
 
-            if test_pass is True or (test_pass_rate is not None and test_pass_rate >= 0.85):
+            if test_pass is True or (test_pass_rate is not None and test_pass_rate >= 0.70):
                 line_cov, branch_cov, function_cov, passed_line_cov, passed_branch_cov, passed_function_cov, coverage_error = collect_coverage(
                     language=sample.language,
                     generated_test_path=generated_test_path,
@@ -161,6 +161,7 @@ class Evaluator:
                     mutation_suspicious=mutation_suspicious,
                     test_pass_count=test_pass_count,
                     test_total_count=test_total_count,
+                    test_pass_rate=test_pass_rate,
                 )
             )
 

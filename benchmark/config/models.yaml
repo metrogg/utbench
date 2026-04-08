@@ -97,11 +97,11 @@ models:
 benchmark:
   thresholds:
     compile_rate: 0.7
-    execution_rate: 0.6
+    execution_rate: 0.70
     line_coverage: 0.7
     branch_coverage: 0.6
     function_coverage: 0.8
-    mutation_score: 0.85
+    mutation_score: 0.70
 
   timeouts:
     api_call: 120000

@@ -44,6 +44,7 @@ class EvaluationResult:
     mutation_suspicious: int | None = None
     test_pass_count: int | None = None
     test_total_count: int | None = None
+    test_pass_rate: float | None = None
     passed_line_coverage: float | None = None
     passed_branch_coverage: float | None = None
     passed_function_coverage: float | None = None
