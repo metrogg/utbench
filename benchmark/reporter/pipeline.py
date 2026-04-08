@@ -10,6 +10,19 @@ from typing import Any
 
 _LANGUAGE_TOKENS = {"python", "java", "go", "cpp", "javascript"}
 
+_MODEL_NAME_MAP = {
+    "qwen": "qwen3.6-plus",
+    "glm": "glm-4",
+    "deepseek": "deepseek-chat",
+    "minimax": "MiniMax-M2.7",
+    "doubao-seed": "doubao-seed-2.0-pro",
+    "kimi-k2.5": "kimi-k2.5",
+    "glm-4.7": "glm-4.7",
+}
+
+def _get_model_display_name(model_key: str) -> str:
+    return _MODEL_NAME_MAP.get(model_key, model_key)
+
 _COLUMN_LABELS_ZH = {
     "model": "模型",
     "language": "语言",
@@ -469,6 +482,8 @@ def _group_metrics(rows: list[dict[str, Any]], group_keys: list[str]) -> list[di
     output: list[dict[str, Any]] = []
     for key, bucket in grouped.items():
         record = {group_keys[idx]: key[idx] for idx in range(len(group_keys))}
+        if "model" in group_keys:
+            record["model"] = _get_model_display_name(record.get("model", ""))
         record.update(_build_metrics(bucket))
         output.append(record)
 
@@ -566,6 +581,102 @@ def _rate(numerator: int, denominator: int) -> float:
     return round(numerator / denominator, 6)
 
 
+def _build_scenario_analysis(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    scenarios: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        sample_id = str(row.get("sample_id") or "")
+        parts = sample_id.rsplit("_", 1)
+        scenario = parts[0] if len(parts) > 1 else sample_id
+        
+        if scenario not in scenarios:
+            scenarios[scenario] = {
+                "count": 0,
+                "test_rates": [],
+                "line_cov": [],
+                "branch_cov": [],
+                "mutation_scores": [],
+                "models": set(),
+            }
+        
+        scenarios[scenario]["count"] += 1
+        scenarios[scenario]["models"].add(row.get("model"))
+        if row.get("test_pass_rate") is not None:
+            scenarios[scenario]["test_rates"].append(row["test_pass_rate"])
+        if row.get("line_coverage") is not None:
+            scenarios[scenario]["line_cov"].append(row["line_coverage"])
+        if row.get("branch_coverage") is not None:
+            scenarios[scenario]["branch_cov"].append(row["branch_coverage"])
+        if row.get("mutation_score") is not None:
+            scenarios[scenario]["mutation_scores"].append(row["mutation_score"])
+    
+    result = {}
+    for scenario, data in scenarios.items():
+        result[scenario] = {
+            "count": data["count"],
+            "models": sorted(data["models"]),
+            "avg_test_rate": _avg(data["test_rates"]),
+            "avg_line_cov": _avg(data["line_cov"]),
+            "avg_branch_cov": _avg(data["branch_cov"]),
+            "avg_mutation": _avg(data["mutation_scores"]),
+        }
+    return result
+
+
+def _build_data_quality_report(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total = len(rows)
+    missing_mutation = sum(1 for r in rows if r.get("mutation_score") is None)
+    missing_coverage = sum(1 for r in rows if r.get("line_coverage") is None)
+    low_mutation = sum(1 for r in rows if r.get("mutation_score") is not None and r["mutation_score"] < 0.6)
+    
+    return {
+        "total_samples": total,
+        "missing_mutation": missing_mutation,
+        "missing_coverage": missing_coverage,
+        "low_mutation": low_mutation,
+    }
+
+
+def _build_error_classification(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    errors: dict[str, list[dict[str, Any]]] = {
+        "import_error": [],
+        "assertion_failure": [],
+        "name_error": [],
+        "syntax_error": [],
+        "timeout": [],
+        "other": [],
+    }
+    
+    for r in rows:
+        test_error = str(r.get("test_error") or "")
+        compile_error = str(r.get("compile_error") or "")
+        mutation_error = str(r.get("mutation_error") or "")
+        
+        error_text = test_error or compile_error or mutation_error
+        if not error_text:
+            continue
+        
+        error_type = "other"
+        error_lower = error_text.lower()
+        if "import" in error_lower or "module" in error_lower:
+            error_type = "import_error"
+        elif "assertion" in error_lower or "assert" in error_lower:
+            error_type = "assertion_failure"
+        elif "nameerror" in error_lower or ("name" in error_lower and "not defined" in error_lower):
+            error_type = "name_error"
+        elif "syntax" in error_lower:
+            error_type = "syntax_error"
+        elif "timeout" in error_lower:
+            error_type = "timeout"
+        
+        errors[error_type].append({
+            "model": r.get("model"),
+            "sample_id": r.get("sample_id"),
+            "stage": "test" if test_error else ("compile" if compile_error else "mutation"),
+        })
+    
+    return errors
+
+
 def _to_int(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
@@ -603,7 +714,7 @@ def _build_html_report(payload: dict[str, Any]) -> str:
     failures = payload.get("failure_breakdown", [])
     sample_rows = payload.get("sample_rows", [])
 
-    model_options = sorted({str(row.get("model") or "unknown") for row in sample_rows})
+    model_options = sorted({_get_model_display_name(str(row.get("model") or "unknown")) for row in sample_rows})
     language_options = sorted({str(row.get("language") or "unknown") for row in sample_rows})
 
     generated_at = escape(str(payload.get("generated_at_utc") or ""))
@@ -619,7 +730,7 @@ def _build_html_report(payload: dict[str, Any]) -> str:
             -float(row.get("avg_mutation_score") or 0.0),
         ),
     )
-    model_names = [str(row.get("model") or "unknown") for row in by_model]
+    model_names = [_get_model_display_name(str(row.get("model") or "unknown")) for row in by_model]
     test_pass_rates = [float(row.get("avg_test_pass_rate") or 0.0) for row in by_model]
     line_covs = [float(row.get("avg_line_coverage") or 0.0) for row in by_model]
     mutation_scores = [float(row.get("avg_mutation_score") or 0.0) for row in by_model]
@@ -629,7 +740,7 @@ def _build_html_report(payload: dict[str, Any]) -> str:
     complexity_names = [str(row.get("complexity") or "unknown") for row in by_complexity]
     complexity_test_rates = [float(row.get("avg_test_pass_rate") or 0.0) for row in by_complexity]
 
-    heatmap_models = sorted({str(row.get("model") or "unknown") for row in by_model_language})
+    heatmap_models = sorted({_get_model_display_name(str(row.get("model") or "unknown")) for row in by_model_language})
     heatmap_languages = sorted({str(row.get("language") or "unknown") for row in by_model_language})
     heatmap_values = _build_heatmap_matrix(by_model_language, heatmap_models, heatmap_languages)
 
@@ -659,7 +770,7 @@ def _build_html_report(payload: dict[str, Any]) -> str:
         rank_rows.append(
             {
                 "排名": index,
-                "模型": row.get("model"),
+                "模型": _get_model_display_name(row.get("model")),
                 "平均测试通过率": _format_pct(row.get("avg_test_pass_rate")),
                 "平均行覆盖率": _format_pct(row.get("avg_line_coverage")),
                 "平均变异得分": _format_pct(row.get("avg_mutation_score")),
