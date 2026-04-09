@@ -1,226 +1,146 @@
-# Benchmark 评测方案总体设计
+﻿# Benchmark 评测方案总体设计
 
-> 状态：Draft（v0.1）
-> 对齐文档：`docs/design/requirements-spec.md`、`docs/design/system-design.md`、`docs/design/metrics-definition.md`
+## 1. 目标与范围
 
-## 一、文档目标
+ut-bench 的目标是建立一套可复现、可扩展、可横向对比的 AI 单测生成评测流水线。
 
-本文档定义 ut-bench 的整体评测方案，重点回答以下问题：
+当前已实现范围：
 
-- 评测对象是什么，输入输出是什么。
-- 评测流程如何组织，如何保证可复现和可对比。
-- 指标如何采集、展示和用于排序参考。
-- v0.1 与后续迭代的边界如何划分。
+- Runner 阶段：数据集读取、Prompt 构造、模型 API 调用、响应解析、测试代码落盘
+- 并发执行：支持多任务并发
+- 断点续跑：基于 checkpoint 的任务跳过与恢复
+- 结果追踪：按模型分目录输出，保留可追溯元数据
+- Evaluator 阶段（Python 主线）：编译检查、测试执行、覆盖率（行/分支/函数）与变异测试
+- Reporter 阶段：多维聚合（模型/语言/复杂度/场景）与 JSON/CSV/HTML 报告导出
 
-说明：
+规划中范围：
 
-- 本文档偏业务与流程视角。
-- 模块内部实现细节以 `system-design.md` 为准。
+- Java/Go/C++ 工具链真实接入（当前为未实现状态）
+- 数据集样本可执行性治理与口径分层
 
-## 二、方案定位与范围
+## 2. 设计原则
 
-### 2.1 产品定位
+- 标准化：统一输入（dataset）、统一配置（models.yaml）、统一输出目录（results）
+- 可重复：相同输入 + 相同配置应得到可比结果
+- 容错性：单样本失败不阻断全局任务
+- 可扩展：新增模型、语言、指标时不破坏现有流程
+- 可观测：输出进度日志、失败原因、摘要文件
 
-ut-bench 定位为桌面端评测软件（TypeScript 路线），用于横向评测不同模型生成单元测试代码的质量与工程表现。
-
-### 2.2 v0.1 范围
-
-In Scope（本期）：
-
-- Python 端到端评测闭环。
-- 模型多选、数据集多选、提示词模板化。
-- 指标采集与可视化报告（矩阵、雷达图、排名）。
-
-Out of Scope（本期不实现）：
-
-- Java / Go / C++ 端到端执行（保留扩展接口与文档说明）。
-- 固定加权总分模型。
-- 服务化部署、多租户与权限系统。
-
-## 三、设计原则
-
-- 可复现：统一执行环境、统一口径、统一输出目录。
-- 可对比：同一批次保持样本、模板、参数一致。
-- 可追溯：样本级结果、日志、配置快照可回放。
-- 可扩展：模型、语言、图表通过适配层扩展。
-- 可落地：优先交付最小可用闭环，迭代增强。
-
-## 四、评测对象与输入
-
-### 4.1 评测对象
-
-- 对象：LLM 自动生成单元测试代码的能力。
-- 维度：正确性、覆盖与查杀能力、效率与成本。
-
-### 4.2 输入要素
-
-一次评测任务（Run）至少包含：
-
-1. 模型集合（可多选）。
-2. 数据集集合（可多选）。
-3. 提示词模板版本。
-4. 运行参数（并发、超时、重试）。
-
-### 4.3 输入约束
-
-- 模型配置必须通过连通性预检。
-- 数据集样本必须通过结构校验。
-- 提示词变量缺失时禁止启动 Run。
-
-## 五、端到端评测流程
-
-### 5.1 流程说明
-
-1. 用户在软件中选择模型、数据集、提示词模板。
-2. 系统创建 Run 并固化配置快照。
-3. Orchestrator 展开任务矩阵（模型 x 样本）。
-4. Prompt Engine 渲染最终提示词。
-5. Model Adapter 调用模型生成测试代码。
-6. Evaluator 执行 G1/G2/R1/C1/C2/C3 指标采集。
-7. Reporter 聚合数据并生成 HTML 报告。
-8. 结果写入 `results/<run_id>/` 并支持回放分析。
-
-### 5.2 流程图（文本）
+## 3. 总体架构
 
 ```text
-选择模型/数据集/模板
-        |
-     创建 Run
-        |
-   展开任务矩阵
-        |
-  生成测试代码（LLM）
-        |
-  执行评测（G1/G2/R1/C1/C2/C3）
-        |
-    聚合与可视化报告
-        |
-  结果归档与回放分析
+dataset/*
+  -> Runner
+       - sample reader
+       - prompt builder
+       - model client
+       - response parser
+       - output writer
+  -> results/<model>/{tests,reports,artifacts}
+  -> results/runner_summary_*.json
 ```
 
-### 5.3 执行策略
+## 4. 流水线阶段定义
 
-- 默认并发 2（可配置）。
-- 单任务失败隔离，不阻断整批运行。
-- 模型调用支持有限重试（网络错误/5xx）。
-- 对生成、测试、变异分别设置超时。
+### 阶段一：Runner（已实现）
 
-## 六、指标体系与展示策略
+输入：
 
-指标定义以 `metrics-definition.md` 为准。
+- `dataset/<lang>/*` 样本代码
+- `benchmark/config/models.yaml` 模型配置
+- 环境变量中的 API Key
 
-### 6.1 Gate 指标
+输出：
 
-- G1 编译通过率
-- G2 运行通过率
+- `results/<model>/tests/*.test.<ext>`
+- `results/<model>/reports/*.metadata.json`
+- `results/<model>/artifacts/*.response.json`（可按需清理）
+- `results/runner_summary_*.json`
 
-用途：
+关键能力：
 
-- 质量门槛过滤与分层展示。
+- Prompt 模板化构造（含语言框架、覆盖率目标、上下文信息）
+- provider 级协议适配（OpenAI 兼容与 DashScope 差异）
+- 重试与退避（针对可恢复错误）
+- 并发执行 + checkpoint 续跑
 
-### 6.2 Core 指标
+### 阶段二到五（Python 已实现，其他语言规划中）
 
-- R1 分支覆盖率
-- C1 变异测试得分
-- C2 Token 消耗
-- C3 生成耗时
+- 编译验证：统计编译通过率
+- 测试执行：统计执行通过率
+- 覆盖率分析：行/分支/函数覆盖率
+- 变异测试：Mutation Score
 
-用途：
+### 阶段六（已实现）
 
-- 核心能力对比与排序参考。
+- Reporter：汇总模型、语言、场景维度结果并生成报告
 
-说明：
+## 5. 配置设计
 
-- 当前版本不使用固定加权总分。
-- 展示原始值与统计值（均值/中位数/分位数）。
+核心配置文件：`benchmark/config/models.yaml`
 
-### 6.3 排名逻辑（v0.1）
+- `models.<name>.enabled`：是否参与评测
+- `models.<name>.provider`：模型供应方
+- `models.<name>.config.api_endpoint`：接口地址
+- `models.<name>.config.model`：模型 ID
+- `models.<name>.config.api_key_env`：API Key 环境变量名
+- `models.<name>.config.parameters`：推理参数
+- `benchmark.parallel`：并发参数（模型并发、样本并发）
+- `benchmark.timeouts.api_call`：API 超时阈值
 
-- 先按 Gate 达标情况分组。
-- 再按 C1 优先排序。
-- 同分按 R1、C3、C2 作为次级排序键。
+## 6. 执行模型
 
-## 七、报告与产物
+默认入口：
 
-### 7.1 报告视图
+```bash
+python -m benchmark.runner
+```
 
-- 指标矩阵（模型 x 指标）。
-- 雷达图（模型能力轮廓）。
-- 排名视图（按当前排序规则）。
-- 失败样本摘要（错误类型、日志摘要）。
+常用参数：
 
-### 7.2 产物结构
+- `--model`：指定模型列表
+- `--lang`：指定语言列表
+- `--max-samples`：限制每语言样本数
+- `--max-workers`：覆盖总并发线程数
+- `--no-resume`：关闭断点续跑
+- `--reset-checkpoint`：重置当前范围 checkpoint
+- `--dry-run`：不调用真实 API
 
-`results/<run_id>/`
+## 7. 异常处理策略
 
-- `raw.json`：样本级完整结果。
-- `summary.json`：模型级聚合结果。
-- `report.html`：可视化报告。
-- `logs/`：结构化执行日志。
-- `snapshots/`：配置快照。
+- `auth_config_error`：Key 缺失或配置错误，立即失败
+- `http_non_retryable`：不可恢复请求错误（如参数错误）
+- `http_retryable`：可恢复错误（如 429/5xx），自动重试
+- `timeout`：请求超时，可重试
+- `network_error`：网络异常，可重试
 
-## 八、模块分工（方案视角）
+## 8. 结果目录规范
 
-- Model Manager：模型配置、连通性校验。
-- Dataset Manager：样本扫描、过滤、manifest 生成。
-- Prompt Studio：模板渲染、变量注入、版本管理。
-- Run Orchestrator：任务编排、并发调度、状态管理。
-- Evaluator：执行评测与指标采集。
-- Report Engine：聚合与报告渲染。
-- Artifact Store：结果与日志归档。
+```text
+results/
+  <model>/
+    tests/
+    reports/
+    artifacts/
+  checkpoints/
+  runner_summary_*.json
+```
 
-## 九、扩展性设计
+命名规则（Runner）：
 
-### 9.1 模型扩展
+- 测试代码：`{model}_{lang}_{sample}_{timestamp}.test.{ext}`
+- 元数据：`{model}_{lang}_{sample}_{timestamp}.metadata.json`
+- 原始响应：`{model}_{lang}_{sample}_{timestamp}.response.json`
 
-- 统一 ModelAdapter 接口。
-- 新 Provider 通过新增适配器接入。
+## 9. 扩展点
 
-### 9.2 语言扩展
+- 新模型：在 `models.yaml` 新增配置项
+- 新语言：扩展 dataset 子目录与语言映射
+- 新指标：在 Evaluator 增加计算逻辑
+- 新报告：在 Reporter 增加维度聚合与展示
 
-- 统一 LanguageEvaluator 接口。
-- v0.1 实现 Python；其余语言按同接口扩展。
+## 10. 当前已知限制
 
-### 9.3 报告扩展
-
-- 图表数据层与渲染层解耦。
-- 新图表通过注册方式扩展。
-
-## 十、可靠性与运维
-
-### 10.1 可靠性
-
-- Run 前执行工具链与配置预检。
-- 任务级失败隔离与可重试策略。
-- 幂等落盘（raw -> summary -> report）。
-
-### 10.2 运维与监控（桌面端）
-
-- 结构化日志：`runId/modelId/sampleId/stage`。
-- 环境检查：本地一键检测依赖可用性。
-- 诊断包导出：日志、快照、错误摘要。
-
-## 十一、迭代路线
-
-### Iteration 1（当前）
-
-- Python 单语言闭环。
-- 模型多选与数据集多选。
-- 报告含矩阵、雷达图、排名。
-
-### Iteration 2
-
-- 强化提示词工程（模板版本管理、A/B 对比）。
-- 报告增加趋势分析与失败画像。
-
-### Iteration 3
-
-- Java / Go / C++ 逐步落地。
-- 引入断点续跑、增量执行与任务缓存。
-
-## 十二、风险与应对
-
-- API 限流与额度：重试机制 + 失败重跑能力。
-- 变异测试耗时：样本分批、超时控制、并发策略。
-- 工具链差异：统一容器执行与环境预检。
-- 指标理解偏差：保留原始指标并提供诊断说明。
+- 目前完整闭环主要针对 Python 主线；其他语言仍需接入真实工具链
+- 长响应模型可能出现超时，需要结合并发与 token 参数调优
+- 不同 provider 协议差异需要持续维护适配器

@@ -1,217 +1,249 @@
-# AGENTS.md - Working Guide for Agentic Contributors
+# AGENTS.md
 
-## Collaboration Rules (必须遵守)
+## 1) Purpose
 
-**当信息不全或不确定时，不要强行判断执行，必须先向用户询问确认。**
+This file is the operating guide for agentic coding tools working in `ut-bench`.
+Follow these rules for implementation, validation, and reporting.
 
-以下情况必须暂停并询问：
-- 需求有多种理解方式，无法确定用户意图
-- 需要修改的文件/位置不明确
-- 存在多个可行方案，需要用户选择
-- 发现用户的设计可能存在明显问题
-- 缺少关键上下文（如具体的错误信息、期望的输出格式等）
+Project focus (current branch state):
+- Python evaluation pipeline is fully functional (compile → test → coverage → mutation).
+- Java/Go/Cpp/JavaScript are placeholder-only in evaluator (no real toolchain integration yet).
+- Runner works for all languages, but evaluator only processes Python.
+- Mutation testing requires Linux (mutmut not validated on Windows).
 
-询问时应：
-1. 说明你的理解
-2. 列出不确定的地方
-3. 提供可选方案及各自的利弊
-4. 请用户确认后再执行
+Primary objective:
+- Evaluate multi-model unit-test generation quality across languages.
 
-## 1) Purpose and Scope
+## 2) Repository Snapshot
 
-This file defines practical rules for coding agents working in `ut-bench`.
-Use it as the default execution guide for planning, editing, testing, and docs.
+Important paths:
+- `benchmark/runner/` runner pipeline and CLI
+- `benchmark/evaluator/` evaluator pipeline and CLI
+- `benchmark/config/models.yaml` model and benchmark configuration
+- `dataset/` benchmark source samples by language/complexity
+- `results/` generated tests, artifacts, summaries, checkpoints
 
-Current repository state (master branch) is scaffold-first:
-- Core scripts exist but are placeholders.
-- Most design/research docs are TODO stubs.
-- Benchmark runtime modules are not implemented yet.
+Current CLIs:
+- `python -m benchmark.runner`
+- `python -m benchmark.evaluator`
 
-Because of this, prefer accurate status reporting over pretending features exist.
+## 3) Rule Files Scan (Cursor/Copilot)
 
-## 2) Collaboration Rule (Critical)
+Scanned locations and status:
+- `.cursorrules`: not found
+- `.cursor/rules/`: not found
+- `.github/copilot-instructions.md`: not found
 
-When information is incomplete or ambiguous, do not force a decision.
-Ask the user for confirmation before executing irreversible or assumption-heavy changes.
+If these files are added later:
+- Read them before coding.
+- Merge constraints into this document.
+- If conflicts exist, follow the stricter rule.
 
-Ask when:
-- Requirements can be interpreted in multiple valid ways.
-- Target files/paths are unclear.
-- Multiple implementation choices have different tradeoffs.
-- A command may delete or overwrite user work.
+## 4) Build / Lint / Test Commands
 
-When asking, include:
-1. Your understanding.
-2. What is uncertain.
-3. Recommended default and alternatives.
-4. What changes based on the choice.
+Run commands from repository root.
 
-## 3) Source of Truth and Rules
+### 4.1 Environment
 
-- Primary project intent: `README.md`.
-- Design docs: `docs/design/*.md`.
-- Script behavior: `scripts/*.sh`.
-- Model config shape: `benchmark/config/models.yaml`.
-
-Rule-file scan result:
-- No `.cursorrules` found.
-- No `.cursor/rules/` found.
-- No `.github/copilot-instructions.md` found.
-
-If these files are added later, merge their rules into this guide.
-
-## 4) Repository Map (Current)
-
-- `benchmark/`
-  - `README.md` (module-level description)
-  - `config/models.yaml` (placeholder config)
-- `dataset/`
-  - `README.md` (dataset description placeholder)
-- `docs/`
-  - `design/` (benchmark, metrics, dataset docs; currently TODO-heavy)
-  - `research/` (model/tools survey TODO stubs)
-- `scripts/`
-  - `setup.sh` (placeholder)
-  - `run_benchmark.sh` (placeholder)
-  - `gen_report.sh` (placeholder)
-
-## 5) Build / Lint / Test Commands
-
-Use these commands from repo root.
-
-### Project Scripts (Current, Placeholder)
+Python 3.9+ required. Install dependencies:
 
 ```bash
-bash scripts/setup.sh
-bash scripts/run_benchmark.sh
-bash scripts/gen_report.sh
+# Minimal (Python chain only)
+python -m pip install pyyaml pytest coverage mutmut
+
+# Full multi-language toolchain
+sudo apt install -y openjdk-17-jdk golang-go nodejs npm g++
+go install github.com/zimmski/go-mutesting/cmd/go-mutesting@latest
+sudo npm install -g eslint jest stryker-cli
+python -m pip install pyyaml pytest coverage mutmut pylint
 ```
 
-These scripts currently print TODO messages and exit successfully.
-Treat them as scaffolding hooks, not production entry points.
+API keys must be set as environment variables before running runner:
+```bash
+export DEEPSEEK_API_KEY="..."
+export DASHSCOPE_API_KEY="..."
+export MINIMAX_API_KEY="..."
+export VOLCENGINE_API_KEY="..."
+```
 
-### Shell Script Validation
+### 4.2 Runner commands
+
+Full run on enabled models:
 
 ```bash
-bash -n scripts/setup.sh
-bash -n scripts/run_benchmark.sh
-bash -n scripts/gen_report.sh
+python -m benchmark.runner
 ```
 
-### Python Syntax Check (per file)
+Model/language scoped run:
 
 ```bash
-python -m py_compile path/to/file.py
+python -m benchmark.runner --model deepseek --lang python --max-samples 2
 ```
 
-### YAML Sanity Check
+Dry run (no real API call):
 
 ```bash
-python -c "import pathlib,yaml; yaml.safe_load(pathlib.Path('benchmark/config/models.yaml').read_text(encoding='utf-8'))"
+python -m benchmark.runner --model deepseek --lang python --max-samples 1 --dry-run
 ```
 
-### Pytest Commands (Use When Tests Exist)
+### 4.3 Evaluator commands
 
-There is no stable root test suite on this branch yet.
-When tests are added, use:
+Evaluate all discovered outputs:
 
 ```bash
-pytest
-pytest path/to/test_file.py
-pytest path/to/test_file.py::TestClass::test_case
-pytest -k "keyword" -q
+python -m benchmark.evaluator --results-root results
 ```
 
-Single-test execution standard for agents:
-- Prefer node id form: `pytest file.py::Class::test_name`.
-- Use `-q` for concise logs in iterative debugging.
+Model/language scoped evaluation:
 
-## 6) Coding Style Guidelines
+```bash
+python -m benchmark.evaluator --results-root results --model deepseek --lang python
+```
 
-These rules apply to all new code added to this repo.
+### 4.4 Test commands
 
-### Imports
+Run all tests:
 
-- Order imports: standard library, third-party, local modules.
-- Keep imports explicit and minimal.
-- Prefer absolute imports within project packages.
-- Avoid `from x import *`.
+```bash
+python -m pytest -q
+```
 
-### Formatting
+Run a single test file:
 
-- Follow PEP 8 for Python.
-- Use 4 spaces for indentation.
-- Keep lines reasonably short (target <= 100 chars).
-- Keep functions small and single-purpose.
+```bash
+python -m pytest tests/test_evaluator_pipeline.py -q
+```
 
-### Types
+Run a single test case (preferred during iteration):
 
-- Add type hints for all new public functions and methods.
-- Add return type annotations consistently.
-- Use concrete built-ins (`list[str]`, `dict[str, Any]`) on modern Python.
+```bash
+python -m pytest tests/test_evaluator_pipeline.py::test_evaluator_pipeline_runs_and_returns_summary -q
+```
 
-### Naming
+Keyword filter:
 
-- Functions/variables: `snake_case`.
-- Classes: `PascalCase`.
-- Constants: `UPPER_SNAKE_CASE`.
-- Test files: `test_<module>.py`.
+```bash
+python -m pytest -k coverage -q
+```
 
-### Error Handling
+**Note**: `test_evaluator_pipeline.py::test_evaluator_pipeline_runs_and_returns_summary` relies on existing `results/` directory. For hermetic tests, prefer isolated fixtures in other test files.
 
-- Raise specific exceptions with actionable messages.
-- Do not swallow errors with bare `except:`.
-- Use `except Exception as exc` only when re-raising with context.
-- Validate inputs early and fail fast.
+## 5) Configuration Rules
 
-### File and Path Handling
+Model config is dict-based, keyed by model name in `models.yaml`.
 
-- Use `pathlib.Path` over raw string path concatenation.
-- Always specify file encoding for text I/O (`utf-8`).
-- Keep generated outputs under `results/` unless user asks otherwise.
+Required model fields:
+- `enabled`
+- `provider`
+- `config.api_endpoint`
+- `config.model`
+- `config.api_key_env`
 
-### Subprocess and External Commands
+Secrets handling:
+- Store API keys in environment variables only.
+- Do not commit plaintext keys.
 
-- Use explicit timeouts.
+PowerShell example:
+
+```powershell
+$env:DEEPSEEK_API_KEY="..."
+$env:DASHSCOPE_API_KEY="..."
+$env:MINIMAX_API_KEY="..."
+$env:VOLCENGINE_API_KEY="..."
+```
+
+## 6) Code Style Guidelines
+
+### 6.1 Imports
+- Group imports: stdlib, third-party, local.
+- Avoid wildcard imports.
+- Remove unused imports.
+
+### 6.2 Formatting
+- Follow PEP 8.
+- Use 4-space indentation.
+- Keep lines near <= 100 chars when practical.
+- Prefer small single-purpose functions.
+
+### 6.3 Types
+- Add type hints for new/changed public functions.
+- Use explicit return types for non-trivial functions.
+- Prefer modern generics (`list[str]`, `dict[str, Any]`).
+
+### 6.4 Naming
+- `snake_case` for functions/variables/modules.
+- `PascalCase` for classes.
+- `UPPER_SNAKE_CASE` for constants.
+- Test files should start with `test_`.
+
+### 6.5 Error handling
+- Fail fast on invalid inputs.
+- Raise specific exceptions.
+- Never use bare `except:`.
+- Preserve actionable context in error messages.
+
+### 6.6 Filesystem and subprocess
+- Use `pathlib.Path` for paths.
+- Use `encoding="utf-8"` for text I/O.
+- Use explicit subprocess timeouts.
 - Capture stdout/stderr for diagnostics.
-- Check exit codes and surface failures clearly.
 
-### Logging and Output
+### 6.7 Logging
+- Keep logs concise and structured.
+- Use `logging` for pipeline modules.
+- Avoid noisy debug output in committed code.
 
-- Prefer structured, concise logs.
-- Use `print` for CLI scripts only.
-- Include enough context to debug failed samples quickly.
+### 6.8 Comments and docs
+- Add short comments/docstrings for non-obvious logic.
+- Keep README and user-facing docs in Chinese unless requested otherwise.
 
-## 7) Test and Evaluation Conventions
+## 7) Runner/Evaluator Contract Notes
 
-- Keep deterministic tests (no random outcomes without fixed seeds).
-- Isolate filesystem/network side effects with temp dirs or mocks.
-- For benchmark metrics, store raw measurement fields first.
-- Do not compute or report weighted total score unless explicitly required.
+Runner outputs are stored under `results/<model>/...`.
+Evaluator should consume generated tests from `results/<model>/tests/`.
 
-## 8) Documentation Conventions
+### 7.1 Language inference
 
-- Update docs when behavior or interfaces change.
-- Keep design docs aligned with implementation status.
-- Mark placeholders explicitly as TODO instead of inventing details.
+Runner infers language from dataset layout, not file extension or parent directory:
+- Priority: `dataset/<lang>/...` top-level directory name
+- Fallback: file extension (`.py` → `python`, etc.)
+- Never use scenario folder names (`boundary`, `complex_dependency`) as language
 
-## 9) Git Hygiene
+Generated test files follow pattern: `<model>_<language>_<sample_id>_<timestamp>.test.<ext>`
 
-- Never revert user-owned unrelated changes.
-- Keep commits focused by concern (docs vs scripts vs runtime code).
-- Avoid destructive git operations unless user explicitly requests.
-- Before major edits, inspect `git status` and report risky states.
+Examples:
+- `deepseek_python_boundary_001_20260406120000.test.py` (correct)
+- `deepseek_boundary_boundary_001_20260406120000.test.txt` (legacy bug, now supported)
 
-## 10) Agent Execution Checklist
+### 7.2 Evaluator compatibility
 
-Before changes:
-- Confirm task scope and target files.
-- Read relevant docs/scripts first.
+Loader supports legacy artifacts where language token was scenario folder:
+- `boundary`, `simple_function`, `complex_dependency`, `interface_mock` → mapped to `python`
+- Source path resolution: metadata `sample_path` > dataset search by `sample_id`
+- Always check metadata first to avoid source mismatch
 
-During changes:
-- Apply minimal, reversible edits.
-- Keep behavior and docs in sync.
+When extending evaluator:
+- Keep fields stable in summary JSON.
+- Preserve `None` for unavailable metrics instead of fake zeros.
+- Keep mutation testing optional unless environment is ready.
 
-After changes:
-- Run the smallest meaningful validation command.
-- Report what was changed, what was verified, and what remains TODO.
+## 8) Git Hygiene
+
+- Do not revert unrelated user changes.
+- Avoid destructive git commands unless explicitly requested.
+- Keep changes scoped (runner vs evaluator vs docs).
+- Do not commit secrets or local credentials.
+
+## 9) Agent Execution Checklist
+
+Before coding:
+- Read target module and related config/docs.
+- Confirm command(s) to validate changes.
+
+During coding:
+- Make minimal reversible edits.
+- Keep behavior and docs aligned.
+
+After coding:
+- Run smallest meaningful tests first, then broader suite.
+- Report changed files, validation commands, and residual TODOs.
