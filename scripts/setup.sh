@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
+
 set -euo pipefail
 
-# ut-bench 环境初始化脚本（占位）
-# TODO: 在此添加依赖安装、虚拟环境创建等初始化步骤。
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
-echo "[ut-bench] setup: 环境初始化脚本尚未实现，请根据项目需求补充。"
+echo "[setup] python: $PYTHON_BIN"
+"$PYTHON_BIN" --version
+
+echo "[setup] installing dependencies"
+"$PYTHON_BIN" -m pip install -U pyyaml pytest coverage mutmut
+
+echo "[setup] creating runtime directories"
+mkdir -p results
+
+echo "[setup] done"

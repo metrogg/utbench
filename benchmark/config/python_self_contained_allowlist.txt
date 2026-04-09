@@ -1,0 +1,28 @@
+# Python self-contained sample allowlist
+# Path format is relative to dataset/python/
+
+# Baseline single-file curated samples
+boundary_000.py
+complex_dependency_000.py
+interface_mock_000.py
+simple_function_000.py
+
+# 新增样本（来自同事数据集）
+boundary_001.py
+simple_function_001.py
+complex_dependency_001.py
+interface_mock_001.py
+
+# 新增样本（BigCodeBench self-contained, 2025-04）
+boundary_002.py
+boundary_003.py
+boundary_004.py
+simple_function_002.py
+simple_function_003.py
+simple_function_004.py
+complex_dependency_002.py
+complex_dependency_003.py
+complex_dependency_004.py
+interface_mock_002.py
+interface_mock_003.py
+interface_mock_004.py
