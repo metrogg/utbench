@@ -1,0 +1,1163 @@
+{
+  "metadata": {
+    "version": "Java_Module_Level_v1",
+    "language": "java",
+    "source_root": "data/bcb/code/hm-dianping/src/main/java",
+    "description": "Java project/module-level dataset built from the hm-dianping project source tree",
+    "selection_strategy": {
+      "balanced_categories": false,
+      "requires_project_context": true,
+      "granularity": "project_module_file"
+    }
+  },
+  "statistics": {
+    "total": 62,
+    "by_category": {
+      "simple_function": {
+        "count": 5,
+        "avg_effective_lines": 12.2,
+        "min_length": 150,
+        "max_length": 570
+      },
+      "boundary": {
+        "count": 4,
+        "avg_effective_lines": 26.75,
+        "min_length": 477,
+        "max_length": 1022
+      },
+      "complex_dependency": {
+        "count": 27,
+        "avg_effective_lines": 43.07,
+        "min_length": 175,
+        "max_length": 2437
+      },
+      "interface_mock": {
+        "count": 26,
+        "avg_effective_lines": 18.65,
+        "min_length": 244,
+        "max_length": 2009
+      }
+    },
+    "by_source": {
+      "hm-dianping": 62
+    }
+  },
+  "samples": [
+    {
+      "id": "java_simple_function_0",
+      "language": "java",
+      "category": "simple_function",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.utils",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/utils/RegexPatterns.java",
+      "code_file": "data/java_code_files_module_level/simple_function/simple_function_000.java",
+      "code": "package com.hmdp.utils;\n\n/**\n * @author 虎哥\n */\npublic abstract class RegexPatterns {\n    /**\n     * 手机号正则\n     */\n    public static final String PHONE_REGEX = \"^1([38][0-9]|4[579]|5[0-3,5-9]|6[6]|7[0135678]|9[89])\\\\d{8}$\";\n    /**\n     * 邮箱正则\n     */\n    public static final String EMAIL_REGEX = \"^[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+(\\\\.[a-zA-Z0-9_-]+)+$\";\n    /**\n     * 密码正则。4~32位的字母、数字、下划线\n     */\n    public static final String PASSWORD_REGEX = \"^\\\\w{4,32}$\";\n    /**\n     * 验证码正则, 6位数字或字母\n     */\n    public static final String VERIFY_CODE_REGEX = \"^[a-zA-Z\\\\d]{6}$\";\n\n}\n",
+      "effective_lines": 22,
+      "category_scores": {
+        "simple_function": 8,
+        "boundary": 8,
+        "complex_dependency": 0,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_simple_function_1",
+      "language": "java",
+      "category": "simple_function",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.dto",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/dto/ScrollResult.java",
+      "code_file": "data/java_code_files_module_level/simple_function/simple_function_001.java",
+      "code": "package com.hmdp.dto;\n\nimport lombok.Data;\n\nimport java.util.List;\n\n@Data\npublic class ScrollResult {\n    private List<?> list;\n    private Long minTime;\n    private Integer offset;\n}\n",
+      "effective_lines": 9,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 0,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_simple_function_2",
+      "language": "java",
+      "category": "simple_function",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.dto",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/dto/LoginFormDTO.java",
+      "code_file": "data/java_code_files_module_level/simple_function/simple_function_002.java",
+      "code": "package com.hmdp.dto;\n\nimport lombok.Data;\n\n@Data\npublic class LoginFormDTO {\n    private String phone;\n    private String code;\n    private String password;\n}\n",
+      "effective_lines": 8,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 0,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_simple_function_3",
+      "language": "java",
+      "category": "simple_function",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.dto",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/dto/UserDTO.java",
+      "code_file": "data/java_code_files_module_level/simple_function/simple_function_003.java",
+      "code": "package com.hmdp.dto;\n\nimport lombok.Data;\n\n@Data\npublic class UserDTO {\n    private Long id;\n    private String nickName;\n    private String icon;\n}\n",
+      "effective_lines": 8,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 0,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_simple_function_4",
+      "language": "java",
+      "category": "simple_function",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.utils",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/utils/UserHolder.java",
+      "code_file": "data/java_code_files_module_level/simple_function/simple_function_004.java",
+      "code": "package com.hmdp.utils;\n\nimport com.hmdp.dto.UserDTO;\n\npublic class UserHolder {\n    private static final ThreadLocal<UserDTO> tl = new ThreadLocal<>();\n\n    public static void saveUser(UserDTO user){\n        tl.set(user);\n    }\n\n    public static UserDTO getUser(){\n        return tl.get();\n    }\n\n    public static void removeUser(){\n        tl.remove();\n    }\n}\n",
+      "effective_lines": 14,
+      "category_scores": {
+        "simple_function": 2,
+        "boundary": 0,
+        "complex_dependency": 0,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_boundary_0",
+      "language": "java",
+      "category": "boundary",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.utils",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/utils/RegexUtils.java",
+      "code_file": "data/java_code_files_module_level/boundary/boundary_000.java",
+      "code": "package com.hmdp.utils;\n\nimport cn.hutool.core.util.StrUtil;\n\n/**\n * @author 虎哥\n */\npublic class RegexUtils {\n    /**\n     * 是否是无效手机格式\n     * @param phone 要校验的手机号\n     * @return true:符合，false：不符合\n     */\n    public static boolean isPhoneInvalid(String phone){\n        return mismatch(phone, RegexPatterns.PHONE_REGEX);\n    }\n    /**\n     * 是否是无效邮箱格式\n     * @param email 要校验的邮箱\n     * @return true:符合，false：不符合\n     */\n    public static boolean isEmailInvalid(String email){\n        return mismatch(email, RegexPatterns.EMAIL_REGEX);\n    }\n\n    /**\n     * 是否是无效验证码格式\n     * @param code 要校验的验证码\n     * @return true:符合，false：不符合\n     */\n    public static boolean isCodeInvalid(String code){\n        return mismatch(code, RegexPatterns.VERIFY_CODE_REGEX);\n    }\n\n    // 校验是否不符合正则格式\n    private static boolean mismatch(String str, String regex){\n        if (StrUtil.isBlank(str)) {\n            return true;\n        }\n        return !str.matches(regex);\n    }\n}\n",
+      "effective_lines": 38,
+      "category_scores": {
+        "simple_function": 12,
+        "boundary": 13,
+        "complex_dependency": 0,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_boundary_1",
+      "language": "java",
+      "category": "boundary",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.config",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/config/WebExceptionAdvice.java",
+      "code_file": "data/java_code_files_module_level/boundary/boundary_001.java",
+      "code": "package com.hmdp.config;\n\nimport com.hmdp.dto.Result;\nimport lombok.extern.slf4j.Slf4j;\nimport org.springframework.web.bind.annotation.ExceptionHandler;\nimport org.springframework.web.bind.annotation.RestControllerAdvice;\n\n@Slf4j\n@RestControllerAdvice\npublic class WebExceptionAdvice {\n\n    @ExceptionHandler(RuntimeException.class)\n    public Result handleRuntimeException(RuntimeException e) {\n        log.error(e.toString(), e);\n        return Result.fail(\"服务器异常\");\n    }\n}\n",
+      "effective_lines": 14,
+      "category_scores": {
+        "simple_function": -1,
+        "boundary": 12,
+        "complex_dependency": 4,
+        "interface_mock": 5
+      }
+    },
+    {
+      "id": "java_boundary_2",
+      "language": "java",
+      "category": "boundary",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.utils",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/utils/PasswordEncoder.java",
+      "code_file": "data/java_code_files_module_level/boundary/boundary_002.java",
+      "code": "package com.hmdp.utils;\n\n\nimport cn.hutool.core.util.RandomUtil;\nimport org.springframework.util.DigestUtils;\n\nimport java.nio.charset.StandardCharsets;\n\npublic class PasswordEncoder {\n\n    public static String encode(String password) {\n        // 生成盐\n        String salt = RandomUtil.randomString(20);\n        // 加密\n        return encode(password,salt);\n    }\n    private static String encode(String password, String salt) {\n        // 加密\n        return salt + \"@\" + DigestUtils.md5DigestAsHex((password + salt).getBytes(StandardCharsets.UTF_8));\n    }\n    public static Boolean matches(String encodedPassword, String rawPassword) {\n        if (encodedPassword == null || rawPassword == null) {\n            return false;\n        }\n        if(!encodedPassword.contains(\"@\")){\n            throw new RuntimeException(\"密码格式不正确！\");\n        }\n        String[] arr = encodedPassword.split(\"@\");\n        // 获取盐\n        String salt = arr[0];\n        // 比较\n        return encodedPassword.equals(encode(rawPassword, salt));\n    }\n}\n",
+      "effective_lines": 29,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 10,
+        "complex_dependency": 0,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_boundary_3",
+      "language": "java",
+      "category": "boundary",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.dto",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/dto/Result.java",
+      "code_file": "data/java_code_files_module_level/boundary/boundary_003.java",
+      "code": "package com.hmdp.dto;\n\nimport lombok.AllArgsConstructor;\nimport lombok.Data;\nimport lombok.NoArgsConstructor;\n\nimport java.util.List;\n\n@Data\n@NoArgsConstructor\n@AllArgsConstructor\npublic class Result {\n    private Boolean success;\n    private String errorMsg;\n    private Object data;\n    private Long total;\n\n    public static Result ok(){\n        return new Result(true, null, null, null);\n    }\n    public static Result ok(Object data){\n        return new Result(true, null, data, null);\n    }\n    public static Result ok(List<?> data, Long total){\n        return new Result(true, null, data, total);\n    }\n    public static Result fail(String errorMsg){\n        return new Result(false, errorMsg, null, null);\n    }\n}\n",
+      "effective_lines": 26,
+      "category_scores": {
+        "simple_function": 6,
+        "boundary": 8,
+        "complex_dependency": 0,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_0",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service.impl",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/impl/UserServiceImpl.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_000.java",
+      "code": "package com.hmdp.service.impl;\n\nimport cn.hutool.core.util.RandomUtil;\nimport com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;\nimport com.hmdp.dto.LoginFormDTO;\nimport com.hmdp.dto.Result;\nimport com.hmdp.entity.User;\nimport com.hmdp.mapper.UserMapper;\nimport com.hmdp.service.IUserService;\nimport com.hmdp.utils.RegexUtils;\nimport lombok.extern.slf4j.Slf4j;\nimport org.springframework.stereotype.Service;\n\nimport javax.servlet.http.HttpSession;\n\nimport static com.hmdp.utils.SystemConstants.USER_NICK_NAME_PREFIX;\n\n/**\n * <p>\n * 服务实现类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Slf4j\n@Service\npublic class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {\n\n    @Override\n    public Result sendCode(String phone, HttpSession session) {\n        // 1.校验手机号\n        if (RegexUtils.isPhoneInvalid(phone)) {\n            return Result.fail(\"手机号格式错误！\");\n        }\n        // 3.符合，生成验证码\n        String code = RandomUtil.randomNumbers(6);\n\n        // 4.保存验证码到session\n        session.setAttribute(\"code\", code);\n        // 5.发送验证码\n        log.debug(\"发送短信验证码成功，验证码：{}\",code);\n        // 返回ok\n        return Result.ok();\n    }\n\n    @Override\n    public Result login(LoginFormDTO loginForm, HttpSession session) {\n        // 1.校验手机号\n        String phone = loginForm.getPhone();\n        if (RegexUtils.isPhoneInvalid(phone)) {\n            return Result.fail(\"手机号格式错误！\");\n        }\n        // 2.校验验证码\n        Object cacheCode = session.getAttribute(\"code\");\n        String code = loginForm.getCode();\n        if (cacheCode == null || !cacheCode.toString().equals(code)) {\n            return Result.fail(\"验证码错误\");\n        }\n        // 4.一致，根据手机号查询用户\n        User user = query().eq(\"phone\", phone).one();\n\n        // 5.判断用户是否存在\n        if (user == null) {\n            // 6.不存在，创建新用户并保存\n            user = createUserWithPhone(phone);\n        }\n\n        // 7.保存用户信息到session中\n        session.setAttribute(\"user\", user);\n        return Result.ok();\n    }\n\n    private User createUserWithPhone(String phone) {\n        // 1.创建用户\n        User user = new User();\n        user.setPhone(phone);\n        user.setNickName(USER_NICK_NAME_PREFIX + RandomUtil.randomString(10));\n        // 2.保存用户\n        save(user);\n        return user;\n    }\n}\n",
+      "effective_lines": 73,
+      "category_scores": {
+        "simple_function": 3,
+        "boundary": 16,
+        "complex_dependency": 29,
+        "interface_mock": 20
+      }
+    },
+    {
+      "id": "java_complex_dependency_1",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service.impl",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/impl/BlogCommentsServiceImpl.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_001.java",
+      "code": "package com.hmdp.service.impl;\n\nimport com.hmdp.entity.BlogComments;\nimport com.hmdp.mapper.BlogCommentsMapper;\nimport com.hmdp.service.IBlogCommentsService;\nimport com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;\nimport org.springframework.stereotype.Service;\n\n/**\n * <p>\n *  服务实现类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Service\npublic class BlogCommentsServiceImpl extends ServiceImpl<BlogCommentsMapper, BlogComments> implements IBlogCommentsService {\n\n}\n",
+      "effective_lines": 17,
+      "category_scores": {
+        "simple_function": -6,
+        "boundary": 0,
+        "complex_dependency": 19,
+        "interface_mock": 18
+      }
+    },
+    {
+      "id": "java_complex_dependency_2",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service.impl",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/impl/BlogServiceImpl.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_002.java",
+      "code": "package com.hmdp.service.impl;\n\nimport com.hmdp.entity.Blog;\nimport com.hmdp.mapper.BlogMapper;\nimport com.hmdp.service.IBlogService;\nimport com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;\nimport org.springframework.stereotype.Service;\n\n/**\n * <p>\n *  服务实现类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Service\npublic class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {\n\n}\n",
+      "effective_lines": 17,
+      "category_scores": {
+        "simple_function": -6,
+        "boundary": 0,
+        "complex_dependency": 19,
+        "interface_mock": 18
+      }
+    },
+    {
+      "id": "java_complex_dependency_3",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service.impl",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/impl/FollowServiceImpl.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_003.java",
+      "code": "package com.hmdp.service.impl;\n\nimport com.hmdp.entity.Follow;\nimport com.hmdp.mapper.FollowMapper;\nimport com.hmdp.service.IFollowService;\nimport com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;\nimport org.springframework.stereotype.Service;\n\n/**\n * <p>\n *  服务实现类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Service\npublic class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> implements IFollowService {\n\n}\n",
+      "effective_lines": 17,
+      "category_scores": {
+        "simple_function": -6,
+        "boundary": 0,
+        "complex_dependency": 19,
+        "interface_mock": 18
+      }
+    },
+    {
+      "id": "java_complex_dependency_4",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service.impl",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/impl/SeckillVoucherServiceImpl.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_004.java",
+      "code": "package com.hmdp.service.impl;\n\nimport com.hmdp.entity.SeckillVoucher;\nimport com.hmdp.mapper.SeckillVoucherMapper;\nimport com.hmdp.service.ISeckillVoucherService;\nimport com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;\nimport org.springframework.stereotype.Service;\n\n/**\n * <p>\n * 秒杀优惠券表，与优惠券是一对一关系 服务实现类\n * </p>\n *\n * @author 虎哥\n * @since 2022-01-04\n */\n@Service\npublic class SeckillVoucherServiceImpl extends ServiceImpl<SeckillVoucherMapper, SeckillVoucher> implements ISeckillVoucherService {\n\n}\n",
+      "effective_lines": 17,
+      "category_scores": {
+        "simple_function": -6,
+        "boundary": 0,
+        "complex_dependency": 19,
+        "interface_mock": 18
+      }
+    },
+    {
+      "id": "java_complex_dependency_5",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service.impl",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/impl/ShopServiceImpl.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_005.java",
+      "code": "package com.hmdp.service.impl;\n\nimport com.hmdp.entity.Shop;\nimport com.hmdp.mapper.ShopMapper;\nimport com.hmdp.service.IShopService;\nimport com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;\nimport org.springframework.stereotype.Service;\n\n/**\n * <p>\n *  服务实现类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Service\npublic class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IShopService {\n\n}\n",
+      "effective_lines": 17,
+      "category_scores": {
+        "simple_function": -6,
+        "boundary": 0,
+        "complex_dependency": 19,
+        "interface_mock": 18
+      }
+    },
+    {
+      "id": "java_complex_dependency_6",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service.impl",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/impl/ShopTypeServiceImpl.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_006.java",
+      "code": "package com.hmdp.service.impl;\n\nimport com.hmdp.entity.ShopType;\nimport com.hmdp.mapper.ShopTypeMapper;\nimport com.hmdp.service.IShopTypeService;\nimport com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;\nimport org.springframework.stereotype.Service;\n\n/**\n * <p>\n *  服务实现类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Service\npublic class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> implements IShopTypeService {\n\n}\n",
+      "effective_lines": 17,
+      "category_scores": {
+        "simple_function": -6,
+        "boundary": 0,
+        "complex_dependency": 19,
+        "interface_mock": 18
+      }
+    },
+    {
+      "id": "java_complex_dependency_7",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service.impl",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/impl/UserInfoServiceImpl.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_007.java",
+      "code": "package com.hmdp.service.impl;\n\nimport com.hmdp.entity.UserInfo;\nimport com.hmdp.mapper.UserInfoMapper;\nimport com.hmdp.service.IUserInfoService;\nimport com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;\nimport org.springframework.stereotype.Service;\n\n/**\n * <p>\n *  服务实现类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-24\n */\n@Service\npublic class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> implements IUserInfoService {\n\n}\n",
+      "effective_lines": 17,
+      "category_scores": {
+        "simple_function": -6,
+        "boundary": 0,
+        "complex_dependency": 19,
+        "interface_mock": 18
+      }
+    },
+    {
+      "id": "java_complex_dependency_8",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service.impl",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/impl/VoucherOrderServiceImpl.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_008.java",
+      "code": "package com.hmdp.service.impl;\n\nimport com.hmdp.entity.VoucherOrder;\nimport com.hmdp.mapper.VoucherOrderMapper;\nimport com.hmdp.service.IVoucherOrderService;\nimport com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;\nimport org.springframework.stereotype.Service;\n\n/**\n * <p>\n *  服务实现类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Service\npublic class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {\n\n}\n",
+      "effective_lines": 17,
+      "category_scores": {
+        "simple_function": -6,
+        "boundary": 0,
+        "complex_dependency": 19,
+        "interface_mock": 18
+      }
+    },
+    {
+      "id": "java_complex_dependency_9",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/IUserService.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_009.java",
+      "code": "package com.hmdp.service;\n\nimport com.baomidou.mybatisplus.extension.service.IService;\nimport com.hmdp.dto.LoginFormDTO;\nimport com.hmdp.dto.Result;\nimport com.hmdp.entity.User;\n\nimport javax.servlet.http.HttpSession;\n\n/**\n * <p>\n *  服务类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface IUserService extends IService<User> {\n\n    Result sendCode(String phone, HttpSession session);\n\n    Result login(LoginFormDTO loginForm, HttpSession session);\n}\n",
+      "effective_lines": 18,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_complex_dependency_10",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.utils",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/utils/RedisConstants.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_010.java",
+      "code": "package com.hmdp.utils;\n\npublic class RedisConstants {\n    public static final String LOGIN_CODE_KEY = \"login:code:\";\n    public static final Long LOGIN_CODE_TTL = 2L;\n    public static final String LOGIN_USER_KEY = \"login:token:\";\n    public static final Long LOGIN_USER_TTL = 36000L;\n\n    public static final Long CACHE_NULL_TTL = 2L;\n\n    public static final Long CACHE_SHOP_TTL = 30L;\n    public static final String CACHE_SHOP_KEY = \"cache:shop:\";\n\n    public static final String LOCK_SHOP_KEY = \"lock:shop:\";\n    public static final Long LOCK_SHOP_TTL = 10L;\n\n    public static final String SECKILL_STOCK_KEY = \"seckill:stock:\";\n    public static final String BLOG_LIKED_KEY = \"blog:liked:\";\n    public static final String FEED_KEY = \"feed:\";\n    public static final String SHOP_GEO_KEY = \"shop:geo:\";\n    public static final String USER_SIGN_KEY = \"sign:\";\n}\n",
+      "effective_lines": 17,
+      "category_scores": {
+        "simple_function": 1,
+        "boundary": 4,
+        "complex_dependency": 10,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_11",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/HmDianPingApplication.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_011.java",
+      "code": "package com.hmdp;\n\nimport org.mybatis.spring.annotation.MapperScan;\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@MapperScan(\"com.hmdp.mapper\")\n@SpringBootApplication\npublic class HmDianPingApplication {\n\n    public static void main(String[] args) {\n        SpringApplication.run(HmDianPingApplication.class, args);\n    }\n\n}\n",
+      "effective_lines": 11,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 5
+      }
+    },
+    {
+      "id": "java_complex_dependency_12",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.controller",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/controller/ShopController.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_012.java",
+      "code": "package com.hmdp.controller;\n\n\nimport cn.hutool.core.util.StrUtil;\nimport com.baomidou.mybatisplus.extension.plugins.pagination.Page;\nimport com.hmdp.dto.Result;\nimport com.hmdp.entity.Shop;\nimport com.hmdp.service.IShopService;\nimport com.hmdp.utils.SystemConstants;\nimport org.springframework.web.bind.annotation.*;\n\nimport javax.annotation.Resource;\n\n/**\n * <p>\n * 前端控制器\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@RestController\n@RequestMapping(\"/shop\")\npublic class ShopController {\n\n    @Resource\n    public IShopService shopService;\n\n    /**\n     * 根据id查询商铺信息\n     * @param id 商铺id\n     * @return 商铺详情数据\n     */\n    @GetMapping(\"/{id}\")\n    public Result queryShopById(@PathVariable(\"id\") Long id) {\n        return Result.ok(shopService.getById(id));\n    }\n\n    /**\n     * 新增商铺信息\n     * @param shop 商铺数据\n     * @return 商铺id\n     */\n    @PostMapping\n    public Result saveShop(@RequestBody Shop shop) {\n        // 写入数据库\n        shopService.save(shop);\n        // 返回店铺id\n        return Result.ok(shop.getId());\n    }\n\n    /**\n     * 更新商铺信息\n     * @param shop 商铺数据\n     * @return 无\n     */\n    @PutMapping\n    public Result updateShop(@RequestBody Shop shop) {\n        // 写入数据库\n        shopService.updateById(shop);\n        return Result.ok();\n    }\n\n    /**\n     * 根据商铺类型分页查询商铺信息\n     * @param typeId 商铺类型\n     * @param current 页码\n     * @return 商铺列表\n     */\n    @GetMapping(\"/of/type\")\n    public Result queryShopByType(\n            @RequestParam(\"typeId\") Integer typeId,\n            @RequestParam(value = \"current\", defaultValue = \"1\") Integer current\n    ) {\n        // 根据类型分页查询\n        Page<Shop> page = shopService.query()\n                .eq(\"type_id\", typeId)\n                .page(new Page<>(current, SystemConstants.DEFAULT_PAGE_SIZE));\n        // 返回数据\n        return Result.ok(page.getRecords());\n    }\n\n    /**\n     * 根据商铺名称关键字分页查询商铺信息\n     * @param name 商铺名称关键字\n     * @param current 页码\n     * @return 商铺列表\n     */\n    @GetMapping(\"/of/name\")\n    public Result queryShopByName(\n            @RequestParam(value = \"name\", required = false) String name,\n            @RequestParam(value = \"current\", defaultValue = \"1\") Integer current\n    ) {\n        // 根据类型分页查询\n        Page<Shop> page = shopService.query()\n                .like(StrUtil.isNotBlank(name), \"name\", name)\n                .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));\n        // 返回数据\n        return Result.ok(page.getRecords());\n    }\n}\n",
+      "effective_lines": 91,
+      "category_scores": {
+        "simple_function": 3,
+        "boundary": 0,
+        "complex_dependency": 9,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_complex_dependency_13",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.controller",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/controller/BlogController.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_013.java",
+      "code": "package com.hmdp.controller;\n\n\nimport com.baomidou.mybatisplus.extension.plugins.pagination.Page;\nimport com.hmdp.dto.Result;\nimport com.hmdp.dto.UserDTO;\nimport com.hmdp.entity.Blog;\nimport com.hmdp.entity.User;\nimport com.hmdp.service.IBlogService;\nimport com.hmdp.service.IUserService;\nimport com.hmdp.utils.SystemConstants;\nimport com.hmdp.utils.UserHolder;\nimport org.springframework.web.bind.annotation.*;\n\nimport javax.annotation.Resource;\nimport java.util.List;\n\n/**\n * <p>\n * 前端控制器\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@RestController\n@RequestMapping(\"/blog\")\npublic class BlogController {\n\n    @Resource\n    private IBlogService blogService;\n    @Resource\n    private IUserService userService;\n\n    @PostMapping\n    public Result saveBlog(@RequestBody Blog blog) {\n        // 获取登录用户\n        UserDTO user = UserHolder.getUser();\n        blog.setUserId(user.getId());\n        // 保存探店博文\n        blogService.save(blog);\n        // 返回id\n        return Result.ok(blog.getId());\n    }\n\n    @PutMapping(\"/like/{id}\")\n    public Result likeBlog(@PathVariable(\"id\") Long id) {\n        // 修改点赞数量\n        blogService.update()\n                .setSql(\"liked = liked + 1\").eq(\"id\", id).update();\n        return Result.ok();\n    }\n\n    @GetMapping(\"/of/me\")\n    public Result queryMyBlog(@RequestParam(value = \"current\", defaultValue = \"1\") Integer current) {\n        // 获取登录用户\n        UserDTO user = UserHolder.getUser();\n        // 根据用户查询\n        Page<Blog> page = blogService.query()\n                .eq(\"user_id\", user.getId()).page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));\n        // 获取当前页数据\n        List<Blog> records = page.getRecords();\n        return Result.ok(records);\n    }\n\n    @GetMapping(\"/hot\")\n    public Result queryHotBlog(@RequestParam(value = \"current\", defaultValue = \"1\") Integer current) {\n        // 根据用户查询\n        Page<Blog> page = blogService.query()\n                .orderByDesc(\"liked\")\n                .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));\n        // 获取当前页数据\n        List<Blog> records = page.getRecords();\n        // 查询用户\n        records.forEach(blog ->{\n            Long userId = blog.getUserId();\n            User user = userService.getById(userId);\n            blog.setName(user.getNickName());\n            blog.setIcon(user.getIcon());\n        });\n        return Result.ok(records);\n    }\n}\n",
+      "effective_lines": 74,
+      "category_scores": {
+        "simple_function": 3,
+        "boundary": 0,
+        "complex_dependency": 9,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_complex_dependency_14",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.controller",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/controller/UserController.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_014.java",
+      "code": "package com.hmdp.controller;\n\n\nimport com.hmdp.dto.LoginFormDTO;\nimport com.hmdp.dto.Result;\nimport com.hmdp.entity.UserInfo;\nimport com.hmdp.service.IUserInfoService;\nimport com.hmdp.service.IUserService;\nimport lombok.extern.slf4j.Slf4j;\nimport org.springframework.web.bind.annotation.*;\n\nimport javax.annotation.Resource;\nimport javax.servlet.http.HttpSession;\n\n/**\n * <p>\n * 前端控制器\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Slf4j\n@RestController\n@RequestMapping(\"/user\")\npublic class UserController {\n\n    @Resource\n    private IUserService userService;\n\n    @Resource\n    private IUserInfoService userInfoService;\n\n    /**\n     * 发送手机验证码\n     */\n    @PostMapping(\"code\")\n    public Result sendCode(@RequestParam(\"phone\") String phone, HttpSession session) {\n        // TODO 发送短信验证码并保存验证码\n        return userService.sendCode(phone, session);\n    }\n\n    /**\n     * 登录功能\n     * @param loginForm 登录参数，包含手机号、验证码；或者手机号、密码\n     */\n    @PostMapping(\"/login\")\n    public Result login(@RequestBody LoginFormDTO loginForm, HttpSession session){\n        // TODO 实现登录功能\n        return userService.login(loginForm, session);\n    }\n\n    /**\n     * 登出功能\n     * @return 无\n     */\n    @PostMapping(\"/logout\")\n    public Result logout(){\n        // TODO 实现登出功能\n        return Result.fail(\"功能未完成\");\n    }\n\n    @GetMapping(\"/me\")\n    public Result me(){\n        // TODO 获取当前登录的用户并返回\n        return Result.fail(\"功能未完成\");\n    }\n\n    @GetMapping(\"/info/{id}\")\n    public Result info(@PathVariable(\"id\") Long userId){\n        // 查询详情\n        UserInfo info = userInfoService.getById(userId);\n        if (info == null) {\n            // 没有详情，应该是第一次查看详情\n            return Result.ok();\n        }\n        info.setCreateTime(null);\n        info.setUpdateTime(null);\n        // 返回\n        return Result.ok(info);\n    }\n}\n",
+      "effective_lines": 71,
+      "category_scores": {
+        "simple_function": -2,
+        "boundary": 5,
+        "complex_dependency": 9,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_complex_dependency_15",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.config",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/config/MybatisConfig.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_015.java",
+      "code": "package com.hmdp.config;\n\nimport com.baomidou.mybatisplus.annotation.DbType;\nimport com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;\nimport com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\n\n@Configuration\npublic class MybatisConfig {\n    @Bean\n    public MybatisPlusInterceptor mybatisPlusInterceptor() {\n        MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();\n        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));\n        return interceptor;\n    }\n}\n",
+      "effective_lines": 15,
+      "category_scores": {
+        "simple_function": 2,
+        "boundary": 0,
+        "complex_dependency": 9,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_16",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.entity",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/entity/Shop.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_016.java",
+      "code": "package com.hmdp.entity;\n\nimport com.baomidou.mybatisplus.annotation.IdType;\nimport com.baomidou.mybatisplus.annotation.TableField;\nimport com.baomidou.mybatisplus.annotation.TableId;\nimport com.baomidou.mybatisplus.annotation.TableName;\nimport lombok.Data;\nimport lombok.EqualsAndHashCode;\nimport lombok.experimental.Accessors;\n\nimport java.io.Serializable;\nimport java.time.LocalDateTime;\n\n/**\n * <p>\n * \n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Data\n@EqualsAndHashCode(callSuper = false)\n@Accessors(chain = true)\n@TableName(\"tb_shop\")\npublic class Shop implements Serializable {\n\n    private static final long serialVersionUID = 1L;\n\n    /**\n     * 主键\n     */\n    @TableId(value = \"id\", type = IdType.AUTO)\n    private Long id;\n\n    /**\n     * 商铺名称\n     */\n    private String name;\n\n    /**\n     * 商铺类型的id\n     */\n    private Long typeId;\n\n    /**\n     * 商铺图片，多个图片以','隔开\n     */\n    private String images;\n\n    /**\n     * 商圈，例如陆家嘴\n     */\n    private String area;\n\n    /**\n     * 地址\n     */\n    private String address;\n\n    /**\n     * 经度\n     */\n    private Double x;\n\n    /**\n     * 维度\n     */\n    private Double y;\n\n    /**\n     * 均价，取整数\n     */\n    private Long avgPrice;\n\n    /**\n     * 销量\n     */\n    private Integer sold;\n\n    /**\n     * 评论数量\n     */\n    private Integer comments;\n\n    /**\n     * 评分，1~5分，乘10保存，避免小数\n     */\n    private Integer score;\n\n    /**\n     * 营业时间，例如 10:00-22:00\n     */\n    private String openHours;\n\n    /**\n     * 创建时间\n     */\n    private LocalDateTime createTime;\n\n    /**\n     * 更新时间\n     */\n    private LocalDateTime updateTime;\n\n\n    @TableField(exist = false)\n    private Double distance;\n}\n",
+      "effective_lines": 88,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_17",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.entity",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/entity/Voucher.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_017.java",
+      "code": "package com.hmdp.entity;\n\nimport com.baomidou.mybatisplus.annotation.IdType;\nimport com.baomidou.mybatisplus.annotation.TableField;\nimport com.baomidou.mybatisplus.annotation.TableId;\nimport com.baomidou.mybatisplus.annotation.TableName;\nimport lombok.Data;\nimport lombok.EqualsAndHashCode;\nimport lombok.experimental.Accessors;\n\nimport java.io.Serializable;\nimport java.time.LocalDateTime;\n\n/**\n * <p>\n * \n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Data\n@EqualsAndHashCode(callSuper = false)\n@Accessors(chain = true)\n@TableName(\"tb_voucher\")\npublic class Voucher implements Serializable {\n\n    private static final long serialVersionUID = 1L;\n\n    /**\n     * 主键\n     */\n    @TableId(value = \"id\", type = IdType.AUTO)\n    private Long id;\n\n    /**\n     * 商铺id\n     */\n    private Long shopId;\n\n    /**\n     * 代金券标题\n     */\n    private String title;\n\n    /**\n     * 副标题\n     */\n    private String subTitle;\n\n    /**\n     * 使用规则\n     */\n    private String rules;\n\n    /**\n     * 支付金额\n     */\n    private Long payValue;\n\n    /**\n     * 抵扣金额\n     */\n    private Long actualValue;\n\n    /**\n     * 优惠券类型\n     */\n    private Integer type;\n\n    /**\n     * 优惠券类型\n     */\n    private Integer status;\n    /**\n     * 库存\n     */\n    @TableField(exist = false)\n    private Integer stock;\n\n    /**\n     * 生效时间\n     */\n    @TableField(exist = false)\n    private LocalDateTime beginTime;\n\n    /**\n     * 失效时间\n     */\n    @TableField(exist = false)\n    private LocalDateTime endTime;\n\n    /**\n     * 创建时间\n     */\n    private LocalDateTime createTime;\n\n\n    /**\n     * 更新时间\n     */\n    private LocalDateTime updateTime;\n\n\n}\n",
+      "effective_lines": 85,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_18",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.entity",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/entity/Blog.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_018.java",
+      "code": "package com.hmdp.entity;\n\nimport com.baomidou.mybatisplus.annotation.IdType;\nimport com.baomidou.mybatisplus.annotation.TableField;\nimport com.baomidou.mybatisplus.annotation.TableId;\nimport com.baomidou.mybatisplus.annotation.TableName;\nimport lombok.Data;\nimport lombok.EqualsAndHashCode;\nimport lombok.experimental.Accessors;\n\nimport java.io.Serializable;\nimport java.time.LocalDateTime;\n\n/**\n * <p>\n * \n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Data\n@EqualsAndHashCode(callSuper = false)\n@Accessors(chain = true)\n@TableName(\"tb_blog\")\npublic class Blog implements Serializable {\n\n    private static final long serialVersionUID = 1L;\n\n    /**\n     * 主键\n     */\n    @TableId(value = \"id\", type = IdType.AUTO)\n    private Long id;\n    /**\n     * 商户id\n     */\n    private Long shopId;\n    /**\n     * 用户id\n     */\n    private Long userId;\n    /**\n     * 用户图标\n     */\n    @TableField(exist = false)\n    private String icon;\n    /**\n     * 用户姓名\n     */\n    @TableField(exist = false)\n    private String name;\n    /**\n     * 是否点赞过了\n     */\n    @TableField(exist = false)\n    private Boolean isLike;\n\n    /**\n     * 标题\n     */\n    private String title;\n\n    /**\n     * 探店的照片，最多9张，多张以\",\"隔开\n     */\n    private String images;\n\n    /**\n     * 探店的文字描述\n     */\n    private String content;\n\n    /**\n     * 点赞数量\n     */\n    private Integer liked;\n\n    /**\n     * 评论数量\n     */\n    private Integer comments;\n\n    /**\n     * 创建时间\n     */\n    private LocalDateTime createTime;\n\n    /**\n     * 更新时间\n     */\n    private LocalDateTime updateTime;\n\n\n}\n",
+      "effective_lines": 81,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_19",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.entity",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/entity/UserInfo.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_019.java",
+      "code": "package com.hmdp.entity;\n\nimport com.baomidou.mybatisplus.annotation.IdType;\nimport com.baomidou.mybatisplus.annotation.TableId;\nimport com.baomidou.mybatisplus.annotation.TableName;\nimport lombok.Data;\nimport lombok.EqualsAndHashCode;\nimport lombok.experimental.Accessors;\n\nimport java.io.Serializable;\nimport java.time.LocalDate;\nimport java.time.LocalDateTime;\n\n/**\n * <p>\n * \n * </p>\n *\n * @author 虎哥\n * @since 2021-12-24\n */\n@Data\n@EqualsAndHashCode(callSuper = false)\n@Accessors(chain = true)\n@TableName(\"tb_user_info\")\npublic class UserInfo implements Serializable {\n\n    private static final long serialVersionUID = 1L;\n\n    /**\n     * 主键，用户id\n     */\n    @TableId(value = \"user_id\", type = IdType.AUTO)\n    private Long userId;\n\n    /**\n     * 城市名称\n     */\n    private String city;\n\n    /**\n     * 个人介绍，不要超过128个字符\n     */\n    private String introduce;\n\n    /**\n     * 粉丝数量\n     */\n    private Integer fans;\n\n    /**\n     * 关注的人的数量\n     */\n    private Integer followee;\n\n    /**\n     * 性别，0：男，1：女\n     */\n    private Boolean gender;\n\n    /**\n     * 生日\n     */\n    private LocalDate birthday;\n\n    /**\n     * 积分\n     */\n    private Integer credits;\n\n    /**\n     * 会员级别，0~9级,0代表未开通会员\n     */\n    private Boolean level;\n\n    /**\n     * 创建时间\n     */\n    private LocalDateTime createTime;\n\n    /**\n     * 更新时间\n     */\n    private LocalDateTime updateTime;\n\n\n}\n",
+      "effective_lines": 70,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_20",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.entity",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/entity/BlogComments.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_020.java",
+      "code": "package com.hmdp.entity;\n\nimport com.baomidou.mybatisplus.annotation.IdType;\nimport com.baomidou.mybatisplus.annotation.TableId;\nimport com.baomidou.mybatisplus.annotation.TableName;\nimport lombok.Data;\nimport lombok.EqualsAndHashCode;\nimport lombok.experimental.Accessors;\n\nimport java.io.Serializable;\nimport java.time.LocalDateTime;\n\n/**\n * <p>\n * \n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Data\n@EqualsAndHashCode(callSuper = false)\n@Accessors(chain = true)\n@TableName(\"tb_blog_comments\")\npublic class BlogComments implements Serializable {\n\n    private static final long serialVersionUID = 1L;\n\n    /**\n     * 主键\n     */\n    @TableId(value = \"id\", type = IdType.AUTO)\n    private Long id;\n\n    /**\n     * 用户id\n     */\n    private Long userId;\n\n    /**\n     * 探店id\n     */\n    private Long blogId;\n\n    /**\n     * 关联的1级评论id，如果是一级评论，则值为0\n     */\n    private Long parentId;\n\n    /**\n     * 回复的评论id\n     */\n    private Long answerId;\n\n    /**\n     * 回复的内容\n     */\n    private String content;\n\n    /**\n     * 点赞数\n     */\n    private Integer liked;\n\n    /**\n     * 状态，0：正常，1：被举报，2：禁止查看\n     */\n    private Boolean status;\n\n    /**\n     * 创建时间\n     */\n    private LocalDateTime createTime;\n\n    /**\n     * 更新时间\n     */\n    private LocalDateTime updateTime;\n\n\n}\n",
+      "effective_lines": 65,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_21",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.entity",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/entity/VoucherOrder.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_021.java",
+      "code": "package com.hmdp.entity;\n\nimport com.baomidou.mybatisplus.annotation.IdType;\nimport com.baomidou.mybatisplus.annotation.TableId;\nimport com.baomidou.mybatisplus.annotation.TableName;\nimport lombok.Data;\nimport lombok.EqualsAndHashCode;\nimport lombok.experimental.Accessors;\n\nimport java.io.Serializable;\nimport java.time.LocalDateTime;\n\n/**\n * <p>\n * \n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Data\n@EqualsAndHashCode(callSuper = false)\n@Accessors(chain = true)\n@TableName(\"tb_voucher_order\")\npublic class VoucherOrder implements Serializable {\n\n    private static final long serialVersionUID = 1L;\n\n    /**\n     * 主键\n     */\n    @TableId(value = \"id\", type = IdType.INPUT)\n    private Long id;\n\n    /**\n     * 下单的用户id\n     */\n    private Long userId;\n\n    /**\n     * 购买的代金券id\n     */\n    private Long voucherId;\n\n    /**\n     * 支付方式 1：余额支付；2：支付宝；3：微信\n     */\n    private Integer payType;\n\n    /**\n     * 订单状态，1：未支付；2：已支付；3：已核销；4：已取消；5：退款中；6：已退款\n     */\n    private Integer status;\n\n    /**\n     * 下单时间\n     */\n    private LocalDateTime createTime;\n\n    /**\n     * 支付时间\n     */\n    private LocalDateTime payTime;\n\n    /**\n     * 核销时间\n     */\n    private LocalDateTime useTime;\n\n    /**\n     * 退款时间\n     */\n    private LocalDateTime refundTime;\n\n    /**\n     * 更新时间\n     */\n    private LocalDateTime updateTime;\n\n\n}\n",
+      "effective_lines": 65,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_22",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.entity",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/entity/User.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_022.java",
+      "code": "package com.hmdp.entity;\n\nimport com.baomidou.mybatisplus.annotation.IdType;\nimport com.baomidou.mybatisplus.annotation.TableId;\nimport com.baomidou.mybatisplus.annotation.TableName;\nimport lombok.Data;\nimport lombok.EqualsAndHashCode;\nimport lombok.experimental.Accessors;\n\nimport java.io.Serializable;\nimport java.time.LocalDateTime;\n\n/**\n * <p>\n * \n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Data\n@EqualsAndHashCode(callSuper = false)\n@Accessors(chain = true)\n@TableName(\"tb_user\")\npublic class User implements Serializable {\n\n    private static final long serialVersionUID = 1L;\n\n    /**\n     * 主键\n     */\n    @TableId(value = \"id\", type = IdType.AUTO)\n    private Long id;\n\n    /**\n     * 手机号码\n     */\n    private String phone;\n\n    /**\n     * 密码，加密存储\n     */\n    private String password;\n\n    /**\n     * 昵称，默认是随机字符\n     */\n    private String nickName;\n\n    /**\n     * 用户头像\n     */\n    private String icon = \"\";\n\n    /**\n     * 创建时间\n     */\n    private LocalDateTime createTime;\n\n    /**\n     * 更新时间\n     */\n    private LocalDateTime updateTime;\n\n\n}\n",
+      "effective_lines": 53,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_23",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.entity",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/entity/ShopType.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_023.java",
+      "code": "package com.hmdp.entity;\n\nimport com.baomidou.mybatisplus.annotation.IdType;\nimport com.baomidou.mybatisplus.annotation.TableId;\nimport com.baomidou.mybatisplus.annotation.TableName;\nimport com.fasterxml.jackson.annotation.JsonIgnore;\nimport lombok.Data;\nimport lombok.EqualsAndHashCode;\nimport lombok.experimental.Accessors;\n\nimport java.io.Serializable;\nimport java.time.LocalDateTime;\n\n/**\n * <p>\n * \n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Data\n@EqualsAndHashCode(callSuper = false)\n@Accessors(chain = true)\n@TableName(\"tb_shop_type\")\npublic class ShopType implements Serializable {\n\n    private static final long serialVersionUID = 1L;\n\n    /**\n     * 主键\n     */\n    @TableId(value = \"id\", type = IdType.AUTO)\n    private Long id;\n\n    /**\n     * 类型名称\n     */\n    private String name;\n\n    /**\n     * 图标\n     */\n    private String icon;\n\n    /**\n     * 顺序\n     */\n    private Integer sort;\n\n    /**\n     * 创建时间\n     */\n    @JsonIgnore\n    private LocalDateTime createTime;\n\n    /**\n     * 更新时间\n     */\n    @JsonIgnore\n    private LocalDateTime updateTime;\n\n\n}\n",
+      "effective_lines": 52,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_24",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.entity",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/entity/SeckillVoucher.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_024.java",
+      "code": "package com.hmdp.entity;\n\nimport com.baomidou.mybatisplus.annotation.IdType;\nimport com.baomidou.mybatisplus.annotation.TableId;\nimport com.baomidou.mybatisplus.annotation.TableName;\nimport lombok.Data;\nimport lombok.EqualsAndHashCode;\nimport lombok.experimental.Accessors;\n\nimport java.io.Serializable;\nimport java.time.LocalDateTime;\n\n/**\n * <p>\n * 秒杀优惠券表，与优惠券是一对一关系\n * </p>\n *\n * @author 虎哥\n * @since 2022-01-04\n */\n@Data\n@EqualsAndHashCode(callSuper = false)\n@Accessors(chain = true)\n@TableName(\"tb_seckill_voucher\")\npublic class SeckillVoucher implements Serializable {\n\n    private static final long serialVersionUID = 1L;\n\n    /**\n     * 关联的优惠券的id\n     */\n    @TableId(value = \"voucher_id\", type = IdType.INPUT)\n    private Long voucherId;\n\n    /**\n     * 库存\n     */\n    private Integer stock;\n\n    /**\n     * 创建时间\n     */\n    private LocalDateTime createTime;\n\n    /**\n     * 生效时间\n     */\n    private LocalDateTime beginTime;\n\n    /**\n     * 失效时间\n     */\n    private LocalDateTime endTime;\n\n    /**\n     * 更新时间\n     */\n    private LocalDateTime updateTime;\n\n\n}\n",
+      "effective_lines": 49,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_25",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.entity",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/entity/Follow.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_025.java",
+      "code": "package com.hmdp.entity;\n\nimport com.baomidou.mybatisplus.annotation.IdType;\nimport com.baomidou.mybatisplus.annotation.TableId;\nimport com.baomidou.mybatisplus.annotation.TableName;\nimport lombok.Data;\nimport lombok.EqualsAndHashCode;\nimport lombok.experimental.Accessors;\n\nimport java.io.Serializable;\nimport java.time.LocalDateTime;\n\n/**\n * <p>\n * \n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Data\n@EqualsAndHashCode(callSuper = false)\n@Accessors(chain = true)\n@TableName(\"tb_follow\")\npublic class Follow implements Serializable {\n\n    private static final long serialVersionUID = 1L;\n\n    /**\n     * 主键\n     */\n    @TableId(value = \"id\", type = IdType.AUTO)\n    private Long id;\n\n    /**\n     * 用户id\n     */\n    private Long userId;\n\n    /**\n     * 关联的用户id\n     */\n    private Long followUserId;\n\n    /**\n     * 创建时间\n     */\n    private LocalDateTime createTime;\n\n\n}\n",
+      "effective_lines": 41,
+      "category_scores": {
+        "simple_function": 4,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_complex_dependency_26",
+      "language": "java",
+      "category": "complex_dependency",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.utils",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/utils/RedisData.java",
+      "code_file": "data/java_code_files_module_level/complex_dependency/complex_dependency_026.java",
+      "code": "package com.hmdp.utils;\n\nimport lombok.Data;\n\nimport java.time.LocalDateTime;\n\n@Data\npublic class RedisData {\n    private LocalDateTime expireTime;\n    private Object data;\n}\n",
+      "effective_lines": 8,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 0
+      }
+    },
+    {
+      "id": "java_interface_mock_0",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service.impl",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/impl/VoucherServiceImpl.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_000.java",
+      "code": "package com.hmdp.service.impl;\n\nimport com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;\nimport com.hmdp.dto.Result;\nimport com.hmdp.entity.Voucher;\nimport com.hmdp.mapper.VoucherMapper;\nimport com.hmdp.entity.SeckillVoucher;\nimport com.hmdp.service.ISeckillVoucherService;\nimport com.hmdp.service.IVoucherService;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\nimport javax.annotation.Resource;\nimport java.util.List;\n\n/**\n * <p>\n *  服务实现类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@Service\npublic class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> implements IVoucherService {\n\n    @Resource\n    private ISeckillVoucherService seckillVoucherService;\n\n    @Override\n    public Result queryVoucherOfShop(Long shopId) {\n        // 查询优惠券信息\n        List<Voucher> vouchers = getBaseMapper().queryVoucherOfShop(shopId);\n        // 返回结果\n        return Result.ok(vouchers);\n    }\n\n    @Override\n    @Transactional\n    public void addSeckillVoucher(Voucher voucher) {\n        // 保存优惠券\n        save(voucher);\n        // 保存秒杀信息\n        SeckillVoucher seckillVoucher = new SeckillVoucher();\n        seckillVoucher.setVoucherId(voucher.getId());\n        seckillVoucher.setStock(voucher.getStock());\n        seckillVoucher.setBeginTime(voucher.getBeginTime());\n        seckillVoucher.setEndTime(voucher.getEndTime());\n        seckillVoucherService.save(seckillVoucher);\n    }\n}\n",
+      "effective_lines": 45,
+      "category_scores": {
+        "simple_function": -4,
+        "boundary": 0,
+        "complex_dependency": 19,
+        "interface_mock": 20
+      }
+    },
+    {
+      "id": "java_interface_mock_1",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.mapper",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/mapper/VoucherMapper.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_001.java",
+      "code": "package com.hmdp.mapper;\n\nimport com.baomidou.mybatisplus.core.mapper.BaseMapper;\nimport com.hmdp.entity.Voucher;\nimport org.apache.ibatis.annotations.Param;\n\nimport java.util.List;\n\n/**\n * <p>\n *  Mapper 接口\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface VoucherMapper extends BaseMapper<Voucher> {\n\n    List<Voucher> queryVoucherOfShop(@Param(\"shopId\") Long shopId);\n}\n",
+      "effective_lines": 16,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 13
+      }
+    },
+    {
+      "id": "java_interface_mock_2",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.mapper",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/mapper/BlogCommentsMapper.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_002.java",
+      "code": "package com.hmdp.mapper;\n\nimport com.hmdp.entity.BlogComments;\nimport com.baomidou.mybatisplus.core.mapper.BaseMapper;\n\n/**\n * <p>\n *  Mapper 接口\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface BlogCommentsMapper extends BaseMapper<BlogComments> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 13
+      }
+    },
+    {
+      "id": "java_interface_mock_3",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.mapper",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/mapper/BlogMapper.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_003.java",
+      "code": "package com.hmdp.mapper;\n\nimport com.hmdp.entity.Blog;\nimport com.baomidou.mybatisplus.core.mapper.BaseMapper;\n\n/**\n * <p>\n *  Mapper 接口\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface BlogMapper extends BaseMapper<Blog> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 13
+      }
+    },
+    {
+      "id": "java_interface_mock_4",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.mapper",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/mapper/FollowMapper.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_004.java",
+      "code": "package com.hmdp.mapper;\n\nimport com.hmdp.entity.Follow;\nimport com.baomidou.mybatisplus.core.mapper.BaseMapper;\n\n/**\n * <p>\n *  Mapper 接口\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface FollowMapper extends BaseMapper<Follow> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 13
+      }
+    },
+    {
+      "id": "java_interface_mock_5",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.mapper",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/mapper/SeckillVoucherMapper.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_005.java",
+      "code": "package com.hmdp.mapper;\n\nimport com.hmdp.entity.SeckillVoucher;\nimport com.baomidou.mybatisplus.core.mapper.BaseMapper;\n\n/**\n * <p>\n * 秒杀优惠券表，与优惠券是一对一关系 Mapper 接口\n * </p>\n *\n * @author 虎哥\n * @since 2022-01-04\n */\npublic interface SeckillVoucherMapper extends BaseMapper<SeckillVoucher> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 13
+      }
+    },
+    {
+      "id": "java_interface_mock_6",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.mapper",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/mapper/ShopMapper.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_006.java",
+      "code": "package com.hmdp.mapper;\n\nimport com.hmdp.entity.Shop;\nimport com.baomidou.mybatisplus.core.mapper.BaseMapper;\n\n/**\n * <p>\n *  Mapper 接口\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface ShopMapper extends BaseMapper<Shop> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 13
+      }
+    },
+    {
+      "id": "java_interface_mock_7",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.mapper",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/mapper/ShopTypeMapper.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_007.java",
+      "code": "package com.hmdp.mapper;\n\nimport com.hmdp.entity.ShopType;\nimport com.baomidou.mybatisplus.core.mapper.BaseMapper;\n\n/**\n * <p>\n *  Mapper 接口\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface ShopTypeMapper extends BaseMapper<ShopType> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 13
+      }
+    },
+    {
+      "id": "java_interface_mock_8",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.mapper",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/mapper/UserInfoMapper.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_008.java",
+      "code": "package com.hmdp.mapper;\n\nimport com.hmdp.entity.UserInfo;\nimport com.baomidou.mybatisplus.core.mapper.BaseMapper;\n\n/**\n * <p>\n *  Mapper 接口\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-24\n */\npublic interface UserInfoMapper extends BaseMapper<UserInfo> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 13
+      }
+    },
+    {
+      "id": "java_interface_mock_9",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.mapper",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/mapper/UserMapper.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_009.java",
+      "code": "package com.hmdp.mapper;\n\nimport com.hmdp.entity.User;\nimport com.baomidou.mybatisplus.core.mapper.BaseMapper;\n\n/**\n * <p>\n *  Mapper 接口\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface UserMapper extends BaseMapper<User> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 13
+      }
+    },
+    {
+      "id": "java_interface_mock_10",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.mapper",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/mapper/VoucherOrderMapper.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_010.java",
+      "code": "package com.hmdp.mapper;\n\nimport com.hmdp.entity.VoucherOrder;\nimport com.baomidou.mybatisplus.core.mapper.BaseMapper;\n\n/**\n * <p>\n *  Mapper 接口\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface VoucherOrderMapper extends BaseMapper<VoucherOrder> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 10,
+        "interface_mock": 13
+      }
+    },
+    {
+      "id": "java_interface_mock_11",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.controller",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/controller/UploadController.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_011.java",
+      "code": "package com.hmdp.controller;\n\nimport cn.hutool.core.io.FileUtil;\nimport cn.hutool.core.util.StrUtil;\nimport com.hmdp.dto.Result;\nimport com.hmdp.utils.SystemConstants;\nimport lombok.extern.slf4j.Slf4j;\nimport org.springframework.web.bind.annotation.*;\nimport org.springframework.web.multipart.MultipartFile;\n\nimport java.io.File;\nimport java.io.IOException;\nimport java.util.UUID;\n\n@Slf4j\n@RestController\n@RequestMapping(\"upload\")\npublic class UploadController {\n\n    @PostMapping(\"blog\")\n    public Result uploadImage(@RequestParam(\"file\") MultipartFile image) {\n        try {\n            // 获取原始文件名称\n            String originalFilename = image.getOriginalFilename();\n            // 生成新文件名\n            String fileName = createNewFileName(originalFilename);\n            // 保存文件\n            image.transferTo(new File(SystemConstants.IMAGE_UPLOAD_DIR, fileName));\n            // 返回结果\n            log.debug(\"文件上传成功，{}\", fileName);\n            return Result.ok(fileName);\n        } catch (IOException e) {\n            throw new RuntimeException(\"文件上传失败\", e);\n        }\n    }\n\n    @GetMapping(\"/blog/delete\")\n    public Result deleteBlogImg(@RequestParam(\"name\") String filename) {\n        File file = new File(SystemConstants.IMAGE_UPLOAD_DIR, filename);\n        if (file.isDirectory()) {\n            return Result.fail(\"错误的文件名称\");\n        }\n        FileUtil.del(file);\n        return Result.ok();\n    }\n\n    private String createNewFileName(String originalFilename) {\n        // 获取后缀\n        String suffix = StrUtil.subAfter(originalFilename, \".\", true);\n        // 生成目录\n        String name = UUID.randomUUID().toString();\n        int hash = name.hashCode();\n        int d1 = hash & 0xF;\n        int d2 = (hash >> 4) & 0xF;\n        // 判断目录是否存在\n        File dir = new File(SystemConstants.IMAGE_UPLOAD_DIR, StrUtil.format(\"/blogs/{}/{}\", d1, d2));\n        if (!dir.exists()) {\n            dir.mkdirs();\n        }\n        // 生成文件名\n        return StrUtil.format(\"/blogs/{}/{}/{}.{}\", d1, d2, name, suffix);\n    }\n}\n",
+      "effective_lines": 57,
+      "category_scores": {
+        "simple_function": 5,
+        "boundary": 7,
+        "complex_dependency": 4,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_12",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.controller",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/controller/VoucherController.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_012.java",
+      "code": "package com.hmdp.controller;\n\n\nimport com.hmdp.dto.Result;\nimport com.hmdp.entity.Voucher;\nimport com.hmdp.service.IVoucherService;\nimport org.springframework.web.bind.annotation.*;\n\nimport javax.annotation.Resource;\n\n/**\n * <p>\n *  前端控制器\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@RestController\n@RequestMapping(\"/voucher\")\npublic class VoucherController {\n\n    @Resource\n    private IVoucherService voucherService;\n\n    /**\n     * 新增普通券\n     * @param voucher 优惠券信息\n     * @return 优惠券id\n     */\n    @PostMapping\n    public Result addVoucher(@RequestBody Voucher voucher) {\n        voucherService.save(voucher);\n        return Result.ok(voucher.getId());\n    }\n\n    /**\n     * 新增秒杀券\n     * @param voucher 优惠券信息，包含秒杀信息\n     * @return 优惠券id\n     */\n    @PostMapping(\"seckill\")\n    public Result addSeckillVoucher(@RequestBody Voucher voucher) {\n        voucherService.addSeckillVoucher(voucher);\n        return Result.ok(voucher.getId());\n    }\n\n    /**\n     * 查询店铺的优惠券列表\n     * @param shopId 店铺id\n     * @return 优惠券列表\n     */\n    @GetMapping(\"/list/{shopId}\")\n    public Result queryVoucherOfShop(@PathVariable(\"shopId\") Long shopId) {\n       return voucherService.queryVoucherOfShop(shopId);\n    }\n}\n",
+      "effective_lines": 49,
+      "category_scores": {
+        "simple_function": -1,
+        "boundary": 0,
+        "complex_dependency": 4,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_13",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.controller",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/controller/ShopTypeController.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_013.java",
+      "code": "package com.hmdp.controller;\n\n\nimport com.hmdp.dto.Result;\nimport com.hmdp.entity.ShopType;\nimport com.hmdp.service.IShopTypeService;\nimport org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.RequestMapping;\nimport org.springframework.web.bind.annotation.RestController;\n\nimport javax.annotation.Resource;\nimport java.util.List;\n\n/**\n * <p>\n * 前端控制器\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@RestController\n@RequestMapping(\"/shop-type\")\npublic class ShopTypeController {\n    @Resource\n    private IShopTypeService typeService;\n\n    @GetMapping(\"list\")\n    public Result queryTypeList() {\n        List<ShopType> typeList = typeService\n                .query().orderByAsc(\"sort\").list();\n        return Result.ok(typeList);\n    }\n}\n",
+      "effective_lines": 29,
+      "category_scores": {
+        "simple_function": -1,
+        "boundary": 0,
+        "complex_dependency": 4,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_14",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.controller",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/controller/VoucherOrderController.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_014.java",
+      "code": "package com.hmdp.controller;\n\n\nimport com.hmdp.dto.Result;\nimport org.springframework.web.bind.annotation.PathVariable;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestMapping;\nimport org.springframework.web.bind.annotation.RestController;\n\n/**\n * <p>\n *  前端控制器\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@RestController\n@RequestMapping(\"/voucher-order\")\npublic class VoucherOrderController {\n    @PostMapping(\"seckill/{id}\")\n    public Result seckillVoucher(@PathVariable(\"id\") Long voucherId) {\n        return Result.fail(\"功能未完成\");\n    }\n}\n",
+      "effective_lines": 22,
+      "category_scores": {
+        "simple_function": -1,
+        "boundary": 0,
+        "complex_dependency": 4,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_15",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/IVoucherService.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_015.java",
+      "code": "package com.hmdp.service;\n\nimport com.hmdp.dto.Result;\nimport com.hmdp.entity.Voucher;\nimport com.baomidou.mybatisplus.extension.service.IService;\n\n/**\n * <p>\n *  服务类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface IVoucherService extends IService<Voucher> {\n\n    Result queryVoucherOfShop(Long shopId);\n\n    void addSeckillVoucher(Voucher voucher);\n}\n",
+      "effective_lines": 16,
+      "category_scores": {
+        "simple_function": 0,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_16",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.controller",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/controller/BlogCommentsController.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_016.java",
+      "code": "package com.hmdp.controller;\n\n\nimport org.springframework.web.bind.annotation.RequestMapping;\n\nimport org.springframework.web.bind.annotation.RestController;\n\n/**\n * <p>\n *  前端控制器\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@RestController\n@RequestMapping(\"/blog-comments\")\npublic class BlogCommentsController {\n\n}\n",
+      "effective_lines": 15,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 4,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_17",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.controller",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/controller/FollowController.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_017.java",
+      "code": "package com.hmdp.controller;\n\n\nimport org.springframework.web.bind.annotation.RequestMapping;\n\nimport org.springframework.web.bind.annotation.RestController;\n\n/**\n * <p>\n *  前端控制器\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\n@RestController\n@RequestMapping(\"/follow\")\npublic class FollowController {\n\n}\n",
+      "effective_lines": 15,
+      "category_scores": {
+        "simple_function": -3,
+        "boundary": 0,
+        "complex_dependency": 4,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_18",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/IBlogCommentsService.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_018.java",
+      "code": "package com.hmdp.service;\n\nimport com.hmdp.entity.BlogComments;\nimport com.baomidou.mybatisplus.extension.service.IService;\n\n/**\n * <p>\n *  服务类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface IBlogCommentsService extends IService<BlogComments> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": 0,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_19",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/IBlogService.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_019.java",
+      "code": "package com.hmdp.service;\n\nimport com.hmdp.entity.Blog;\nimport com.baomidou.mybatisplus.extension.service.IService;\n\n/**\n * <p>\n *  服务类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface IBlogService extends IService<Blog> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": 0,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_20",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/IFollowService.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_020.java",
+      "code": "package com.hmdp.service;\n\nimport com.hmdp.entity.Follow;\nimport com.baomidou.mybatisplus.extension.service.IService;\n\n/**\n * <p>\n *  服务类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface IFollowService extends IService<Follow> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": 0,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_21",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/ISeckillVoucherService.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_021.java",
+      "code": "package com.hmdp.service;\n\nimport com.hmdp.entity.SeckillVoucher;\nimport com.baomidou.mybatisplus.extension.service.IService;\n\n/**\n * <p>\n * 秒杀优惠券表，与优惠券是一对一关系 服务类\n * </p>\n *\n * @author 虎哥\n * @since 2022-01-04\n */\npublic interface ISeckillVoucherService extends IService<SeckillVoucher> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": 0,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_22",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/IShopService.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_022.java",
+      "code": "package com.hmdp.service;\n\nimport com.hmdp.entity.Shop;\nimport com.baomidou.mybatisplus.extension.service.IService;\n\n/**\n * <p>\n *  服务类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface IShopService extends IService<Shop> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": 0,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_23",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/IShopTypeService.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_023.java",
+      "code": "package com.hmdp.service;\n\nimport com.hmdp.entity.ShopType;\nimport com.baomidou.mybatisplus.extension.service.IService;\n\n/**\n * <p>\n *  服务类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface IShopTypeService extends IService<ShopType> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": 0,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_24",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/IUserInfoService.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_024.java",
+      "code": "package com.hmdp.service;\n\nimport com.hmdp.entity.UserInfo;\nimport com.baomidou.mybatisplus.extension.service.IService;\n\n/**\n * <p>\n *  服务类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-24\n */\npublic interface IUserInfoService extends IService<UserInfo> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": 0,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 8
+      }
+    },
+    {
+      "id": "java_interface_mock_25",
+      "language": "java",
+      "category": "interface_mock",
+      "source": "hm-dianping",
+      "project": "hm-dianping",
+      "package_name": "com.hmdp.service",
+      "source_path": "data/bcb/code/hm-dianping/src/main/java/com/hmdp/service/IVoucherOrderService.java",
+      "code_file": "data/java_code_files_module_level/interface_mock/interface_mock_025.java",
+      "code": "package com.hmdp.service;\n\nimport com.hmdp.entity.VoucherOrder;\nimport com.baomidou.mybatisplus.extension.service.IService;\n\n/**\n * <p>\n *  服务类\n * </p>\n *\n * @author 虎哥\n * @since 2021-12-22\n */\npublic interface IVoucherOrderService extends IService<VoucherOrder> {\n\n}\n",
+      "effective_lines": 13,
+      "category_scores": {
+        "simple_function": 0,
+        "boundary": 0,
+        "complex_dependency": 5,
+        "interface_mock": 8
+      }
+    }
+  ]
+}
