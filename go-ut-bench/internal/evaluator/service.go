@@ -207,7 +207,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 
 		targets := inferMutationTargets(workdir, testName, sourceBase)
 
-		if pass || (row.TestPassRate != nil && *row.TestPassRate >= 0.70) {
+		if sourceBase != "" {
 			lineCov, branchCov, covErr := collectPythonCoverage(workdir, testName, sourceBase, sourceStem, targets)
 			if covErr != "" {
 				row.CoverageError = covErr
@@ -215,34 +215,38 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 				row.LineCoverage = &lineCov
 				row.BranchCoverage = &branchCov
 			}
+		}
 
-			if spec.MutationEnabled {
-				mutationScore, mutationStats, mutationErr := collectPythonMutation(ctx, workdir, testName, targets, spec.MutationTimeout, testErr)
-				if mutationErr != "" {
-					if strings.EqualFold(spec.MutationPolicy, "warn") {
-						row.MutationError = mutationErr
-					} else {
-						row.MutationError = mutationErr
-					}
+		if spec.MutationEnabled {
+			mutationTargets := targets
+			if len(mutationTargets) == 0 && sourceBase != "" {
+				mutationTargets = []string{sourceBase}
+			}
+			mutationScore, mutationStats, mutationErr := collectPythonMutation(ctx, workdir, testName, mutationTargets, spec.MutationTimeout, testErr)
+			if mutationErr != "" {
+				if strings.EqualFold(spec.MutationPolicy, "warn") {
+					row.MutationError = mutationErr
 				} else {
-					row.MutationScore = &mutationScore
+					row.MutationError = mutationErr
 				}
-				if mutationStats.Total > 0 {
-					total := mutationStats.Total
-					killed := mutationStats.Killed
-					survived := mutationStats.Survived
-					noTests := mutationStats.NoTests
-					timeouts := mutationStats.Timeout
-					skipped := mutationStats.Skipped
-					suspicious := mutationStats.Suspicious
-					row.MutationTotal = &total
-					row.MutationKilled = &killed
-					row.MutationSurvived = &survived
-					row.MutationNoTests = &noTests
-					row.MutationTimeouts = &timeouts
-					row.MutationSkipped = &skipped
-					row.MutationSuspicious = &suspicious
-				}
+			} else {
+				row.MutationScore = &mutationScore
+			}
+			if mutationStats.Total > 0 {
+				total := mutationStats.Total
+				killed := mutationStats.Killed
+				survived := mutationStats.Survived
+				noTests := mutationStats.NoTests
+				timeouts := mutationStats.Timeout
+				skipped := mutationStats.Skipped
+				suspicious := mutationStats.Suspicious
+				row.MutationTotal = &total
+				row.MutationKilled = &killed
+				row.MutationSurvived = &survived
+				row.MutationNoTests = &noTests
+				row.MutationTimeouts = &timeouts
+				row.MutationSkipped = &skipped
+				row.MutationSuspicious = &suspicious
 			}
 		}
 	} else {
@@ -377,9 +381,7 @@ func collectPythonCoverage(workdir, filename, sourceBase, sourceStem string, ali
 
 	runCmd := exec.Command(py, "-m", "coverage", "run", "--branch", "-m", "pytest", filename, "-q", "--maxfail=9999")
 	runCmd.Dir = workdir
-	if out, err := runCmd.CombinedOutput(); err != nil {
-		return 0, 0, "coverage run failed: " + trimErr(string(out), 800)
-	}
+	_, _ = runCmd.CombinedOutput()
 
 	jsonCmd := exec.Command(py, "-m", "coverage", "json", "-o", jsonPath)
 	jsonCmd.Dir = workdir
@@ -531,18 +533,55 @@ func estimateGoAssertionDensity(text string) (int, int, float64) {
 func parsePytestCounts(output string) (*int, *int) {
 	passed := extractFirstInt(output, `(\d+)\s+passed`)
 	failed := extractFirstInt(output, `(\d+)\s+failed`)
-	if passed == nil && failed == nil {
+	if passed != nil || failed != nil {
+		if passed != nil && failed != nil {
+			total := *passed + *failed
+			return passed, &total
+		}
+		if passed != nil {
+			total := *passed
+			return passed, &total
+		}
 		return nil, nil
 	}
-	if passed != nil && failed != nil {
-		total := *passed + *failed
-		return passed, &total
+
+	lines := strings.Split(output, "\n")
+	var shortLine string
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if strings.Contains(line, "[100%]") {
+			shortLine = line
+			break
+		}
 	}
-	if passed != nil {
-		total := *passed
-		return passed, &total
+	if shortLine == "" {
+		return nil, nil
 	}
-	return nil, nil
+
+	passedCount := 0
+	failedCount := 0
+	for _, ch := range shortLine {
+		switch ch {
+		case '.', 's', 'S':
+			passedCount++
+		case 'F', 'E', 'x', 'X', '!':
+			failedCount++
+		}
+	}
+	if passedCount == 0 && failedCount == 0 {
+		return nil, nil
+	}
+	total := passedCount + failedCount
+	if failedCount == 0 {
+		return &passedCount, &total
+	}
+	if passedCount == 0 {
+		return nil, &total
+	}
+	return &passedCount, &total
 }
 
 func extractFirstInt(text, pattern string) *int {

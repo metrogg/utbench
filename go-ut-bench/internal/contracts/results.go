@@ -89,6 +89,64 @@ type ReportPayload struct {
 	GeneratedAtUTC   time.Time     `json:"generated_at_utc"`
 	SourceEvaluation string        `json:"source_evaluation"`
 	Summary          ReportSummary `json:"summary"`
+	Dimensions       Dimensions    `json:"dimensions"`
+	TopModels        []ModelRank   `json:"top_models"`
+	Failures         []FailureRow  `json:"failures"`
+	Thresholds       Thresholds    `json:"thresholds"`
+}
+
+type Dimensions struct {
+	ByModel    []ModelDim    `json:"by_model"`
+	ByLanguage []LanguageDim `json:"by_language"`
+}
+
+type ModelDim struct {
+	Model             string  `json:"model"`
+	TotalSamples      int     `json:"total_samples"`
+	CompilePassRate   float64 `json:"compile_pass_rate"`
+	AvgTestPassRate   float64 `json:"avg_test_pass_rate"`
+	AvgLineCoverage   float64 `json:"avg_line_coverage"`
+	AvgBranchCoverage float64 `json:"avg_branch_coverage"`
+	AvgMutationScore  float64 `json:"avg_mutation_score"`
+	AvgLatencyMS      float64 `json:"avg_latency_ms,omitempty"`
+	AvgTokens         float64 `json:"avg_tokens,omitempty"`
+}
+
+type LanguageDim struct {
+	Language          string  `json:"language"`
+	TotalSamples      int     `json:"total_samples"`
+	CompilePassRate   float64 `json:"compile_pass_rate"`
+	AvgTestPassRate   float64 `json:"avg_test_pass_rate"`
+	AvgLineCoverage   float64 `json:"avg_line_coverage"`
+	AvgBranchCoverage float64 `json:"avg_branch_coverage"`
+	AvgMutationScore  float64 `json:"avg_mutation_score"`
+}
+
+type ModelRank struct {
+	Rank             int     `json:"rank"`
+	Model            string  `json:"model"`
+	AvgTestPassRate  float64 `json:"avg_test_pass_rate"`
+	AvgLineCoverage  float64 `json:"avg_line_coverage"`
+	AvgMutationScore float64 `json:"avg_mutation_score"`
+	AvgLatencyMS     float64 `json:"avg_latency_ms,omitempty"`
+	AvgTokens        float64 `json:"avg_tokens,omitempty"`
+}
+
+type FailureRow struct {
+	Stage          string `json:"stage"`
+	ErrorType      string `json:"error_type"`
+	Count          int    `json:"count"`
+	ExampleModel   string `json:"example_model,omitempty"`
+	ExampleSample  string `json:"example_sample,omitempty"`
+	ExampleMessage string `json:"example_message,omitempty"`
+}
+
+type Thresholds struct {
+	CompilePassRate float64 `json:"compile_pass_rate"`
+	TestPassRate    float64 `json:"test_pass_rate"`
+	LineCoverage    float64 `json:"line_coverage"`
+	BranchCoverage  float64 `json:"branch_coverage"`
+	MutationScore   float64 `json:"mutation_score"`
 }
 
 func NewRunID() string {
