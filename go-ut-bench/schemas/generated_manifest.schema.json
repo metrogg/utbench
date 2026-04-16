@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GeneratedManifest",
+  "type": "object",
+  "required": ["schema_version", "run_id", "created_at_utc", "spec", "cases"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "created_at_utc": { "type": "string" },
+    "spec": { "type": "object" },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["model", "language", "sample_id", "sample_path", "generated_test_path", "success"]
+      }
+    }
+  }
+}

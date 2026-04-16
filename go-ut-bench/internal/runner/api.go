@@ -1,0 +1,690 @@
+package runner
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math"
+	"math/rand"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"go-ut-bench/internal/contracts"
+)
+
+type apiClient struct {
+	client  *http.Client
+	retries int
+	backoff time.Duration
+}
+
+func newAPIClient() *apiClient {
+	return &apiClient{
+		client:  &http.Client{Timeout: 120 * time.Second},
+		retries: 3,
+		backoff: 2 * time.Second,
+	}
+}
+
+func (c *apiClient) generateTest(
+	ctx context.Context,
+	model modelConfig,
+	language string,
+	samplePath string,
+	sourceCode string,
+) (string, map[string]any, int, *int, *int, *int, *contracts.ErrorInfo) {
+	apiKey := strings.TrimSpace(os.Getenv(model.APIKeyEnv))
+	if apiKey == "" {
+		return "", nil, 0, nil, nil, nil, &contracts.ErrorInfo{
+			Kind:      "auth_config_error",
+			Message:   fmt.Sprintf("missing API key env var: %s (model=%s)", model.APIKeyEnv, model.Name),
+			Retryable: false,
+		}
+	}
+
+	prompt := buildPrompt(language, samplePath, sourceCode)
+	payload := buildPayload(model, prompt)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", nil, 0, nil, nil, nil, &contracts.ErrorInfo{Kind: "payload_error", Message: err.Error(), Retryable: false}
+	}
+
+	endpoint := resolveEndpoint(model)
+	var lastErr *contracts.ErrorInfo
+	for attempt := 1; attempt <= c.retries; attempt++ {
+		started := time.Now()
+		code, rawResp, p, cm, total, errInfo := c.doOnce(ctx, endpoint, apiKey, model.Provider, body)
+		latency := int(time.Since(started).Milliseconds())
+		if errInfo == nil {
+			san := sanitizeModelOutput(code, language)
+			extracted := extractCode(san, language)
+			if vErr := validateGeneratedTest(extracted, language); vErr != nil {
+				lastErr = &contracts.ErrorInfo{Kind: "quality_error", Message: vErr.Error(), Retryable: false}
+				break
+			}
+			return extracted, rawResp, latency, p, cm, total, nil
+		}
+
+		lastErr = errInfo
+		if !errInfo.Retryable || attempt >= c.retries {
+			break
+		}
+		sleep := float64(c.backoff) * math.Pow(2, float64(attempt-1))
+		sleep += float64(time.Duration(rand.Int63n(int64(200 * time.Millisecond))))
+		time.Sleep(time.Duration(sleep))
+	}
+
+	if lastErr == nil {
+		lastErr = &contracts.ErrorInfo{Kind: "unknown_error", Message: "unknown generation error", Retryable: false}
+	}
+	return "", nil, 0, nil, nil, nil, lastErr
+}
+
+func (c *apiClient) doOnce(
+	ctx context.Context,
+	endpoint string,
+	apiKey string,
+	provider string,
+	body []byte,
+) (string, map[string]any, *int, *int, *int, *contracts.ErrorInfo) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", nil, nil, nil, nil, &contracts.ErrorInfo{Kind: "request_build_error", Message: err.Error(), Retryable: false}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		msg := err.Error()
+		kind := "network_error"
+		retryable := true
+		if strings.Contains(strings.ToLower(msg), "timeout") {
+			kind = "timeout"
+		}
+		return "", nil, nil, nil, nil, &contracts.ErrorInfo{Kind: kind, Message: msg, Retryable: retryable}
+	}
+	defer resp.Body.Close()
+
+	rawBytes, _ := io.ReadAll(resp.Body)
+	rawText := string(rawBytes)
+
+	if resp.StatusCode >= 400 {
+		retryable := resp.StatusCode == 408 || resp.StatusCode == 429 || resp.StatusCode >= 500
+		code := resp.StatusCode
+		return "", nil, nil, nil, nil, &contracts.ErrorInfo{
+			Kind:       "http_error",
+			Message:    fmt.Sprintf("http %d: %s", resp.StatusCode, trimText(rawText, 500)),
+			Retryable:  retryable,
+			StatusCode: &code,
+		}
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rawBytes, &payload); err != nil {
+		return "", nil, nil, nil, nil, &contracts.ErrorInfo{Kind: "response_parse_error", Message: err.Error(), Retryable: false}
+	}
+
+	text, err := extractResponseText(payload, provider)
+	if err != nil {
+		return "", payload, nil, nil, nil, &contracts.ErrorInfo{Kind: "response_extract_error", Message: err.Error(), Retryable: false}
+	}
+	promptTokens, completionTokens, totalTokens := extractUsage(payload)
+	return text, payload, promptTokens, completionTokens, totalTokens, nil
+}
+
+func resolveEndpoint(model modelConfig) string {
+	base := strings.TrimSuffix(model.Endpoint, "/")
+	if model.Provider == "dashscope" {
+		if strings.Contains(base, "compatible-mode") {
+			return base + "/chat/completions"
+		}
+		if strings.HasSuffix(base, "/api/v1") {
+			return base + "/services/aigc/text-generation/generation"
+		}
+		return base + "/services/aigc/text-generation/generation"
+	}
+	return base + "/chat/completions"
+}
+
+func buildPayload(model modelConfig, prompt string) map[string]any {
+	params := map[string]any{}
+	for k, v := range model.Params {
+		params[k] = v
+	}
+
+	if model.Provider == "dashscope" && !strings.Contains(model.Endpoint, "compatible-mode") {
+		return map[string]any{
+			"model":      model.Model,
+			"input":      map[string]any{"messages": []map[string]any{{"role": "user", "content": prompt}}},
+			"parameters": params,
+		}
+	}
+
+	payload := map[string]any{
+		"model": model.Model,
+		"messages": []map[string]any{
+			{"role": "system", "content": "You generate high-quality unit tests."},
+			{"role": "user", "content": prompt},
+		},
+		"stream": false,
+	}
+	for k, v := range params {
+		payload[k] = v
+	}
+	return payload
+}
+
+func extractResponseText(response map[string]any, provider string) (string, error) {
+	if provider == "dashscope" {
+		if output, ok := response["output"].(map[string]any); ok {
+			if text, ok := output["text"].(string); ok && text != "" {
+				return text, nil
+			}
+			if choices, ok := output["choices"].([]any); ok && len(choices) > 0 {
+				if item, ok := choices[0].(map[string]any); ok {
+					if msg, ok := item["message"].(map[string]any); ok {
+						if content, ok := msg["content"].(string); ok {
+							return content, nil
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if choices, ok := response["choices"].([]any); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]any); ok {
+			if msg, ok := choice["message"].(map[string]any); ok {
+				if content, ok := msg["content"].(string); ok {
+					return content, nil
+				}
+			}
+			if text, ok := choice["text"].(string); ok {
+				return text, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("unable to extract text from response")
+}
+
+func extractUsage(response map[string]any) (*int, *int, *int) {
+	usage, ok := response["usage"].(map[string]any)
+	if !ok {
+		return nil, nil, nil
+	}
+	p := toIntPtr(usage["prompt_tokens"])
+	if p == nil {
+		p = toIntPtr(usage["input_tokens"])
+	}
+	c := toIntPtr(usage["completion_tokens"])
+	if c == nil {
+		c = toIntPtr(usage["output_tokens"])
+	}
+	t := toIntPtr(usage["total_tokens"])
+	return p, c, t
+}
+
+func toIntPtr(v any) *int {
+	switch x := v.(type) {
+	case int:
+		return &x
+	case int64:
+		v := int(x)
+		return &v
+	case float64:
+		v := int(x)
+		return &v
+	default:
+		return nil
+	}
+}
+
+func sanitizeModelOutput(content string, language string) string {
+	text := strings.TrimSpace(content)
+	re := regexp.MustCompile(`(?is)<think>.*?</think>`)
+	text = re.ReplaceAllString(text, "")
+	re2 := regexp.MustCompile(`(?is)<analysis>.*?</analysis>`)
+	text = re2.ReplaceAllString(text, "")
+	if language == "python" {
+		text = trimNonCodePrefix(text)
+	}
+	return strings.TrimSpace(text)
+}
+
+func trimNonCodePrefix(text string) string {
+	lines := strings.Split(text, "\n")
+	re := regexp.MustCompile(`^\s*(from\s+\w|import\s+\w|def\s+\w|class\s+\w|@|if\s+__name__|#|\"\"\"|''')`)
+	for i, line := range lines {
+		if re.MatchString(line) {
+			return strings.TrimSpace(strings.Join(lines[i:], "\n"))
+		}
+	}
+	return text
+}
+
+func extractCode(content, language string) string {
+	re := regexp.MustCompile("```([a-zA-Z0-9_+\\-]*)\\s*\\n([\\s\\S]*?)```")
+	blocks := re.FindAllStringSubmatch(content, -1)
+	if len(blocks) == 0 {
+		return stripMarkdownFence(content)
+	}
+	aliases := map[string]bool{strings.ToLower(language): true}
+	if strings.EqualFold(language, "python") {
+		aliases["py"] = true
+	}
+	if strings.EqualFold(language, "cpp") {
+		aliases["c++"] = true
+	}
+	for _, block := range blocks {
+		tag := strings.ToLower(strings.TrimSpace(block[1]))
+		if aliases[tag] {
+			return strings.TrimSpace(block[2])
+		}
+	}
+	return strings.TrimSpace(blocks[0][2])
+}
+
+func stripMarkdownFence(content string) string {
+	trimmed := strings.TrimSpace(content)
+	if !strings.HasPrefix(trimmed, "```") {
+		return dropTrailingFenceLines(trimmed)
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) <= 2 {
+		return trimmed
+	}
+	lines = lines[1:]
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func dropTrailingFenceLines(text string) string {
+	lines := strings.Split(text, "\n")
+	for len(lines) > 0 {
+		last := strings.TrimSpace(lines[len(lines)-1])
+		if strings.HasPrefix(last, "```") {
+			lines = lines[:len(lines)-1]
+			continue
+		}
+		break
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func validateGeneratedTest(code, language string) error {
+	stripped := strings.TrimSpace(code)
+	if stripped == "" {
+		return fmt.Errorf("empty output")
+	}
+	lower := strings.ToLower(stripped)
+	if strings.Contains(lower, "<think>") || strings.Contains(lower, "</think>") {
+		return fmt.Errorf("contains leaked reasoning tags")
+	}
+	if strings.EqualFold(language, "python") {
+		if !strings.Contains(stripped, "def test_") && !strings.Contains(stripped, "import pytest") {
+			return fmt.Errorf("invalid python test structure")
+		}
+	}
+	return nil
+}
+
+func trimText(v string, max int) string {
+	if len(v) <= max {
+		return v
+	}
+	return v[:max]
+}
+
+func buildPrompt(language, samplePath, sourceCode string) string {
+	lang := strings.ToLower(strings.TrimSpace(language))
+	sampleID := strings.TrimSuffix(filepath.Base(samplePath), filepath.Ext(samplePath))
+	framework := languageFramework(lang)
+	dependencies := extractDependencies(sourceCode, lang)
+	scenario, complexity := parseSampleMeta(sampleID, samplePath)
+	moduleName := moduleImportName(sampleID)
+	coverageTargets := coverageTargetsText()
+	mockReq := mockRequirement(sourceCode)
+	criticalConditions := extractCriticalConditions(sourceCode, lang)
+
+	dependencyText := "none detected"
+	if len(dependencies) > 0 {
+		dependencyText = strings.Join(dependencies, ", ")
+	}
+	scenarioText := scenario
+	if scenarioText == "" {
+		scenarioText = "general"
+	}
+	complexityText := complexity
+	if complexityText == "" {
+		complexityText = "unknown"
+	}
+
+	criticalText := "- none detected"
+	if len(criticalConditions) > 0 {
+		lines := make([]string, 0, len(criticalConditions))
+		for _, item := range criticalConditions {
+			lines = append(lines, fmt.Sprintf("- `%s`", item))
+		}
+		criticalText = strings.Join(lines, "\n")
+	}
+
+	return "You are an expert unit testing engineer.\n" +
+		"你是一名资深单元测试工程师。\n" +
+		"Generate high-quality unit tests based on the following specification.\n" +
+		"请基于以下规范生成高质量单元测试。\n\n" +
+		"## Role & Objective（角色与目标）\n" +
+		"- Goal: produce executable tests that match source behavior exactly.\n" +
+		"- 目标：生成可执行且与源码行为严格一致的测试。\n\n" +
+		"## Language & Framework（语言与框架）\n" +
+		fmt.Sprintf("- Language（语言）: %s\n", lang) +
+		fmt.Sprintf("- Test Framework（测试框架）: %s\n\n", framework) +
+		"## Step-by-Step Workflow（分步流程）\n" +
+		"1) Identify callable symbols and input/output contracts from source.\n" +
+		"2) Build a test matrix: normal, boundary, and exception paths.\n" +
+		"3) Derive expected values only from implementation semantics.\n" +
+		"4) Write deterministic, runnable tests with clear assertions.\n" +
+		"5) Self-check syntax/imports/assertions before final output.\n\n" +
+		"## Test Requirements（测试要求）\n" +
+		"- Cover normal paths, boundary conditions, and error/exception behavior.\n" +
+		"- 覆盖正常路径、边界条件和异常行为。\n" +
+		"- Keep tests deterministic and runnable.\n" +
+		"- 保持测试可重复、可执行（避免随机性）。\n" +
+		"- Use clear assertions with meaningful expected values.\n" +
+		"- 使用清晰断言和有意义的期望值。\n" +
+		"- Test function names must start with `test_`.\n" +
+		"- 测试函数命名必须以 `test_` 开头。\n" +
+		"- Use plain `assert` and `pytest.raises` for failure paths.\n" +
+		"- 断言使用 `assert`，异常路径使用 `pytest.raises`。\n" +
+		"- Use function-based tests (e.g., `def test_xxx()`) instead of class-based.\n" +
+		"- 使用函数式测试（如 `def test_xxx()`），不要用 class-based（如 `class Test:`）。\n" +
+		fmt.Sprintf("- MUST import target symbols from local module `%s` before writing tests.\n", moduleName) +
+		fmt.Sprintf("- 必须先从同目录模块 `%s` 导入被测对象，再编写测试。\n", moduleName) +
+		"- Avoid importing unrelated third-party packages by default.\n" +
+		"- 默认不要引入无关第三方包。\n" +
+		fmt.Sprintf("- Coverage targets（覆盖率目标，供参考）: %s\n", coverageTargets) +
+		fmt.Sprintf("- Mock requirements（Mock 要求）: %s\n\n", mockReq) +
+		"## Semantic Alignment Hard Rules（语义对齐硬约束）\n" +
+		"- Derive expected values strictly from the given source code behavior.\n" +
+		"- 期望值必须严格依据给定源码行为推导，不要按题型常识脑补。\n" +
+		"- Respect exact comparison semantics in code (`<`, `<=`, `>`, `>=`, `==`).\n" +
+		"- 必须严格遵守源码比较符号语义（尤其阈值边界等于时）。\n" +
+		"- Include explicit boundary-equality assertions when threshold/limit checks exist.\n" +
+		"- 当存在阈值/边界判断时，必须包含“等于边界”的断言样例。\n" +
+		"- If implementation looks counter-intuitive, still assert implementation behavior.\n" +
+		"- 若实现与常识不一致，也必须以源码实现为准。\n" +
+		"- If docstring/comment conflicts with implementation, trust implementation.\n" +
+		"- 若注释/文档示例与实现冲突，以实现为准。\n" +
+		"- Do NOT assume implicit coercion not present in code (e.g., str->number).\n" +
+		"- 不要假设源码未实现的隐式转换（例如字符串自动转数字）。\n" +
+		"- For sliding-window or two-pointer counting algorithms: when the loop condition is\n" +
+		"  `while left < right and sorted[right] - sorted[left] >= threshold`,\n" +
+		"  a threshold of 0 with duplicate values produces a count of 0 — the window only\n" +
+		"  advances when `>` threshold, NOT when `==` threshold.\n" +
+		"- 对于滑窗/双指针计数算法：当循环条件是 `>= threshold` 时，\n" +
+		"  threshold=0 且有重复值的情况下会计数为 0 —— 只有 `>` threshold 时窗口才右移。\n" +
+		"- Trace through the algorithm by hand for boundary values before writing assertions.\n" +
+		"- 写断言前，必须手工推导一遍算法在边界值上的执行过程。\n" +
+		"- For functions returning structured results (e.g., namedtuple, dataclass): always assert\n" +
+		"  each field individually. Never assert the whole object equality without field-level checks.\n" +
+		"- 对于返回结构体结果的函数，必须逐字段断言，切勿直接做整体相等判断而不验证字段值。\n" +
+		"- For `nearest_pair` or similar: the returned index fields are `left_index=min(original_indices)`\n" +
+		"  and `right_index=max(original_indices)` — trace the sorted enumeration carefully.\n" +
+		"- 对于类似 `nearest_pair` 的函数：返回的索引字段是 `left_index=min(原始索引)` 和\n" +
+		"  `right_index=max(原始索引)`，必须仔细追踪排序后的枚举过程。\n\n" +
+		"## Critical Conditions Extracted（关键逻辑条件）\n" +
+		criticalText +
+		"\n\n" +
+		"## Error Prevention Checklist（错误预防清单，仅内部执行）\n" +
+		"- No placeholder tests like `assert True`.\n" +
+		"- No assertions for behavior that cannot be inferred from source.\n" +
+		"- Ensure every referenced symbol exists in source imports/definitions.\n" +
+		"- Ensure generated file is directly runnable by the target test framework.\n\n" +
+		"## Context Information（上下文信息）\n" +
+		fmt.Sprintf("- Sample ID（样本ID）: %s\n", sampleID) +
+		fmt.Sprintf("- Scenario（场景）: %s\n", scenarioText) +
+		fmt.Sprintf("- Complexity（复杂度）: %s\n", complexityText) +
+		fmt.Sprintf("- Dependencies detected（检测到依赖）: %s\n\n", dependencyText) +
+		"## Output Format（输出格式）\n" +
+		"- Return raw test code only (no Markdown fences).\n" +
+		"- 仅输出原始测试代码，不要 Markdown 代码块。\n" +
+		"- Do not include explanations.\n" +
+		"- 不要输出解释文字。\n\n" +
+		"## Source Code Under Test（被测源码）\n" +
+		fmt.Sprintf("```%s\n%s\n```", lang, sourceCode)
+}
+
+func coverageTargetsText() string {
+	// Keep in sync with benchmark/config/models.yaml default thresholds.
+	line := 0.7
+	branch := 0.6
+	function := 0.8
+	return fmt.Sprintf(
+		"line >= %.0f%%, branch >= %.0f%%, function >= %.0f%%",
+		line*100,
+		branch*100,
+		function*100,
+	)
+}
+
+func languageFramework(language string) string {
+	switch language {
+	case "java":
+		return "JUnit 4"
+	case "python":
+		return "pytest"
+	case "go":
+		return "Go testing package"
+	case "cpp":
+		return "GoogleTest"
+	case "javascript":
+		return "Jest"
+	default:
+		return "the standard test framework"
+	}
+}
+
+func moduleImportName(sampleID string) string {
+	normalized := regexp.MustCompile(`[^a-zA-Z0-9_]`).ReplaceAllString(sampleID, "_")
+	normalized = strings.Trim(normalized, "_")
+	if normalized == "" {
+		return "solution"
+	}
+	if regexp.MustCompile(`^[0-9]`).MatchString(normalized) {
+		return "sample_" + normalized
+	}
+	return normalized
+}
+
+func parseSampleMeta(sampleID, samplePath string) (string, string) {
+	parts := strings.Split(sampleID, "_")
+	if len(parts) >= 4 {
+		complexity := strings.ToLower(parts[0])
+		scenario := strings.ToLower(strings.Join(parts[2:len(parts)-1], "_"))
+		return scenario, complexity
+	}
+	parent := strings.ToLower(filepath.Base(filepath.Dir(samplePath)))
+	grand := strings.ToLower(filepath.Base(filepath.Dir(filepath.Dir(samplePath))))
+	if parent != "" && parent != grand {
+		return parent, ""
+	}
+	return "", ""
+}
+
+func extractDependencies(sourceCode, language string) []string {
+	var deps []string
+	switch language {
+	case "python":
+		re := regexp.MustCompile(`(?m)^\s*(?:from\s+([a-zA-Z0-9_\.]+)\s+import|import\s+([a-zA-Z0-9_\.]+))`)
+		matches := re.FindAllStringSubmatch(sourceCode, -1)
+		for _, m := range matches {
+			dep := strings.TrimSpace(m[1])
+			if dep == "" {
+				dep = strings.TrimSpace(m[2])
+			}
+			if dep != "" {
+				deps = append(deps, dep)
+			}
+		}
+	case "java":
+		re := regexp.MustCompile(`(?m)^\s*import\s+([^;]+);`)
+		matches := re.FindAllStringSubmatch(sourceCode, -1)
+		for _, m := range matches {
+			if len(m) > 1 && strings.TrimSpace(m[1]) != "" {
+				deps = append(deps, strings.TrimSpace(m[1]))
+			}
+		}
+	case "go":
+		reSingle := regexp.MustCompile(`(?m)^\s*import\s+"([^"]+)"`)
+		singleMatches := reSingle.FindAllStringSubmatch(sourceCode, -1)
+		for _, m := range singleMatches {
+			if len(m) > 1 && strings.TrimSpace(m[1]) != "" {
+				deps = append(deps, strings.TrimSpace(m[1]))
+			}
+		}
+		reBlock := regexp.MustCompile(`(?s)import\s*\((.*?)\)`)
+		block := reBlock.FindStringSubmatch(sourceCode)
+		if len(block) > 1 {
+			reQuoted := regexp.MustCompile(`"([^"]+)"`)
+			quoted := reQuoted.FindAllStringSubmatch(block[1], -1)
+			for _, m := range quoted {
+				if len(m) > 1 && strings.TrimSpace(m[1]) != "" {
+					deps = append(deps, strings.TrimSpace(m[1]))
+				}
+			}
+		}
+	case "cpp":
+		re := regexp.MustCompile(`(?m)^\s*#include\s*[<"]([^>"]+)[>"]`)
+		matches := re.FindAllStringSubmatch(sourceCode, -1)
+		for _, m := range matches {
+			if len(m) > 1 && strings.TrimSpace(m[1]) != "" {
+				deps = append(deps, strings.TrimSpace(m[1]))
+			}
+		}
+	}
+
+	seen := make(map[string]struct{}, len(deps))
+	out := make([]string, 0, len(deps))
+	for _, dep := range deps {
+		if _, ok := seen[dep]; ok {
+			continue
+		}
+		seen[dep] = struct{}{}
+		out = append(out, dep)
+		if len(out) >= 12 {
+			break
+		}
+	}
+	return out
+}
+
+func mockRequirement(sourceCode string) string {
+	lower := strings.ToLower(sourceCode)
+	markers := []string{
+		"http",
+		"request",
+		"socket",
+		"open(",
+		"file",
+		"database",
+		"sql",
+		"redis",
+		"grpc",
+		"client",
+		"os.environ",
+		"subprocess",
+	}
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			return "Use mocks/stubs/fakes for network, file, database, subprocess, or env dependencies."
+		}
+	}
+	return "Mock only when necessary; avoid over-mocking pure functions."
+}
+
+func extractCriticalConditions(sourceCode, language string) []string {
+	if language != "python" {
+		return nil
+	}
+
+	lines := strings.Split(sourceCode, "\n")
+	candidates := make([]string, 0, 16)
+	loopLines := map[int]string{}
+
+	for idx, raw := range lines {
+		lineno := idx + 1
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if containsComparator(line) {
+			if strings.HasPrefix(line, "if ") ||
+				strings.HasPrefix(line, "while ") ||
+				strings.HasPrefix(line, "return ") {
+				candidates = append(candidates, line)
+			} else {
+				pos := strings.Index(sourceCode, line)
+				prefix := sourceCode
+				if pos > 0 {
+					prefix = sourceCode[:pos]
+				}
+				if strings.Contains(prefix, "while ") && strings.Contains(line, "count") {
+					candidates = append(candidates, line)
+				}
+			}
+		}
+
+		if (strings.HasPrefix(line, "while ") || strings.HasPrefix(line, "for ")) && containsComparator(line) {
+			loopLines[lineno] = line
+		}
+	}
+
+	if len(loopLines) > 0 && len(candidates) == 0 {
+		lineNos := make([]int, 0, len(loopLines))
+		for lineNo := range loopLines {
+			lineNos = append(lineNos, lineNo)
+		}
+		sort.Ints(lineNos)
+		for _, lineNo := range lineNos {
+			candidates = append(candidates, loopLines[lineNo])
+		}
+	}
+
+	dedup := make([]string, 0, 12)
+	seen := map[string]struct{}{}
+	for _, item := range candidates {
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		dedup = append(dedup, item)
+		if len(dedup) >= 12 {
+			break
+		}
+	}
+
+	return dedup
+}
+
+func containsComparator(line string) bool {
+	comparators := []string{"<=", ">=", "==", "!=", "<", ">"}
+	for _, item := range comparators {
+		if strings.Contains(line, item) {
+			return true
+		}
+	}
+	return false
+}

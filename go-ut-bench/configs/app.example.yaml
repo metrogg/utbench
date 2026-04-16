@@ -1,0 +1,10 @@
+defaults:
+  dataset_root: ./datasets
+  output_root: ./artifacts
+  db_path: ./storage/utbench.db
+  models:
+    - deepseek
+  languages:
+    - python
+  class: self_contained
+  mode: full
