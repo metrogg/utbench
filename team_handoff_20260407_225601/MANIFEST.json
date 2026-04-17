@@ -1,0 +1,301 @@
+{
+  "generated_at": "2026-04-07T22:56:04",
+  "package_root": "C:\\shijian_project\\dist\\team_handoff_20260407_225601",
+  "datasets": {
+    "cpp_code_files_module_level": {
+      "file_count": 200,
+      "files": [
+        "data/cpp_code_files_module_level/boundary/boundary_000.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_001.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_002.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_003.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_004.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_005.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_006.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_007.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_008.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_009.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_010.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_011.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_012.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_013.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_014.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_015.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_016.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_017.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_018.cpp",
+        "data/cpp_code_files_module_level/boundary/boundary_019.cpp"
+      ]
+    },
+    "cpp_code_files_self_contained": {
+      "file_count": 200,
+      "files": [
+        "data/cpp_code_files_self_contained/boundary/boundary_000.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_001.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_002.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_003.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_004.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_005.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_006.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_007.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_008.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_009.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_010.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_011.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_012.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_013.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_014.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_015.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_016.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_017.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_018.cpp",
+        "data/cpp_code_files_self_contained/boundary/boundary_019.cpp"
+      ]
+    },
+    "cpp_ut_dataset": {
+      "file_count": 2,
+      "files": [
+        "data/cpp_ut_dataset/cpp_dataset_module_level.json",
+        "data/cpp_ut_dataset/cpp_dataset_self_contained.json"
+      ]
+    },
+    "external_sources": {
+      "file_count": 5,
+      "files": [
+        "data/external_sources/java_cpp_self_contained/autocodebenchmark_cpp.jsonl",
+        "data/external_sources/java_cpp_self_contained/autocodebenchmark_java.jsonl",
+        "data/external_sources/java_cpp_self_contained/humanevalx_cpp.jsonl",
+        "data/external_sources/java_cpp_self_contained/humanevalx_java.jsonl",
+        "data/external_sources/java_cpp_self_contained/manifest.json"
+      ]
+    },
+    "go_code_files_module_level": {
+      "file_count": 200,
+      "files": [
+        "data/go_code_files_module_level/boundary/boundary_000.go",
+        "data/go_code_files_module_level/boundary/boundary_001.go",
+        "data/go_code_files_module_level/boundary/boundary_002.go",
+        "data/go_code_files_module_level/boundary/boundary_003.go",
+        "data/go_code_files_module_level/boundary/boundary_004.go",
+        "data/go_code_files_module_level/boundary/boundary_005.go",
+        "data/go_code_files_module_level/boundary/boundary_006.go",
+        "data/go_code_files_module_level/boundary/boundary_007.go",
+        "data/go_code_files_module_level/boundary/boundary_008.go",
+        "data/go_code_files_module_level/boundary/boundary_009.go",
+        "data/go_code_files_module_level/boundary/boundary_010.go",
+        "data/go_code_files_module_level/boundary/boundary_011.go",
+        "data/go_code_files_module_level/boundary/boundary_012.go",
+        "data/go_code_files_module_level/boundary/boundary_013.go",
+        "data/go_code_files_module_level/boundary/boundary_014.go",
+        "data/go_code_files_module_level/boundary/boundary_015.go",
+        "data/go_code_files_module_level/boundary/boundary_016.go",
+        "data/go_code_files_module_level/boundary/boundary_017.go",
+        "data/go_code_files_module_level/boundary/boundary_018.go",
+        "data/go_code_files_module_level/boundary/boundary_019.go"
+      ]
+    },
+    "go_code_files_self_contained": {
+      "file_count": 200,
+      "files": [
+        "data/go_code_files_self_contained/boundary/boundary_000.go",
+        "data/go_code_files_self_contained/boundary/boundary_001.go",
+        "data/go_code_files_self_contained/boundary/boundary_002.go",
+        "data/go_code_files_self_contained/boundary/boundary_003.go",
+        "data/go_code_files_self_contained/boundary/boundary_004.go",
+        "data/go_code_files_self_contained/boundary/boundary_005.go",
+        "data/go_code_files_self_contained/boundary/boundary_006.go",
+        "data/go_code_files_self_contained/boundary/boundary_007.go",
+        "data/go_code_files_self_contained/boundary/boundary_008.go",
+        "data/go_code_files_self_contained/boundary/boundary_009.go",
+        "data/go_code_files_self_contained/boundary/boundary_010.go",
+        "data/go_code_files_self_contained/boundary/boundary_011.go",
+        "data/go_code_files_self_contained/boundary/boundary_012.go",
+        "data/go_code_files_self_contained/boundary/boundary_013.go",
+        "data/go_code_files_self_contained/boundary/boundary_014.go",
+        "data/go_code_files_self_contained/boundary/boundary_015.go",
+        "data/go_code_files_self_contained/boundary/boundary_016.go",
+        "data/go_code_files_self_contained/boundary/boundary_017.go",
+        "data/go_code_files_self_contained/boundary/boundary_018.go",
+        "data/go_code_files_self_contained/boundary/boundary_019.go"
+      ]
+    },
+    "go_ut_dataset": {
+      "file_count": 2,
+      "files": [
+        "data/go_ut_dataset/go_dataset_module_level.json",
+        "data/go_ut_dataset/go_dataset_self_contained.json"
+      ]
+    },
+    "java_code_files_module_level": {
+      "file_count": 62,
+      "files": [
+        "data/java_code_files_module_level/boundary/boundary_000.java",
+        "data/java_code_files_module_level/boundary/boundary_001.java",
+        "data/java_code_files_module_level/boundary/boundary_002.java",
+        "data/java_code_files_module_level/boundary/boundary_003.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_000.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_001.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_002.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_003.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_004.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_005.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_006.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_007.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_008.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_009.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_010.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_011.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_012.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_013.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_014.java",
+        "data/java_code_files_module_level/complex_dependency/complex_dependency_015.java"
+      ]
+    },
+    "java_code_files_self_contained": {
+      "file_count": 200,
+      "files": [
+        "data/java_code_files_self_contained/boundary/boundary_000.java",
+        "data/java_code_files_self_contained/boundary/boundary_001.java",
+        "data/java_code_files_self_contained/boundary/boundary_002.java",
+        "data/java_code_files_self_contained/boundary/boundary_003.java",
+        "data/java_code_files_self_contained/boundary/boundary_004.java",
+        "data/java_code_files_self_contained/boundary/boundary_005.java",
+        "data/java_code_files_self_contained/boundary/boundary_006.java",
+        "data/java_code_files_self_contained/boundary/boundary_007.java",
+        "data/java_code_files_self_contained/boundary/boundary_008.java",
+        "data/java_code_files_self_contained/boundary/boundary_009.java",
+        "data/java_code_files_self_contained/boundary/boundary_010.java",
+        "data/java_code_files_self_contained/boundary/boundary_011.java",
+        "data/java_code_files_self_contained/boundary/boundary_012.java",
+        "data/java_code_files_self_contained/boundary/boundary_013.java",
+        "data/java_code_files_self_contained/boundary/boundary_014.java",
+        "data/java_code_files_self_contained/boundary/boundary_015.java",
+        "data/java_code_files_self_contained/boundary/boundary_016.java",
+        "data/java_code_files_self_contained/boundary/boundary_017.java",
+        "data/java_code_files_self_contained/boundary/boundary_018.java",
+        "data/java_code_files_self_contained/boundary/boundary_019.java"
+      ]
+    },
+    "java_ut_dataset": {
+      "file_count": 2,
+      "files": [
+        "data/java_ut_dataset/java_dataset_module_level.json",
+        "data/java_ut_dataset/java_dataset_self_contained.json"
+      ]
+    },
+    "javascript_code_files_module_level": {
+      "file_count": 200,
+      "files": [
+        "data/javascript_code_files_module_level/boundary/boundary_000.js",
+        "data/javascript_code_files_module_level/boundary/boundary_001.js",
+        "data/javascript_code_files_module_level/boundary/boundary_002.js",
+        "data/javascript_code_files_module_level/boundary/boundary_003.js",
+        "data/javascript_code_files_module_level/boundary/boundary_004.js",
+        "data/javascript_code_files_module_level/boundary/boundary_005.js",
+        "data/javascript_code_files_module_level/boundary/boundary_006.js",
+        "data/javascript_code_files_module_level/boundary/boundary_007.js",
+        "data/javascript_code_files_module_level/boundary/boundary_008.js",
+        "data/javascript_code_files_module_level/boundary/boundary_009.js",
+        "data/javascript_code_files_module_level/boundary/boundary_010.js",
+        "data/javascript_code_files_module_level/boundary/boundary_011.js",
+        "data/javascript_code_files_module_level/boundary/boundary_012.js",
+        "data/javascript_code_files_module_level/boundary/boundary_013.js",
+        "data/javascript_code_files_module_level/boundary/boundary_014.js",
+        "data/javascript_code_files_module_level/boundary/boundary_015.js",
+        "data/javascript_code_files_module_level/boundary/boundary_016.js",
+        "data/javascript_code_files_module_level/boundary/boundary_017.js",
+        "data/javascript_code_files_module_level/boundary/boundary_018.js",
+        "data/javascript_code_files_module_level/boundary/boundary_019.js"
+      ]
+    },
+    "javascript_code_files_self_contained": {
+      "file_count": 88,
+      "files": [
+        "data/javascript_code_files_self_contained/boundary/boundary_000.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_001.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_002.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_003.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_004.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_005.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_006.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_007.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_008.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_009.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_010.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_011.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_012.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_013.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_014.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_015.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_016.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_017.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_018.js",
+        "data/javascript_code_files_self_contained/boundary/boundary_019.js"
+      ]
+    },
+    "javascript_ut_dataset": {
+      "file_count": 2,
+      "files": [
+        "data/javascript_ut_dataset/javascript_dataset_module_level.json",
+        "data/javascript_ut_dataset/javascript_dataset_self_contained.json"
+      ]
+    },
+    "python_code_files_module_level": {
+      "file_count": 200,
+      "files": [
+        "data/python_code_files_module_level/boundary/boundary_000.py",
+        "data/python_code_files_module_level/boundary/boundary_001.py",
+        "data/python_code_files_module_level/boundary/boundary_002.py",
+        "data/python_code_files_module_level/boundary/boundary_003.py",
+        "data/python_code_files_module_level/boundary/boundary_004.py",
+        "data/python_code_files_module_level/boundary/boundary_005.py",
+        "data/python_code_files_module_level/boundary/boundary_006.py",
+        "data/python_code_files_module_level/boundary/boundary_007.py",
+        "data/python_code_files_module_level/boundary/boundary_008.py",
+        "data/python_code_files_module_level/boundary/boundary_009.py",
+        "data/python_code_files_module_level/boundary/boundary_010.py",
+        "data/python_code_files_module_level/boundary/boundary_011.py",
+        "data/python_code_files_module_level/boundary/boundary_012.py",
+        "data/python_code_files_module_level/boundary/boundary_013.py",
+        "data/python_code_files_module_level/boundary/boundary_014.py",
+        "data/python_code_files_module_level/boundary/boundary_015.py",
+        "data/python_code_files_module_level/boundary/boundary_016.py",
+        "data/python_code_files_module_level/boundary/boundary_017.py",
+        "data/python_code_files_module_level/boundary/boundary_018.py",
+        "data/python_code_files_module_level/boundary/boundary_019.py"
+      ]
+    },
+    "python_code_files_self_contained": {
+      "file_count": 200,
+      "files": [
+        "data/python_code_files_self_contained/boundary/boundary_000.py",
+        "data/python_code_files_self_contained/boundary/boundary_001.py",
+        "data/python_code_files_self_contained/boundary/boundary_002.py",
+        "data/python_code_files_self_contained/boundary/boundary_003.py",
+        "data/python_code_files_self_contained/boundary/boundary_004.py",
+        "data/python_code_files_self_contained/boundary/boundary_005.py",
+        "data/python_code_files_self_contained/boundary/boundary_006.py",
+        "data/python_code_files_self_contained/boundary/boundary_007.py",
+        "data/python_code_files_self_contained/boundary/boundary_008.py",
+        "data/python_code_files_self_contained/boundary/boundary_009.py",
+        "data/python_code_files_self_contained/boundary/boundary_010.py",
+        "data/python_code_files_self_contained/boundary/boundary_011.py",
+        "data/python_code_files_self_contained/boundary/boundary_012.py",
+        "data/python_code_files_self_contained/boundary/boundary_013.py",
+        "data/python_code_files_self_contained/boundary/boundary_014.py",
+        "data/python_code_files_self_contained/boundary/boundary_015.py",
+        "data/python_code_files_self_contained/boundary/boundary_016.py",
+        "data/python_code_files_self_contained/boundary/boundary_017.py",
+        "data/python_code_files_self_contained/boundary/boundary_018.py",
+        "data/python_code_files_self_contained/boundary/boundary_019.py"
+      ]
+    },
+    "python_ut_dataset": {
+      "file_count": 2,
+      "files": [
+        "data/python_ut_dataset/python_dataset_module_level.json",
+        "data/python_ut_dataset/python_dataset_self_contained.json"
+      ]
+    }
+  }
+}
