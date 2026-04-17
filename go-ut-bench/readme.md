@@ -22,11 +22,10 @@ Go 版评测工具工作区（MVP 起步版本）。
 - `utbench run`：编排命令（默认串联 generate -> evaluate -> report，可选 ingest）
 - `utbench dataset`：数据集索引/校验/查看
 
-建议的数据集治理流程：
+数据集使用流程：
 
-1. `utbench dataset index --dataset-root ./datasets --output ./configs/dataset_index.json`
-2. `utbench dataset manifest --index ./configs/dataset_index.json --level l1 --output ./configs/dataset_l1.json --limit-per-scenario 20`
-3. `utbench run --dataset-manifest ./configs/dataset_l1.json ...`
+1. `utbench dataset index --dataset-root ./datasets --output ./configs/dataset_index.json`（扫描全量数据集）
+2. `utbench run --dataset-manifest ./configs/dataset_index.json -langs python -class self_contained -scenario boundary -max-samples 5`（直接用索引 + CLI 过滤）
 
 关键参数（MVP）：
 
@@ -36,7 +35,7 @@ Go 版评测工具工作区（MVP 起步版本）。
 - `--class`：数据集大类（`self_contained` / `module_level` / `complex_dependency`）
 - `--scenario`：数据集子类（`boundary` / `simple_function` / `complex_dependency` / `interface_mock`）
 - `--level`：评测集分级（如 `l1`）
-- `--dataset-manifest`：显式样本清单（如 `./configs/dataset_l1.json`）
+- `--dataset-manifest`：显式样本清单（默认 `./configs/dataset_index.json`）
 - `--mode`：`full` / `incremental`
 - `--reset-checkpoint`：重置当前作用域 checkpoint
 - `--mutation-enabled`：开启/关闭变异阶段

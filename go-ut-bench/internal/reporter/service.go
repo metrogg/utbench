@@ -384,8 +384,8 @@ func classifyError(msg string) string {
 func shortErrText(v string) string {
 	v = strings.TrimSpace(v)
 	v = strings.ReplaceAll(v, "\n", " ")
-	if len(v) > 120 {
-		return v[:120] + "..."
+	if len(v) > 500 {
+		return v[:500] + "..."
 	}
 	return v
 }

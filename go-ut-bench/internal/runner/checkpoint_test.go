@@ -13,7 +13,7 @@ func TestCheckpointPathIncludesScopeFields(t *testing.T) {
 		DatasetRoot:     "../dataset",
 		DatasetClass:    contracts.DatasetClassSelfContained,
 		DatasetLevel:    "l1",
-		DatasetManifest: "./configs/dataset_l1.json",
+		DatasetManifest: "./configs/dataset_index.json",
 		MaxSamples:      10,
 		Languages:       []string{"python"},
 	}

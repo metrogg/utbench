@@ -358,10 +358,15 @@ func buildPrompt(language, samplePath, sourceCode string) string {
 	coverageTargets := coverageTargetsText()
 	mockReq := mockRequirement(sourceCode)
 	criticalConditions := extractCriticalConditions(sourceCode, lang)
+	moduleSymbols := extractModuleLevelSymbols(sourceCode)
 
 	dependencyText := "none detected"
 	if len(dependencies) > 0 {
 		dependencyText = strings.Join(dependencies, ", ")
+	}
+	moduleSymbolsText := ""
+	if moduleSymbols != "" {
+		moduleSymbolsText = "\n" + moduleSymbols
 	}
 	scenarioText := scenario
 	if scenarioText == "" {
@@ -451,12 +456,14 @@ func buildPrompt(language, samplePath, sourceCode string) string {
 		"- No placeholder tests like `assert True`.\n" +
 		"- No assertions for behavior that cannot be inferred from source.\n" +
 		"- Ensure every referenced symbol exists in source imports/definitions.\n" +
-		"- Ensure generated file is directly runnable by the target test framework.\n\n" +
+		"- Ensure generated file is directly runnable by the target test framework.\n" +
+		"- If you use any Python standard library modules (string, zipfile, json, os, sys, tempfile, etc.) or third-party packages in your test code, you MUST explicitly import them.\n" +
+		"- 如果测试中使用了任何 Python 标准库模块（string、zipfile、json、os、sys、tempfile 等）或第三方包，必须显式 import。\n\n" +
 		"## Context Information（上下文信息）\n" +
 		fmt.Sprintf("- Sample ID（样本ID）: %s\n", sampleID) +
 		fmt.Sprintf("- Scenario（场景）: %s\n", scenarioText) +
 		fmt.Sprintf("- Complexity（复杂度）: %s\n", complexityText) +
-		fmt.Sprintf("- Dependencies detected（检测到依赖）: %s\n\n", dependencyText) +
+		fmt.Sprintf("- Dependencies detected（检测到依赖）: %s\n%s\n\n", dependencyText, moduleSymbolsText) +
 		"## Output Format（输出格式）\n" +
 		"- Return raw test code only (no Markdown fences).\n" +
 		"- 仅输出原始测试代码，不要 Markdown 代码块。\n" +
@@ -687,4 +694,26 @@ func containsComparator(line string) bool {
 		}
 	}
 	return false
+}
+
+func extractModuleLevelSymbols(sourceCode string) string {
+	re := regexp.MustCompile("(?m)^([A-Za-z_][A-Za-z0-9_]*)\\s*=")
+	matches := re.FindAllStringSubmatch(sourceCode, -1)
+	var symbols []string
+	seen := make(map[string]struct{})
+	for _, m := range matches {
+		name := m[1]
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		if strings.HasPrefix(name, "_") {
+			continue
+		}
+		seen[name] = struct{}{}
+		symbols = append(symbols, name)
+	}
+	if len(symbols) == 0 {
+		return ""
+	}
+	return "Module-level symbols available to import: " + strings.Join(symbols, ", ") + "."
 }

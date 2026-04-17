@@ -21,7 +21,7 @@
 示例：
 
 ```bash
-utbench run --models deepseek,minimax --langs python,go --class self_contained --level l1 --dataset-manifest ./configs/dataset_l1.json --dataset-root ./datasets --output-root ./artifacts --mode full --max-samples 20 --ingest --db ./storage/utbench.db
+utbench run --models deepseek,minimax --langs python,go --class self_contained --dataset-manifest ./configs/dataset_index.json --dataset-root ./datasets --output-root ./artifacts --mode full --max-samples 20 --ingest --db ./storage/utbench.db
 ```
 
 支持参数：
@@ -36,7 +36,7 @@ utbench run --models deepseek,minimax --langs python,go --class self_contained -
 示例：
 
 ```bash
-utbench generate --models deepseek --langs python --class complex_dependency --level l1 --dataset-manifest ./configs/dataset_l1.json --dataset-root ./datasets --output-root ./artifacts --config ../benchmark/config/models.yaml
+utbench generate --models deepseek --langs python --class complex_dependency --dataset-manifest ./configs/dataset_index.json --dataset-root ./datasets --output-root ./artifacts --config ../benchmark/config/models.yaml
 ```
 
 ### 2.3 evaluate
@@ -105,7 +105,7 @@ utbench dataset index --dataset-root ./datasets --output ./configs/dataset_index
 
 ### 2.9 dataset manifest
 
-基于索引构建分级清单（L1/L2）。
+基于索引构建预过滤清单（可选，方便分享）。
 
 示例：
 
@@ -113,14 +113,15 @@ utbench dataset index --dataset-root ./datasets --output ./configs/dataset_index
 utbench dataset manifest --index ./configs/dataset_index.json --level l1 --output ./configs/dataset_l1.json --langs python,java,go,cpp --limit-per-scenario 20
 ```
 
+> 直接跑不需要这一层，直接用 `dataset_index.json` + CLI 过滤参数即可。
+
 ## 3. 参数语义
 
 - `--models`：模型名称列表（逗号分隔）
 - `--langs`：语言列表（逗号分隔）
 - `--class`：样本大类（`self_contained`/`module_level`/`complex_dependency`）
 - `--scenario`：样本子类（`boundary`/`simple_function`/`complex_dependency`/`interface_mock`）
-- `--level`：评测集分级（示例：`l1`）
-- `--dataset-manifest`：显式样本清单（JSON），优先于目录扫描
+- `--dataset-manifest`：样本清单（默认 `./configs/dataset_index.json`，用 CLI 参数过滤）
 - `--mode`：执行模式（`full`/`incremental`）
 - `--reset-checkpoint`：重置当前作用域 checkpoint
 - `--mutation-enabled`：是否启用变异阶段
