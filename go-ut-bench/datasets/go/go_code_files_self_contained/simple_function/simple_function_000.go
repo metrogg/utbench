@@ -1,16 +1,34 @@
 package main
 
-import (
-	"math/rand"
-)
+func Add(a, b int) int {
+	return a + b
+}
 
-func randUse() string {
-	if len(PluginsGo) == 0 {
-		return ""
+func Subtract(a, b int) int {
+	return a - b
+}
+
+func Multiply(a, b int) int {
+	return a * b
+}
+
+func Divide(a, b int) int {
+	if b == 0 {
+		return 0
 	}
-	pluginUses := PluginsGo[rand.Intn(len(PluginsGo))].Usage
-	if pluginUses == nil || len(pluginUses) == 0 {
-		return ""
+	return a / b
+}
+
+func Max(a, b int) int {
+	if a > b {
+		return a
 	}
-	return pluginUses[rand.Intn(len(pluginUses))]
+	return b
+}
+
+func Min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

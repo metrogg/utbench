@@ -60,8 +60,8 @@ func prepareGoWorkspace(testPath, samplePath string) (string, string, string, st
 	return workdir, testFileName, sourceBase, sourceStem
 }
 
-func executeGoTests(workdir, testFile string) (bool, string, int) {
-	cmd := exec.Command("go", "test", "-v", filepath.Base(testFile))
+func executeGoTests(workdir, testFile, sourceFile string) (bool, string, int) {
+	cmd := exec.Command("go", "test", "-v", filepath.Base(testFile), filepath.Base(sourceFile))
 	cmd.Dir = workdir
 	started := time.Now()
 	output, err := cmd.CombinedOutput()
@@ -91,7 +91,7 @@ func parseGoTestCounts(output string) (*int, *int) {
 
 func collectGoCoverage(workdir, testFile, sourceBase string) (float64, float64, string) {
 	coverFile := filepath.Join(workdir, "cover.out")
-	cmd := exec.Command("go", "test", "-coverprofile="+filepath.Base(coverFile), filepath.Base(testFile))
+	cmd := exec.Command("go", "test", "-coverprofile="+filepath.Base(coverFile), filepath.Base(testFile), filepath.Base(sourceBase))
 	cmd.Dir = workdir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -133,7 +133,12 @@ func parseGoCoverageOutput(content, sourceBase string) (float64, float64, string
 			continue
 		}
 
-		filePath := parts[0]
+		filePathWithRange := parts[0]
+		colonIdx := strings.Index(filePathWithRange, ":")
+		if colonIdx == -1 {
+			continue
+		}
+		filePath := filePathWithRange[:colonIdx]
 		if !strings.HasSuffix(filePath, sourceBase) {
 			continue
 		}
@@ -224,36 +229,24 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 }
 
 func parseGoMutestingOutput(output string) (mutationStats, string) {
-	lines := strings.Split(output, "\n")
 	stats := mutationStats{}
 
-	for _, line := range lines {
+	passCount := 0
+	failCount := 0
+	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.Contains(line, "mutants:") {
-			if total := extractFirstInt(line, `(\d+)\s+mutants`); total != nil {
-				stats.Total = *total
-			}
+		if strings.HasPrefix(line, "PASS ") {
+			passCount++
 		}
-		if strings.Contains(line, "killed:") || strings.Contains(line, "Killed:") {
-			if killed := extractFirstInt(line, `(\d+)\s+killed`); killed != nil {
-				stats.Killed = *killed
-			}
+		if strings.HasPrefix(line, "FAIL ") {
+			failCount++
 		}
-		if strings.Contains(line, "survived:") || strings.Contains(line, "Survived:") {
-			if survived := extractFirstInt(line, `(\d+)\s+survived`); survived != nil {
-				stats.Survived = *survived
-			}
-		}
-		if strings.Contains(line, "timeout:") || strings.Contains(line, "Timeout:") {
-			if timeout := extractFirstInt(line, `(\d+)\s+timeout`); timeout != nil {
-				stats.Timeout = *timeout
-			}
-		}
-		if strings.Contains(line, "skipped:") || strings.Contains(line, "Skipped:") {
-			if skipped := extractFirstInt(line, `(\d+)\s+skipped`); skipped != nil {
-				stats.Skipped = *skipped
-			}
-		}
+	}
+
+	if strings.Contains(output, "The mutation score is") {
+		stats.Total = passCount + failCount
+		stats.Survived = passCount
+		stats.Killed = failCount
 	}
 
 	if stats.Total == 0 {

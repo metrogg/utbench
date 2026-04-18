@@ -302,7 +302,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			return row
 		}
 
-		pass, testErr, runtimeMs := executeGoTests(workdir, testName)
+		pass, testErr, runtimeMs := executeGoTests(workdir, testName, sourceBase)
 		row.TestPass = &pass
 		if !pass && testErr != "" {
 			row.TestError = testErr
