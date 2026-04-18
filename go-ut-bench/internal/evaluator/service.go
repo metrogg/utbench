@@ -282,6 +282,77 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 				row.MutationSuspicious = &suspicious
 			}
 		}
+	} else if strings.EqualFold(item.Language, "go") {
+		workdir, testName, sourceBase, _ := prepareGoWorkspace(item.GeneratedTestPath, item.SamplePath)
+		if workdir == "" {
+			row.CompilePass = false
+			row.CompileError = testName // prepErr stored in testName
+			rt := int(time.Since(start).Milliseconds())
+			row.RuntimeMS = &rt
+			return row
+		}
+		defer cleanupWorkspace(workdir)
+
+		compilePass, compileErr := goCompileCheck(workdir, testName)
+		row.CompilePass = compilePass
+		if !compilePass {
+			row.CompileError = compileErr
+			rt := int(time.Since(start).Milliseconds())
+			row.RuntimeMS = &rt
+			return row
+		}
+
+		pass, testErr, runtimeMs := executeGoTests(workdir, testName)
+		row.TestPass = &pass
+		if !pass && testErr != "" {
+			row.TestError = testErr
+		}
+		if runtimeMs > 0 {
+			row.RuntimeMS = &runtimeMs
+		}
+
+		passCnt, totalCnt := parseGoTestCounts(testErr)
+		if passCnt != nil {
+			row.TestPassCount = passCnt
+		}
+		if totalCnt != nil {
+			row.TestTotalCount = totalCnt
+		}
+		if passCnt != nil && totalCnt != nil && *totalCnt > 0 {
+			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
+			row.TestPassRate = &rate
+		}
+
+		assertCnt, testCnt, density := estimateAssertionDensity(filepath.Join(workdir, testName), item.Language)
+		row.AssertionCount = &assertCnt
+		row.TestCaseCount = &testCnt
+		row.AssertionDensity = &density
+
+		if sourceBase != "" {
+			lineCov, branchCov, covErr := collectGoCoverage(workdir, testName, sourceBase)
+			if covErr != "" {
+				row.CoverageError = covErr
+			} else {
+				row.LineCoverage = &lineCov
+				row.BranchCoverage = &branchCov
+			}
+		}
+
+		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+			mutationScore, mutationStats, mutationErr := collectGoMutation(ctx, workdir, testName, sourceBase, spec.MutationTimeout)
+			row.MutationScore = &mutationScore
+			row.MutationTotal = &mutationStats.Total
+			row.MutationKilled = &mutationStats.Killed
+			row.MutationSurvived = &mutationStats.Survived
+			row.MutationNoTests = &mutationStats.NoTests
+			row.MutationTimeouts = &mutationStats.Timeout
+			row.MutationSkipped = &mutationStats.Skipped
+			row.MutationSuspicious = &mutationStats.Suspicious
+			if mutationErr != "" {
+				row.MutationError = mutationErr
+			}
+		}
+
 	} else {
 		compilePass := true
 		pass := true
