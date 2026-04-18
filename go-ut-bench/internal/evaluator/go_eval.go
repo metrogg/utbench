@@ -87,3 +87,98 @@ func parseGoTestCounts(output string) (*int, *int) {
 	}
 	return nil, nil
 }
+
+func collectGoCoverage(workdir, testFile, sourceBase string) (float64, float64, string) {
+	coverFile := filepath.Join(workdir, "cover.out")
+	cmd := exec.Command("go", "test", "-coverprofile="+filepath.Base(coverFile), filepath.Base(testFile))
+	cmd.Dir = workdir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, 0, trimErr(string(output), 2000)
+	}
+
+	raw, err := os.ReadFile(coverFile)
+	if err != nil {
+		return 0, 0, fmt.Sprintf("failed to read coverage file: %s", err)
+	}
+
+	return parseGoCoverageOutput(string(raw), sourceBase)
+}
+
+func parseGoCoverageOutput(content, sourceBase string) (float64, float64, string) {
+	lines := strings.Split(content, "\n")
+	if len(lines) < 2 {
+		return 0, 0, "coverage file too short"
+	}
+
+	modeLine := lines[0]
+	if !strings.HasPrefix(modeLine, "mode:") {
+		return 0, 0, "invalid coverage format"
+	}
+
+	totalStmts := 0
+	coveredStmts := 0
+	totalBranches := 0
+	coveredBranches := 0
+
+	for _, line := range lines[1:] {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		parts := strings.Split(line, " ")
+		if len(parts) < 3 {
+			continue
+		}
+
+		filePath := parts[0]
+		if !strings.HasSuffix(filePath, sourceBase) {
+			continue
+		}
+
+		countStr := parts[len(parts)-1]
+		var count int
+		if countStr == "1" {
+			count = 1
+		} else {
+			count = 0
+		}
+
+		rangeStr := parts[1]
+		stmtCount := estimateGoStmtCount(rangeStr)
+		totalStmts += stmtCount
+		if count > 0 {
+			coveredStmts += stmtCount
+		}
+
+		totalBranches += 2
+		if count > 0 {
+			coveredBranches += 2
+		}
+	}
+
+	if totalStmts == 0 {
+		return 0, 0, "no coverage data for target file"
+	}
+
+	lineCov := round(float64(coveredStmts)/float64(totalStmts), 6)
+	branchCov := round(float64(coveredBranches)/float64(totalBranches), 6)
+	return lineCov, branchCov, ""
+}
+
+func estimateGoStmtCount(rangeStr string) int {
+	count := 1
+	for _, ch := range rangeStr {
+		if ch == ',' || ch == '.' {
+			count++
+		}
+	}
+	if count > 1 {
+		count = count / 2
+	}
+	if count < 1 {
+		count = 1
+	}
+	return count
+}
