@@ -103,68 +103,101 @@ func collectPythonMutation(ctx context.Context, workdir, testName string, mutati
 }
 
 func preCreateMutantsDirectory(workdir, mutantsDir string, mutationTargets []string, testName string) error {
-	if err := os.MkdirAll(mutantsDir, 0o755); err != nil {
+	absWorkdir, err := filepath.Abs(workdir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute workdir: %w", err)
+	}
+	absMutantsDir, err := filepath.Abs(mutantsDir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute mutantsDir: %w", err)
+	}
+
+	if err := os.MkdirAll(absMutantsDir, 0o755); err != nil {
 		return err
 	}
 
 	if testName != "" {
-		testsDestDir := filepath.Join(mutantsDir, "tests")
+		testsDestDir := filepath.Join(absMutantsDir, "tests")
 		if err := os.MkdirAll(testsDestDir, 0o755); err != nil {
 			return err
 		}
 
 		testFileName := filepath.Base(testName)
-		srcPath := filepath.Join(workdir, testName)
+		srcPath := filepath.Join(absWorkdir, testName)
 		dstPath := filepath.Join(testsDestDir, testFileName)
 		data, err := os.ReadFile(srcPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to read test file %s: %w", srcPath, err)
 		}
 		if err := os.WriteFile(dstPath, data, 0o644); err != nil {
-			return err
+			return fmt.Errorf("failed to write test file %s: %w", dstPath, err)
 		}
 	}
 
+	validTargets := 0
 	for _, target := range mutationTargets {
-		targetPath := filepath.Join(workdir, target)
-		if _, err := os.Stat(targetPath); err != nil {
+		absTargetPath := filepath.Join(absWorkdir, target)
+		if _, err := os.Stat(absTargetPath); err != nil {
 			continue
 		}
-		packageDir := filepath.Dir(targetPath)
-		if packageDir == workdir {
+		validTargets++
+
+		absPackageDir := filepath.Dir(absTargetPath)
+		if absPackageDir == absWorkdir {
 			continue
-		}
-		relPackageDir, err := filepath.Rel(workdir, packageDir)
-		if err != nil {
-			continue
-		}
-		mutantsPackageDir := filepath.Join(mutantsDir, relPackageDir)
-		if err := os.MkdirAll(mutantsPackageDir, 0o755); err != nil {
-			return err
 		}
 
-		entries, err := os.ReadDir(packageDir)
+		relPackageDir, err := filepath.Rel(absWorkdir, absPackageDir)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get relative path for %s: %w", absPackageDir, err)
 		}
-		for _, entry := range entries {
-			if entry.IsDir() {
+		mutantsPackageDir := filepath.Join(absMutantsDir, relPackageDir)
+		if err := copyPackageDependencies(absPackageDir, mutantsPackageDir, filepath.Base(target)); err != nil {
+			return fmt.Errorf("failed to copy dependencies for %s: %w", target, err)
+		}
+	}
+
+	if validTargets == 0 {
+		return fmt.Errorf("no valid mutation targets found in %s", absWorkdir)
+	}
+	return nil
+}
+
+func copyPackageDependencies(srcPackageDir, dstPackageDir, targetFileName string) error {
+	if err := os.MkdirAll(dstPackageDir, 0o755); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(srcPackageDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == targetFileName {
+			continue
+		}
+
+		srcPath := filepath.Join(srcPackageDir, name)
+		dstPath := filepath.Join(dstPackageDir, name)
+
+		if entry.IsDir() {
+			if name == "__pycache__" {
 				continue
 			}
-			name := entry.Name()
-			if name == filepath.Base(target) {
-				continue
+			if err := copyPackageDependencies(srcPath, dstPath, ""); err != nil {
+				return err
 			}
-			if strings.HasSuffix(name, ".py") {
-				srcPath := filepath.Join(packageDir, name)
-				dstPath := filepath.Join(mutantsPackageDir, name)
-				data, err := os.ReadFile(srcPath)
-				if err != nil {
-					return err
-				}
-				if err := os.WriteFile(dstPath, data, 0o644); err != nil {
-					return err
-				}
+			continue
+		}
+
+		if strings.HasSuffix(name, ".py") {
+			data, err := os.ReadFile(srcPath)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(dstPath, data, 0o644); err != nil {
+				return err
 			}
 		}
 	}
