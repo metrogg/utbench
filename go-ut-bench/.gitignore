@@ -27,6 +27,12 @@ configs/dataset_index.json
 # Keep original test fixtures
 !**/workspace/tests/.gitkeep
 
+# Go evaluation artifacts
+**/cover.out
+**/*.test
+artifacts/go_manual_test/
+artifacts/go_test_manifest.json
+
 # IDE and editor
 .idea/
 .vscode/
