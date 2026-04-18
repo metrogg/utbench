@@ -1,6 +1,7 @@
 package evaluator
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -181,4 +182,95 @@ func estimateGoStmtCount(rangeStr string) int {
 		count = 1
 	}
 	return count
+}
+
+func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string, timeoutSeconds int) (float64, mutationStats, string) {
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 120
+	}
+
+	targetPath := filepath.Join(workdir, sourceBase)
+	if _, err := os.Stat(targetPath); err != nil {
+		return 0, mutationStats{}, fmt.Sprintf("target file not found: %s", sourceBase)
+	}
+
+	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+	defer cancelRun()
+
+	cmd := exec.CommandContext(runCtx, "go-mutesting", sourceBase)
+	cmd.Dir = workdir
+	runOut, runErr := cmd.CombinedOutput()
+
+	stats, parseErr := parseGoMutestingOutput(string(runOut))
+	if parseErr != "" {
+		return 0, stats, formatMutationError("go-mutesting parse error", runErr, runOut, nil, nil)
+	}
+
+	if stats.Total <= 0 {
+		return 0, stats, formatMutationError("go-mutesting produced zero mutants", runErr, runOut, nil, nil)
+	}
+
+	processed := stats.Killed + stats.Survived + stats.NoTests + stats.Timeout + stats.Skipped + stats.Suspicious
+	if processed <= 0 {
+		return 0, stats, formatMutationError("go-mutesting did not execute any mutants", runErr, runOut, nil, nil)
+	}
+
+	if stats.Killed+stats.Survived <= 0 {
+		return 0, stats, formatMutationError("go-mutesting no killed/survived results", runErr, runOut, nil, nil)
+	}
+
+	score := round(float64(stats.Killed)/float64(stats.Killed+stats.Survived), 6)
+	return score, stats, ""
+}
+
+func parseGoMutestingOutput(output string) (mutationStats, string) {
+	lines := strings.Split(output, "\n")
+	stats := mutationStats{}
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "mutants:") {
+			if total := extractFirstInt(line, `(\d+)\s+mutants`); total != nil {
+				stats.Total = *total
+			}
+		}
+		if strings.Contains(line, "killed:") || strings.Contains(line, "Killed:") {
+			if killed := extractFirstInt(line, `(\d+)\s+killed`); killed != nil {
+				stats.Killed = *killed
+			}
+		}
+		if strings.Contains(line, "survived:") || strings.Contains(line, "Survived:") {
+			if survived := extractFirstInt(line, `(\d+)\s+survived`); survived != nil {
+				stats.Survived = *survived
+			}
+		}
+		if strings.Contains(line, "timeout:") || strings.Contains(line, "Timeout:") {
+			if timeout := extractFirstInt(line, `(\d+)\s+timeout`); timeout != nil {
+				stats.Timeout = *timeout
+			}
+		}
+		if strings.Contains(line, "skipped:") || strings.Contains(line, "Skipped:") {
+			if skipped := extractFirstInt(line, `(\d+)\s+skipped`); skipped != nil {
+				stats.Skipped = *skipped
+			}
+		}
+	}
+
+	if stats.Total == 0 {
+		return stats, "no mutation stats found in output"
+	}
+	return stats, ""
+}
+
+func inferGoMutationTargets(workdir, testFile, sourceBase string) []string {
+	testContent, err := os.ReadFile(filepath.Join(workdir, testFile))
+	if err != nil {
+		return []string{sourceBase}
+	}
+
+	testText := string(testContent)
+	if strings.Contains(testText, filepath.Base(strings.TrimSuffix(sourceBase, ".go"))) {
+		return []string{strings.TrimSuffix(sourceBase, ".go")}
+	}
+	return []string{sourceBase}
 }
