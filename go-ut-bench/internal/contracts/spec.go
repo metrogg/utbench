@@ -31,3 +31,12 @@ type SampleRef struct {
 	Path      string       `json:"path"`
 	SourceMD5 string       `json:"source_md5"`
 }
+
+type ModuleLevelMeta struct {
+	SampleID       string   `json:"sample_id"`
+	ModuleImport   string   `json:"module_import"`
+	PackageName    string   `json:"package_name"`
+	TargetFile     string   `json:"target_file"`
+	WorkspaceRoot  string   `json:"workspace_root"`
+	Requirements   []string `json:"requirements,omitempty"`
+}

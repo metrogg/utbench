@@ -349,6 +349,11 @@ func trimText(v string, max int) string {
 }
 
 func buildPrompt(language, samplePath, sourceCode string) string {
+	meta := loadModuleLevelMetaForRunner(samplePath)
+	if meta != nil {
+		return buildModuleLevelPrompt(language, samplePath, sourceCode, meta)
+	}
+
 	lang := strings.ToLower(strings.TrimSpace(language))
 	sampleID := strings.TrimSuffix(filepath.Base(samplePath), filepath.Ext(samplePath))
 	framework := languageFramework(lang)
@@ -716,4 +721,117 @@ func extractModuleLevelSymbols(sourceCode string) string {
 		return ""
 	}
 	return "Module-level symbols available to import: " + strings.Join(symbols, ", ") + "."
+}
+
+type moduleLevelMetaForRunner struct {
+	SampleID      string   `json:"sample_id"`
+	ModuleImport  string   `json:"module_import"`
+	PackageName   string   `json:"package_name"`
+	TargetFile    string   `json:"target_file"`
+	WorkspaceRoot string   `json:"workspace_root"`
+	Requirements  []string `json:"requirements,omitempty"`
+}
+
+func loadModuleLevelMetaForRunner(samplePath string) *moduleLevelMetaForRunner {
+	dir := filepath.Dir(samplePath)
+	base := filepath.Base(samplePath)
+	ext := filepath.Ext(base)
+	name := base[:len(base)-len(ext)]
+
+	var metaPath string
+	if name == "entry" {
+		metaPath = filepath.Join(dir, "meta.json")
+	} else {
+		metaPath = filepath.Join(dir, name+".meta.json")
+	}
+
+	if _, err := os.Stat(metaPath); err != nil {
+		return nil
+	}
+	raw, err := os.ReadFile(metaPath)
+	if err != nil {
+		return nil
+	}
+	var meta moduleLevelMetaForRunner
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return nil
+	}
+	if meta.ModuleImport == "" {
+		return nil
+	}
+	return &meta
+}
+
+func buildModuleLevelPrompt(language, samplePath, sourceCode string, meta *moduleLevelMetaForRunner) string {
+	lang := strings.ToLower(strings.TrimSpace(language))
+	framework := languageFramework(lang)
+	coverageTargets := coverageTargetsText()
+	sampleID := meta.SampleID
+	if sampleID == "" {
+		sampleID = strings.TrimSuffix(filepath.Base(samplePath), filepath.Ext(samplePath))
+	}
+
+	moduleImport := meta.ModuleImport
+	packageName := meta.PackageName
+	if packageName == "" {
+	packageName = moduleImport
+	}
+	targetFile := meta.TargetFile
+	requirements := meta.Requirements
+
+	requirementsText := "none specified"
+	if len(requirements) > 0 {
+	requirementsText = strings.Join(requirements, ", ")
+	}
+
+	return "You are an expert unit testing engineer.\n" +
+		"你是一名资深单元测试工程师。\n" +
+		"Generate high-quality unit tests for a module-level (multi-file) package.\n" +
+		"请为一个模块级（多文件）包生成高质量单元测试。\n\n" +
+		"## Role & Objective（角色与目标）\n" +
+		"- Goal: produce executable tests that match source behavior exactly.\n" +
+		"- 目标：生成可执行且与源码行为严格一致的测试。\n" +
+		"- This is a MODULE-LEVEL sample: the target code is part of a larger package.\n" +
+		"- 这是模块级样本：被测代码是更大包的一部分。\n\n" +
+		"## Language & Framework（语言与框架）\n" +
+		fmt.Sprintf("- Language（语言）: %s\n", lang) +
+		fmt.Sprintf("- Test Framework（测试框架）: %s\n\n", framework) +
+		"## Module-Level Context（模块级上下文）\n" +
+		fmt.Sprintf("- Target Module（目标模块）: `%s`\n", moduleImport) +
+		fmt.Sprintf("- Package Name（包名）: `%s`\n", packageName) +
+		fmt.Sprintf("- Target File（目标文件）: `%s`\n", targetFile) +
+		fmt.Sprintf("- Requirements（依赖）: %s\n\n", requirementsText) +
+		"## Test Requirements（测试要求）\n" +
+		"- Import the target module using: `from " + moduleImport + " import ...`\n" +
+		"- 使用 `from " + moduleImport + " import ...` 导入被测模块。\n" +
+		"- Write tests for the main classes/functions in the target module.\n" +
+		"- 为目标模块中的主要类/函数编写测试。\n" +
+		"- Cover normal paths, boundary conditions, and error/exception behavior.\n" +
+		"- 覆盖正常路径、边界条件和异常行为。\n" +
+		"- Keep tests deterministic and runnable.\n" +
+		"- 保持测试可重复、可执行（避免随机性）。\n" +
+		"- Use clear assertions with meaningful expected values.\n" +
+		"- 使用清晰断言和有意义的期望值。\n" +
+		"- Test function names must start with `test_`.\n" +
+		"- 测试函数命名必须以 `test_` 开头。\n" +
+		"- Use plain `assert` and `pytest.raises` for failure paths.\n" +
+		"- 断言使用 `assert`，异常路径使用 `pytest.raises`。\n" +
+		"- Use function-based tests (e.g., `def test_xxx()`) instead of class-based.\n" +
+		"- 使用函数式测试（如 `def test_xxx()`），不要用 class-based（如 `class Test:`）。\n" +
+		fmt.Sprintf("- Coverage targets（覆盖率目标，供参考）: %s\n\n", coverageTargets) +
+		"## Important Notes（重要提示）\n" +
+		"- DO NOT import from relative paths like `from ._common import ...`.\n" +
+		"- 不要从相对路径导入，如 `from ._common import ...`。\n" +
+		"- Always use the full module import path provided above.\n" +
+		"- 始终使用上面提供的完整模块导入路径。\n" +
+		"- The test file will be placed in a `tests/` subdirectory of the workspace.\n" +
+		"- 测试文件将放在 workspace 的 `tests/` 子目录中。\n\n" +
+		"## Output Format（输出格式）\n" +
+		"- Return raw test code only (no Markdown fences).\n" +
+		"- 仅输出原始测试代码，不要 Markdown 代码块。\n" +
+		"- Do not include explanations.\n" +
+		"- 不要输出解释文字。\n\n" +
+		"## Sample Entry File（样本入口文件）\n" +
+		"This file shows the import structure:\n" +
+		fmt.Sprintf("```%s\n%s\n```", lang, sourceCode)
 }

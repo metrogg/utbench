@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-04-17T19:43:50",
+  "package_name": "python_simple_function_0_project_env_handoff_v2",
+  "source_run_dir": "C:\\shijian_project\\eval\\project_level_runs\\python_simple_function_0\\20260417_182758",
+  "sample_id": "python_simple_function_0",
+  "module_import": "dateutil.relativedelta",
+  "workspace": "workspace",
+  "results": {
+    "report": "results/report.json",
+    "coverage": "results/coverage.json",
+    "pytest_xml": "results/pytest_report.xml"
+  },
+  "requirements": "env/requirements_python_project_eval.txt"
+}

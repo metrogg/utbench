@@ -2,6 +2,7 @@ package dataset
 
 import (
 	"crypto/md5"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -34,7 +35,7 @@ func (s *Service) ValidateSpec(spec contracts.RunSpec) error {
 			return errors.New("config path is required")
 		}
 	}
-	if spec.DatasetClass != "" && spec.DatasetClass != contracts.DatasetClassSelfContained && spec.DatasetClass != contracts.DatasetClassModuleLevel && spec.DatasetClass != contracts.DatasetClassComplexDependency {
+	if spec.DatasetClass != "" && spec.DatasetClass != contracts.DatasetClassSelfContained && spec.DatasetClass != contracts.DatasetClassModuleLevel {
 		return fmt.Errorf("unsupported dataset class: %s", spec.DatasetClass)
 	}
 	if spec.DatasetScenario != "" {
@@ -98,43 +99,83 @@ func (s *Service) DiscoverSamples(spec contracts.RunSpec) ([]contracts.SampleRef
 			if walkErr != nil {
 				return walkErr
 			}
-			if d.IsDir() {
-				if d.Name() != "." && strings.HasPrefix(d.Name(), ".") {
+			if !d.IsDir() {
+				if strings.HasPrefix(d.Name(), ".") {
+					return nil
+				}
+				if !matchLanguageExt(path, lang) {
+					return nil
+				}
+				rel, _ := filepath.Rel(langDir, path)
+				if strings.Contains(rel, "/workspace/") || strings.Contains(rel, "\\workspace\\") {
+					return nil
+				}
+
+				id := strings.TrimSuffix(d.Name(), filepath.Ext(d.Name()))
+				cat := classifySampleClass(id, rel)
+				scenario := classifySampleScenario(id, rel)
+				if !matchDatasetClassFilter(spec.DatasetClass, cat) {
+					return nil
+				}
+				if spec.DatasetScenario != "" && scenario != normalizeScenario(spec.DatasetScenario) {
+					return nil
+				}
+
+				hash, err := fileMD5(path)
+				if err != nil {
+					return err
+				}
+
+				all = append(all, contracts.SampleRef{
+					ID:        id,
+					Language:  lang,
+					Category:  cat,
+					Scenario:  scenario,
+					Path:      path,
+					SourceMD5: hash,
+				})
+				return nil
+			}
+
+			if d.Name() != "." && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+
+			if d.Name() == "workspace" {
+				return filepath.SkipDir
+			}
+
+			entryPath := filepath.Join(path, "entry.py")
+			metaPath := filepath.Join(path, "meta.json")
+			if _, err1 := os.Stat(entryPath); err1 == nil {
+				if _, err2 := os.Stat(metaPath); err2 == nil {
+					id := filepath.Base(path)
+					rel, _ := filepath.Rel(langDir, path)
+					cat := classifySampleClass(id, rel)
+					scenario := classifySampleScenario(id, rel)
+					if !matchDatasetClassFilter(spec.DatasetClass, cat) {
+						return filepath.SkipDir
+					}
+					if spec.DatasetScenario != "" && scenario != normalizeScenario(spec.DatasetScenario) {
+						return filepath.SkipDir
+					}
+
+					hash, err := fileMD5(entryPath)
+					if err != nil {
+						return err
+					}
+
+					all = append(all, contracts.SampleRef{
+						ID:        id,
+						Language:  lang,
+						Category:  cat,
+						Scenario:  scenario,
+						Path:      entryPath,
+						SourceMD5: hash,
+					})
 					return filepath.SkipDir
 				}
-				return nil
 			}
-			if strings.HasPrefix(d.Name(), ".") {
-				return nil
-			}
-			if !matchLanguageExt(path, lang) {
-				return nil
-			}
-
-			id := strings.TrimSuffix(d.Name(), filepath.Ext(d.Name()))
-			rel, _ := filepath.Rel(langDir, path)
-			cat := classifySampleClass(id, rel)
-			scenario := classifySampleScenario(id, rel)
-			if !matchDatasetClassFilter(spec.DatasetClass, cat) {
-				return nil
-			}
-			if spec.DatasetScenario != "" && scenario != normalizeScenario(spec.DatasetScenario) {
-				return nil
-			}
-
-			hash, err := fileMD5(path)
-			if err != nil {
-				return err
-			}
-
-			all = append(all, contracts.SampleRef{
-				ID:        id,
-				Language:  lang,
-				Category:  cat,
-				Scenario:  scenario,
-				Path:      path,
-				SourceMD5: hash,
-			})
 			return nil
 		})
 		if err != nil {
@@ -440,11 +481,8 @@ func classifySampleClass(sampleID string, relPath string) contracts.DatasetClass
 	if strings.Contains(lower, "module_level") {
 		return contracts.DatasetClassModuleLevel
 	}
-	if strings.Contains(lower, "complex_dependency") {
-		return contracts.DatasetClassComplexDependency
-	}
-	if strings.Contains(lower, "interface_mock") {
-		return contracts.DatasetClassComplexDependency
+	if strings.Contains(lower, "complex_dependency") || strings.Contains(lower, "interface_mock") || strings.Contains(lower, "boundary") || strings.Contains(lower, "simple_function") {
+		return contracts.DatasetClassSelfContained
 	}
 	return contracts.DatasetClassSelfContained
 }
@@ -474,13 +512,7 @@ func matchDatasetClassFilter(filter contracts.DatasetClass, sample contracts.Dat
 	if filter == "" {
 		return true
 	}
-	if filter == sample {
-		return true
-	}
-	if filter == contracts.DatasetClassComplexDependency && sample == contracts.DatasetClassModuleLevel {
-		return true
-	}
-	return false
+	return filter == sample
 }
 
 func isSupportedLanguage(lang string) bool {
@@ -519,4 +551,24 @@ func fileMD5(path string) (string, error) {
 	}
 	h := md5.Sum(raw)
 	return fmt.Sprintf("%x", h[:]), nil
+}
+
+func loadModuleLevelMeta(samplePath string) (*contracts.ModuleLevelMeta, bool) {
+	dir := filepath.Dir(samplePath)
+	base := filepath.Base(samplePath)
+	ext := filepath.Ext(base)
+	name := base[:len(base)-len(ext)]
+	metaPath := filepath.Join(dir, name+".meta.json")
+	if _, err := os.Stat(metaPath); err != nil {
+		return nil, false
+	}
+	raw, err := os.ReadFile(metaPath)
+	if err != nil {
+		return nil, false
+	}
+	var meta contracts.ModuleLevelMeta
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return nil, false
+	}
+	return &meta, true
 }

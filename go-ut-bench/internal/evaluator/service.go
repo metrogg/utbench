@@ -161,7 +161,14 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 	}
 
 	if strings.EqualFold(item.Language, "python") {
-		workdir, testName, sourceBase, sourceStem, prepErr := preparePythonWorkspace(item.GeneratedTestPath, item.SamplePath)
+		var workdir, testName, sourceBase, sourceStem, packageName, targetFile string
+		var prepErr string
+		isModuleLevel := isModuleLevelSample(item.SamplePath)
+		if isModuleLevel {
+			workdir, testName, packageName, targetFile, prepErr = preparePythonModuleLevelWorkspace(item.GeneratedTestPath, item.SamplePath)
+		} else {
+			workdir, testName, sourceBase, sourceStem, prepErr = preparePythonWorkspace(item.GeneratedTestPath, item.SamplePath)
+		}
 		if prepErr != "" {
 			row.CompilePass = false
 			row.CompileError = prepErr
@@ -169,7 +176,9 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			row.RuntimeMS = &rt
 			return row
 		}
-		defer cleanupWorkspace(workdir)
+		if !isModuleLevel {
+			defer cleanupWorkspace(workdir)
+		}
 
 		compilePass, compileErr := pythonCompileCheck(filepath.Join(workdir, testName))
 		row.CompilePass = compilePass
@@ -180,7 +189,14 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			return row
 		}
 
-		pass, testErr, runtimeMs := executePythonTests(workdir, testName)
+		var pass bool
+		var testErr string
+		var runtimeMs int
+		if isModuleLevel {
+			pass, testErr, runtimeMs = executePythonTestsInWorkspace(workdir, testName, packageName)
+		} else {
+			pass, testErr, runtimeMs = executePythonTests(workdir, testName)
+		}
 		row.TestPass = &pass
 		if !pass && testErr != "" {
 			row.TestError = testErr
@@ -205,9 +221,26 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		row.TestCaseCount = &testCnt
 		row.AssertionDensity = &density
 
-		targets := inferMutationTargets(workdir, testName, sourceBase)
+		var targets []string
+		if isModuleLevel {
+			if targetFile != "" {
+				targets = []string{targetFile}
+			}
+		} else {
+			targets = inferMutationTargets(workdir, testName, sourceBase)
+		}
 
-		if sourceBase != "" {
+		if isModuleLevel {
+			if packageName != "" {
+				lineCov, branchCov, covErr := collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile)
+				if covErr != "" {
+					row.CoverageError = covErr
+				} else {
+					row.LineCoverage = &lineCov
+					row.BranchCoverage = &branchCov
+				}
+			}
+		} else if sourceBase != "" {
 			lineCov, branchCov, covErr := collectPythonCoverage(workdir, testName, sourceBase, sourceStem, targets)
 			if covErr != "" {
 				row.CoverageError = covErr
@@ -321,6 +354,163 @@ func preparePythonWorkspace(testPath string, sourcePath string) (string, string,
 
 func cleanupWorkspace(workdir string) {
 	_ = os.RemoveAll(workdir)
+}
+
+func isModuleLevelSample(samplePath string) bool {
+	dir := filepath.Dir(samplePath)
+	base := filepath.Base(samplePath)
+	ext := filepath.Ext(base)
+	name := base[:len(base)-len(ext)]
+	if name == "entry" {
+		metaPath := filepath.Join(dir, "meta.json")
+		if _, err := os.Stat(metaPath); err == nil {
+			return true
+		}
+	}
+	metaPath := filepath.Join(dir, name+".meta.json")
+	if _, err := os.Stat(metaPath); err == nil {
+		var meta contracts.ModuleLevelMeta
+		if raw, err := os.ReadFile(metaPath); err == nil {
+			if err := json.Unmarshal(raw, &meta); err == nil && meta.ModuleImport != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func loadModuleLevelMeta(samplePath string) *contracts.ModuleLevelMeta {
+	sampleDir := filepath.Dir(samplePath)
+	entryBase := filepath.Base(samplePath)
+	entryExt := filepath.Ext(entryBase)
+	entryName := entryBase[:len(entryBase)-len(entryExt)]
+	if entryName == "entry" {
+		metaPath := filepath.Join(sampleDir, "meta.json")
+		if raw, err := os.ReadFile(metaPath); err == nil {
+			var meta contracts.ModuleLevelMeta
+			if err := json.Unmarshal(raw, &meta); err == nil {
+				if strings.HasPrefix(meta.WorkspaceRoot, ".") {
+					meta.WorkspaceRoot = filepath.Join(sampleDir, meta.WorkspaceRoot)
+				}
+				return &meta
+			}
+		}
+		return nil
+	}
+	dir := filepath.Dir(samplePath)
+	base := filepath.Base(samplePath)
+	ext := filepath.Ext(base)
+	name := base[:len(base)-len(ext)]
+	metaPath := filepath.Join(dir, name+".meta.json")
+	var meta contracts.ModuleLevelMeta
+	if raw, err := os.ReadFile(metaPath); err == nil {
+		if err := json.Unmarshal(raw, &meta); err == nil {
+			if strings.HasPrefix(meta.WorkspaceRoot, ".") {
+				meta.WorkspaceRoot = filepath.Join(dir, meta.WorkspaceRoot)
+			}
+			return &meta
+		}
+	}
+	return nil
+}
+
+func preparePythonModuleLevelWorkspace(testPath string, samplePath string) (string, string, string, string, string) {
+	meta := loadModuleLevelMeta(samplePath)
+	if meta == nil {
+		return "", "", "", "", "module_level sample missing metadata"
+	}
+	workspaceRoot := meta.WorkspaceRoot
+	if workspaceRoot == "" {
+		return "", "", "", "", "module_level workspace_root not set in metadata"
+	}
+	if _, err := os.Stat(workspaceRoot); err != nil {
+		return "", "", "", "", "module_level workspace not found: " + workspaceRoot
+	}
+	testFileName := normalizedPytestFilename(filepath.Base(testPath))
+	generatedSrc, err := os.ReadFile(testPath)
+	if err != nil {
+		return "", "", "", "", "failed to read generated test: " + err.Error()
+	}
+	testsDir := filepath.Join(workspaceRoot, "tests")
+	if err := os.MkdirAll(testsDir, 0o755); err != nil {
+		return "", "", "", "", "failed to create tests dir: " + err.Error()
+	}
+	testDest := filepath.Join(testsDir, testFileName)
+	if err := os.WriteFile(testDest, generatedSrc, 0o644); err != nil {
+		return "", "", "", "", "failed to write test file: " + err.Error()
+	}
+	testName := filepath.Join("tests", testFileName)
+	return workspaceRoot, testName, meta.PackageName, meta.TargetFile, ""
+}
+
+func executePythonTestsInWorkspace(workdir, testName, packageName string) (bool, string, int) {
+	py := pythonExecutable()
+	cmd := exec.Command(py, "-m", "pytest", testName, "-q", "--maxfail=9999")
+	cmd.Dir = workdir
+	env := os.Environ()
+	env = append(env, "PYTHONPATH="+workdir)
+	cmd.Env = env
+	started := time.Now()
+	output, err := cmd.CombinedOutput()
+	latency := int(time.Since(started).Milliseconds())
+	if err == nil {
+		return true, string(output), latency
+	}
+	return false, trimErr(string(output), 4000), latency
+}
+
+func collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile string) (float64, float64, string) {
+	if packageName == "" {
+		return 0, 0, "missing package name for module_level coverage"
+	}
+	py := pythonExecutable()
+	absWorkdir, err := filepath.Abs(workdir)
+	if err != nil {
+		return 0, 0, "failed to get absolute path: " + err.Error()
+	}
+	jsonPath := filepath.Join(absWorkdir, ".coverage.utbench.json")
+	runCmd := exec.Command(py, "-m", "coverage", "run", "--branch", "--source", packageName, "-m", "pytest", testName, "-q", "--maxfail=9999")
+	runCmd.Dir = absWorkdir
+	env := os.Environ()
+	env = append(env, "PYTHONPATH="+absWorkdir)
+	env = append(env, "COVERAGE_FILE="+filepath.Join(absWorkdir, ".coverage.utbench"))
+	runCmd.Env = env
+	runOut, runErr := runCmd.CombinedOutput()
+	if runErr != nil {
+		return 0, 0, "coverage run failed: " + trimErr(string(runOut), 800)
+	}
+	jsonCmd := exec.Command(py, "-m", "coverage", "json", "-o", jsonPath)
+	jsonCmd.Dir = absWorkdir
+	jsonCmd.Env = append(env, "COVERAGE_FILE="+filepath.Join(absWorkdir, ".coverage.utbench"))
+	if out, err := jsonCmd.CombinedOutput(); err != nil {
+		return 0, 0, "coverage json failed: " + trimErr(string(out), 800)
+	}
+	raw, err := os.ReadFile(jsonPath)
+	if err != nil {
+		return 0, 0, err.Error()
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return 0, 0, err.Error()
+	}
+	files, _ := payload["files"].(map[string]any)
+	if targetFile != "" && files != nil {
+		for filePath, anyDetail := range files {
+			if strings.Contains(filePath, targetFile) || filepath.Base(filePath) == filepath.Base(targetFile) {
+				detail, _ := anyDetail.(map[string]any)
+				summary, _ := detail["summary"].(map[string]any)
+				line := extractLineCoverage(summary)
+				branch := extractBranchCoverage(summary)
+				return line, branch, ""
+			}
+		}
+	}
+	if totals, ok := payload["totals"].(map[string]any); ok {
+		line := extractLineCoverage(totals)
+		branch := extractBranchCoverage(totals)
+		return line, branch, ""
+	}
+	return 0, 0, "coverage files empty"
 }
 
 func pythonCompileCheck(path string) (bool, string) {

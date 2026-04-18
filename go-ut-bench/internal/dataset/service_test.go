@@ -29,7 +29,7 @@ func TestDiscoverSamplesFromManifest(t *testing.T) {
   "level": "l1",
   "samples": [
     {"id":"boundary_000","language":"python","category":"self_contained","path":"python/boundary_000.py"},
-    {"id":"complex_dependency_go_complex_dependency_0","language":"go","category":"complex_dependency","path":"go/complex_dependency_go_complex_dependency_0.go"}
+    {"id":"complex_dependency_go_complex_dependency_0","language":"go","category":"module_level","path":"go/complex_dependency_go_complex_dependency_0.go"}
   ]
 }`
 	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
@@ -43,7 +43,7 @@ func TestDiscoverSamplesFromManifest(t *testing.T) {
 		OutputRoot:      root,
 		ConfigPath:      "dummy",
 		DatasetManifest: manifestPath,
-		DatasetClass:    contracts.DatasetClassComplexDependency,
+		DatasetClass:    contracts.DatasetClassModuleLevel,
 		Languages:       []string{"go", "python"},
 	}
 
@@ -57,7 +57,7 @@ func TestDiscoverSamplesFromManifest(t *testing.T) {
 	if samples[0].Language != "go" {
 		t.Fatalf("expected go sample, got %s", samples[0].Language)
 	}
-	if samples[0].Category != contracts.DatasetClassComplexDependency {
+	if samples[0].Category != contracts.DatasetClassModuleLevel {
 		t.Fatalf("unexpected category: %s", samples[0].Category)
 	}
 }
@@ -99,12 +99,9 @@ func TestDiscoverSamplesScenarioAndModuleLevelClass(t *testing.T) {
 		t.Fatalf("expected scenario boundary, got %s", samples[0].Scenario)
 	}
 
-	spec.DatasetClass = contracts.DatasetClassComplexDependency
+	spec.DatasetClass = contracts.DatasetClassSelfContained
 	samples2, err := svc.DiscoverSamples(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(samples2) != 1 {
-		t.Fatalf("expected backward-compatible class filter result, got %d", len(samples2))
+	if err == nil {
+		t.Fatalf("expected no samples for self_contained filter, got %d", len(samples2))
 	}
 }

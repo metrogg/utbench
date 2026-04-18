@@ -12,18 +12,13 @@ MVP 当前按两层组织：
 - 大类：`self_contained` / `module_level`
 - 子类：`boundary` / `simple_function` / `complex_dependency` / `interface_mock`
 
-兼容字段：
-
-- `complex_dependency` 作为 class 过滤仍可用（会被映射为复杂依赖轨道，保持兼容）
-
 ## 3. 当前判定规则（临时）
 
 由样本 ID + 相对路径联合判定：
 
 - 包含 `self_contained` -> `self_contained`
 - 包含 `module_level` -> `module_level`
-- 包含 `complex_dependency` -> `complex_dependency`
-- 包含 `interface_mock` -> `complex_dependency`
+- 包含子类关键词（`boundary` / `simple_function` / `complex_dependency` / `interface_mock`）但未命中大类 -> `self_contained`
 - 其他 -> `self_contained`
 
 说明：

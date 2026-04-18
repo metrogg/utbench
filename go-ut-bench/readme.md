@@ -32,7 +32,7 @@ Go 版评测工具工作区（MVP 起步版本）。
 - `--config`：模型配置文件（默认 `../benchmark/config/models.yaml`）
 - `--models`：模型多选（逗号分隔）
 - `--langs`：语言多选（逗号分隔）
-- `--class`：数据集大类（`self_contained` / `module_level` / `complex_dependency`）
+- `--class`：数据集大类（`self_contained` / `module_level`）
 - `--scenario`：数据集子类（`boundary` / `simple_function` / `complex_dependency` / `interface_mock`）
 - `--level`：评测集分级（如 `l1`）
 - `--dataset-manifest`：显式样本清单（默认 `./configs/dataset_index.json`）

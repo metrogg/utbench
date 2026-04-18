@@ -34,8 +34,8 @@ func ValidateClass(v string) error {
 	if v == "" {
 		return nil
 	}
-	if v != string(contracts.DatasetClassSelfContained) && v != string(contracts.DatasetClassModuleLevel) && v != string(contracts.DatasetClassComplexDependency) {
-		return errors.New("dataset class must be self_contained, module_level or complex_dependency")
+	if v != string(contracts.DatasetClassSelfContained) && v != string(contracts.DatasetClassModuleLevel) {
+		return errors.New("dataset class must be self_contained or module_level")
 	}
 	return nil
 }

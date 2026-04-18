@@ -36,7 +36,7 @@ utbench run --models deepseek,minimax --langs python,go --class self_contained -
 示例：
 
 ```bash
-utbench generate --models deepseek --langs python --class complex_dependency --dataset-manifest ./configs/dataset_index.json --dataset-root ./datasets --output-root ./artifacts --config ../benchmark/config/models.yaml
+utbench generate --models deepseek --langs python --class module_level --dataset-manifest ./configs/dataset_index.json --dataset-root ./datasets --output-root ./artifacts --config ../benchmark/config/models.yaml
 ```
 
 ### 2.3 evaluate
@@ -119,7 +119,7 @@ utbench dataset manifest --index ./configs/dataset_index.json --level l1 --outpu
 
 - `--models`：模型名称列表（逗号分隔）
 - `--langs`：语言列表（逗号分隔）
-- `--class`：样本大类（`self_contained`/`module_level`/`complex_dependency`）
+- `--class`：样本大类（`self_contained`/`module_level`）
 - `--scenario`：样本子类（`boundary`/`simple_function`/`complex_dependency`/`interface_mock`）
 - `--dataset-manifest`：样本清单（默认 `./configs/dataset_index.json`，用 CLI 参数过滤）
 - `--mode`：执行模式（`full`/`incremental`）

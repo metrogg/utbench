@@ -3,9 +3,8 @@ package contracts
 type DatasetClass string
 
 const (
-	DatasetClassSelfContained     DatasetClass = "self_contained"
-	DatasetClassModuleLevel       DatasetClass = "module_level"
-	DatasetClassComplexDependency DatasetClass = "complex_dependency"
+	DatasetClassSelfContained DatasetClass = "self_contained"
+	DatasetClassModuleLevel   DatasetClass = "module_level"
 )
 
 type RunMode string

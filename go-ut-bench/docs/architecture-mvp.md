@@ -18,8 +18,8 @@ go-ut-bench 是 ut-bench 的 Go 版本评测工具工作区。
 - 子命令：`generate`、`evaluate`、`report`、`ingest`、`run`、`dataset`
 - 语言范围（当前约定）：`python`、`java`、`go`、`cpp`
 - 数据集分类（当前约定）：
-  - `self_contained`（可独立运行）
-  - `complex_dependency`（复杂依赖）
+  - 大类：`self_contained` / `module_level`
+  - 子类：`boundary` / `simple_function` / `complex_dependency` / `interface_mock`
 - 入库：SQLite（本地文件）
 
 ### 2.2 暂不支持
