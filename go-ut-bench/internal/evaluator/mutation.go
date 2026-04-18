@@ -46,6 +46,13 @@ func collectPythonMutation(ctx context.Context, workdir, testName string, mutati
 	}
 
 	py := pythonExecutable()
+	mutantsDir := filepath.Join(workdir, "mutants")
+	_ = os.RemoveAll(mutantsDir)
+
+	if err := preCreateMutantsDirectory(workdir, mutantsDir, mutationTargets, testName); err != nil {
+		return 0, mutationStats{}, "failed to pre-create mutants directory: " + err.Error()
+	}
+
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 	runCmd := exec.CommandContext(runCtx, py, "-m", "mutmut", "run")
@@ -95,9 +102,77 @@ func collectPythonMutation(ctx context.Context, workdir, testName string, mutati
 	return score, stats, ""
 }
 
+func preCreateMutantsDirectory(workdir, mutantsDir string, mutationTargets []string, testName string) error {
+	if err := os.MkdirAll(mutantsDir, 0o755); err != nil {
+		return err
+	}
+
+	if testName != "" {
+		testsDestDir := filepath.Join(mutantsDir, "tests")
+		if err := os.MkdirAll(testsDestDir, 0o755); err != nil {
+			return err
+		}
+
+		testFileName := filepath.Base(testName)
+		srcPath := filepath.Join(workdir, testName)
+		dstPath := filepath.Join(testsDestDir, testFileName)
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(dstPath, data, 0o644); err != nil {
+			return err
+		}
+	}
+
+	for _, target := range mutationTargets {
+		targetPath := filepath.Join(workdir, target)
+		if _, err := os.Stat(targetPath); err != nil {
+			continue
+		}
+		packageDir := filepath.Dir(targetPath)
+		if packageDir == workdir {
+			continue
+		}
+		relPackageDir, err := filepath.Rel(workdir, packageDir)
+		if err != nil {
+			continue
+		}
+		mutantsPackageDir := filepath.Join(mutantsDir, relPackageDir)
+		if err := os.MkdirAll(mutantsPackageDir, 0o755); err != nil {
+			return err
+		}
+
+		entries, err := os.ReadDir(packageDir)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if name == filepath.Base(target) {
+				continue
+			}
+			if strings.HasSuffix(name, ".py") {
+				srcPath := filepath.Join(packageDir, name)
+				dstPath := filepath.Join(mutantsPackageDir, name)
+				data, err := os.ReadFile(srcPath)
+				if err != nil {
+					return err
+				}
+				if err := os.WriteFile(dstPath, data, 0o644); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func buildMutmutPyproject(sourceNames []string, testName string, failingTests []string) string {
 	sources, _ := json.Marshal(sourceNames)
-	testSel, _ := json.Marshal(testName)
 	args := []string{"-q", "--tb=no", "--maxfail=9999"}
 	if len(failingTests) > 0 {
 		excludes := make([]string, 0, len(failingTests))
@@ -109,13 +184,17 @@ func buildMutmutPyproject(sourceNames []string, testName string, failingTests []
 	argsJSON, _ := json.Marshal(args)
 	return "[tool.mutmut]\n" +
 		"paths_to_mutate = " + string(sources) + "\n" +
-		"pytest_add_cli_args_test_selection = [" + string(testSel) + "]\n" +
 		"pytest_add_cli_args = " + string(argsJSON) + "\n"
 }
 
 func buildMutmutEnv(workdir string) ([]string, error) {
 	env := os.Environ()
-	shimDir := filepath.Join(workdir, ".mutmut_shim")
+	absWorkdir, err := filepath.Abs(workdir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+	}
+	shimDir := filepath.Join(absWorkdir, ".mutmut_shim")
+	mutantsDir := filepath.Join(absWorkdir, "mutants")
 	if err := os.MkdirAll(shimDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -143,10 +222,11 @@ func buildMutmutEnv(workdir string) ([]string, error) {
 			break
 		}
 	}
-	merged := shimDir
+	merged := shimDir + string(os.PathListSeparator) + mutantsDir + string(os.PathListSeparator) + absWorkdir
 	if strings.TrimSpace(pyPath) != "" {
-		merged = shimDir + string(os.PathListSeparator) + pyPath
+		merged = merged + string(os.PathListSeparator) + pyPath
 	}
+
 
 	out := make([]string, 0, len(env)+1)
 	set := false
@@ -342,7 +422,8 @@ func extractMetaMutationStats(workdir string, mutationTargets []string) (mutatio
 		exitByKey, _ := payload["exit_code_by_key"].(map[string]any)
 		for _, code := range exitByKey {
 			stats.Total++
-			switch mutmutStatusFromExitCode(code) {
+			status := mutmutStatusFromExitCode(code)
+			switch status {
 			case "killed":
 				stats.Killed++
 			case "survived":
