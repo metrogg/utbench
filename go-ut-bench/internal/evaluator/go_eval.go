@@ -73,18 +73,26 @@ func executeGoTests(workdir, testFile, sourceFile string) (bool, string, int) {
 }
 
 func parseGoTestCounts(output string) (*int, *int) {
-	passed := extractFirstInt(output, `(\d+)\s+passed`)
-	failed := extractFirstInt(output, `(\d+)\s+failed`)
-	if passed != nil || failed != nil {
-		if passed != nil && failed != nil {
-			total := *passed + *failed
-			return passed, &total
+	lines := strings.Split(output, "\n")
+	passed := 0
+	failed := 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "--- PASS:") {
+			passed++
 		}
-		if passed != nil {
-			total := *passed
-			return passed, &total
+		if strings.HasPrefix(line, "--- FAIL:") {
+			failed++
 		}
-		return nil, nil
+	}
+	if passed > 0 || failed > 0 {
+		total := passed + failed
+		return &passed, &total
+	}
+	if strings.Contains(output, "PASS") && !strings.Contains(output, "FAIL") {
+		passed = 1
+		total := 1
+		return &passed, &total
 	}
 	return nil, nil
 }
@@ -199,10 +207,15 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 		return 0, mutationStats{}, fmt.Sprintf("target file not found: %s", sourceBase)
 	}
 
+	mutestingPath := findGoMutesting()
+	if mutestingPath == "" {
+		return 0, mutationStats{}, "go-mutesting not installed. Install: go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest"
+	}
+
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
-	cmd := exec.CommandContext(runCtx, "go-mutesting", sourceBase)
+	cmd := exec.CommandContext(runCtx, mutestingPath, "./...")
 	cmd.Dir = workdir
 	runOut, runErr := cmd.CombinedOutput()
 
@@ -228,31 +241,47 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 	return score, stats, ""
 }
 
+func findGoMutesting() string {
+	candidates := []string{
+		"go-mutesting",
+		filepath.Join(os.Getenv("HOME"), "go", "bin", "go-mutesting"),
+		"/usr/local/go/bin/go-mutesting",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+		if path, err := exec.LookPath("go-mutesting"); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
 func parseGoMutestingOutput(output string) (mutationStats, string) {
 	stats := mutationStats{}
 
-	passCount := 0
-	failCount := 0
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "PASS ") {
-			passCount++
-		}
-		if strings.HasPrefix(line, "FAIL ") {
-			failCount++
-		}
-	}
+	stats.Total = extractFirstIntOrZero(output, `total is (\d+)`)
+	passed := extractFirstIntOrZero(output, `(\d+) passed`)
+	failed := extractFirstIntOrZero(output, `(\d+) failed`)
+	skipped := extractFirstIntOrZero(output, `(\d+) skipped`)
+	duplicated := extractFirstIntOrZero(output, `(\d+) duplicated`)
 
-	if strings.Contains(output, "The mutation score is") {
-		stats.Total = passCount + failCount
-		stats.Survived = passCount
-		stats.Killed = failCount
-	}
+	stats.Killed = passed
+	stats.Survived = failed
+	stats.Skipped = skipped + duplicated
 
 	if stats.Total == 0 {
 		return stats, "no mutation stats found in output"
 	}
 	return stats, ""
+}
+
+func extractFirstIntOrZero(s, pattern string) int {
+	if match := extractFirstInt(s, pattern); match != nil {
+		return *match
+	}
+	return 0
 }
 
 func inferGoMutationTargets(workdir, testFile, sourceBase string) []string {

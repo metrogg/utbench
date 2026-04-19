@@ -125,8 +125,14 @@ func (s *Service) BuildManifest(opts ManifestBuildOptions) (BuildSummary, error)
 				continue
 			}
 		}
-		if classFilter != "" && !matchDatasetClassFilter(contracts.DatasetClass(classFilter), item.Category) {
-			continue
+		if classFilter != "" {
+			classFilters := strings.Split(classFilter, ",")
+			for i := range classFilters {
+				classFilters[i] = strings.TrimSpace(classFilters[i])
+			}
+			if !matchDatasetClassFilter(classFilters, item.Category) {
+				continue
+			}
 		}
 		if scenarioFilter != "" && item.Scenario != scenarioFilter {
 			continue

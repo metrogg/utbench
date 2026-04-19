@@ -11,7 +11,7 @@ func TestCheckpointPathIncludesScopeFields(t *testing.T) {
 	spec1 := contracts.RunSpec{
 		OutputRoot:      filepath.Join(t.TempDir(), "out"),
 		DatasetRoot:     "../dataset",
-		DatasetClass:    contracts.DatasetClassSelfContained,
+		DatasetClasses:  []string{"self_contained"},
 		DatasetLevel:    "l1",
 		DatasetManifest: "./configs/dataset_index.json",
 		MaxSamples:      10,

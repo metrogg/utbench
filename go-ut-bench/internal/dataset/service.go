@@ -35,8 +35,16 @@ func (s *Service) ValidateSpec(spec contracts.RunSpec) error {
 			return errors.New("config path is required")
 		}
 	}
-	if spec.DatasetClass != "" && spec.DatasetClass != contracts.DatasetClassSelfContained && spec.DatasetClass != contracts.DatasetClassModuleLevel {
-		return fmt.Errorf("unsupported dataset class: %s", spec.DatasetClass)
+	if len(spec.DatasetClasses) > 0 {
+		validClasses := map[string]bool{
+			"self_contained": true,
+			"module_level":    true,
+		}
+		for _, c := range spec.DatasetClasses {
+			if !validClasses[c] {
+				return fmt.Errorf("unsupported dataset class: %s (valid: self_contained, module_level)", c)
+			}
+		}
 	}
 	if spec.DatasetScenario != "" {
 		for _, s := range strings.Split(spec.DatasetScenario, ",") {
@@ -114,12 +122,20 @@ func (s *Service) DiscoverSamples(spec contracts.RunSpec) ([]contracts.SampleRef
 				id := strings.TrimSuffix(d.Name(), filepath.Ext(d.Name()))
 				cat := classifySampleClass(id, rel)
 				scenario := classifySampleScenario(id, rel)
-				if !matchDatasetClassFilter(spec.DatasetClass, cat) {
+				if !matchDatasetClassFilter(spec.DatasetClasses, cat) {
 					return nil
 				}
-				if spec.DatasetScenario != "" && scenario != normalizeScenario(spec.DatasetScenario) {
+				if spec.DatasetScenario != "" {
+				allowedScenarios := make(map[string]struct{})
+				for _, sc := range strings.Split(spec.DatasetScenario, ",") {
+					if n := normalizeScenario(strings.TrimSpace(sc)); n != "" {
+						allowedScenarios[n] = struct{}{}
+					}
+				}
+				if _, ok := allowedScenarios[scenario]; !ok {
 					return nil
 				}
+			}
 
 				hash, err := fileMD5(path)
 				if err != nil {
@@ -153,11 +169,19 @@ func (s *Service) DiscoverSamples(spec contracts.RunSpec) ([]contracts.SampleRef
 					rel, _ := filepath.Rel(langDir, path)
 					cat := classifySampleClass(id, rel)
 					scenario := classifySampleScenario(id, rel)
-					if !matchDatasetClassFilter(spec.DatasetClass, cat) {
+					if !matchDatasetClassFilter(spec.DatasetClasses, cat) {
 						return filepath.SkipDir
 					}
-					if spec.DatasetScenario != "" && scenario != normalizeScenario(spec.DatasetScenario) {
-						return filepath.SkipDir
+					if spec.DatasetScenario != "" {
+						allowedScenarios := make(map[string]struct{})
+						for _, sc := range strings.Split(spec.DatasetScenario, ",") {
+							if n := normalizeScenario(strings.TrimSpace(sc)); n != "" {
+								allowedScenarios[n] = struct{}{}
+							}
+						}
+						if _, ok := allowedScenarios[scenario]; !ok {
+							return filepath.SkipDir
+						}
 					}
 
 					hash, err := fileMD5(entryPath)
@@ -190,11 +214,39 @@ func (s *Service) DiscoverSamples(spec contracts.RunSpec) ([]contracts.SampleRef
 		return all[i].Language < all[j].Language
 	})
 
-	if spec.MaxSamples > 0 && len(all) > spec.MaxSamples {
-		all = all[:spec.MaxSamples]
+	// Apply max-samples per language+scenario (not global)
+	if spec.MaxSamples > 0 {
+		perLangScenario := make(map[string][]contracts.SampleRef)
+		for _, s := range all {
+			key := s.Language + "_" + s.Scenario
+			perLangScenario[key] = append(perLangScenario[key], s)
+		}
+		result := make([]contracts.SampleRef, 0)
+		for _, lang := range langs {
+			for key, samples := range perLangScenario {
+				if strings.HasPrefix(key, lang+"_") {
+					if len(samples) > spec.MaxSamples {
+						samples = samples[:spec.MaxSamples]
+					}
+					for _, sample := range samples {
+						found := false
+						for _, existing := range result {
+							if existing.ID == sample.ID && existing.Language == sample.Language {
+								found = true
+								break
+							}
+						}
+						if !found {
+							result = append(result, sample)
+						}
+					}
+				}
+			}
+		}
+		all = result
 	}
 	if len(all) == 0 {
-		return nil, fmt.Errorf("no dataset samples found (langs=%v class=%s)", langs, spec.DatasetClass)
+		return nil, fmt.Errorf("no dataset samples found (langs=%v classes=%v)", langs, spec.DatasetClasses)
 	}
 
 	return all, nil
@@ -225,7 +277,7 @@ func (s *Service) discoverFromManifest(spec contracts.RunSpec) ([]contracts.Samp
 				continue
 			}
 		}
-		if !matchDatasetClassFilter(spec.DatasetClass, item.Category) {
+		if !matchDatasetClassFilter(spec.DatasetClasses, item.Category) {
 			continue
 		}
 		scenario := item.Scenario
@@ -508,11 +560,16 @@ func normalizeScenario(raw string) string {
 	}
 }
 
-func matchDatasetClassFilter(filter contracts.DatasetClass, sample contracts.DatasetClass) bool {
-	if filter == "" {
+func matchDatasetClassFilter(filters []string, sample contracts.DatasetClass) bool {
+	if len(filters) == 0 {
 		return true
 	}
-	return filter == sample
+	for _, f := range filters {
+		if f == string(sample) {
+			return true
+		}
+	}
+	return false
 }
 
 func isSupportedLanguage(lang string) bool {

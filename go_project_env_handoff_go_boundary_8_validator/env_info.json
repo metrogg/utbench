@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-04-18T17:05:40",
+  "language": "go",
+  "sample_id": "go_boundary_8",
+  "project_name": "go-playground-validator",
+  "repository_name": "go-playground/validator",
+  "entry_path": "translations/en/en.go",
+  "function_name": "RegisterDefaultTranslations",
+  "build_files": [
+    "go.mod",
+    "Makefile"
+  ],
+  "source_root": "C:\\shijian_project\\tmp_go_playground_validator_2",
+  "source_commit": "ad3e0488074b53a111b78284f3ed490acaacb384",
+  "dataset_path": "dist/graded_eval_handoff_with_levels_v2/data/go_ut_dataset/go_dataset_module_level.json",
+  "difficulty_level": "L3",
+  "difficulty_total_score": 9
+}

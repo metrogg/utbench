@@ -62,6 +62,13 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		completed, _ = loadCheckpoint(checkpointPath)
 	}
 
+	totalTasks := len(modelConfigs) * len(samples)
+	fmt.Fprintf(os.Stderr, "\n[Runner] Starting test generation for %d models × %d samples = %d tasks\n",
+		len(modelConfigs), len(samples), totalTasks)
+	fmt.Fprintf(os.Stderr, "[Runner] Models: %s\n", strings.Join(getModelNames(modelConfigs), ", "))
+	fmt.Fprintf(os.Stderr, "[Runner] Languages: %s\n", getLanguagesFromSamples(samples))
+	fmt.Fprintf(os.Stderr, "[Runner] Workers: %d | Mode: %s\n\n", min(16, max(2, runtime.NumCPU())), spec.Mode)
+
 	workerCount := min(16, max(2, runtime.NumCPU()))
 	tasks := make(chan task)
 	results := make(chan contracts.GeneratedCase)
@@ -82,7 +89,6 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		}()
 	}
 
-	totalTasks := len(modelConfigs) * len(samples)
 	skippedByCheckpoint := 0
 	go func() {
 		defer close(tasks)
@@ -111,8 +117,21 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 
 	cases := make([]contracts.GeneratedCase, 0, totalTasks)
 	var ckptMu sync.Mutex
+	completedCount := 0
 	for item := range results {
+		completedCount++
 		cases = append(cases, item)
+		status := "OK"
+		if !item.Success {
+			status = "FAIL"
+			if item.Error != nil {
+				status = fmt.Sprintf("FAIL(%s)", trimErrorMsg(item.Error.Message, 30))
+			}
+		}
+		fmt.Fprintf(os.Stderr, "[%d/%d] %s | %s | %s | %s | %dms\n",
+			completedCount, totalTasks-skippedByCheckpoint, item.Model, item.Language, item.SampleID, status,
+			item.LatencyMS)
+
 		if spec.Mode == contracts.RunModeIncremental && item.Success {
 			key := taskKey(item.Model, item.Language, item.SampleID)
 			ckptMu.Lock()
@@ -123,6 +142,10 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	}
 	if err := ctx.Err(); err != nil {
 		return Output{}, err
+	}
+
+	if skippedByCheckpoint > 0 {
+		fmt.Fprintf(os.Stderr, "\n[Runner] Skipped %d tasks (already completed in checkpoint)\n", skippedByCheckpoint)
 	}
 
 	sort.Slice(cases, func(i, j int) bool {
@@ -410,7 +433,7 @@ func buildCheckpointPath(spec contracts.RunSpec, models []modelConfig) string {
 		"models=%s;langs=%s;class=%s;level=%s;manifest=%s;max=%d;dataset=%s",
 		strings.Join(modelNames, ","),
 		strings.Join(langs, ","),
-		spec.DatasetClass,
+		strings.Join(spec.DatasetClasses, ","),
 		spec.DatasetLevel,
 		spec.DatasetManifest,
 		spec.MaxSamples,
@@ -452,4 +475,34 @@ func saveCheckpoint(path string, completed map[string]struct{}) error {
 		"completed":      items,
 	}
 	return contracts.WriteJSON(path, payload)
+}
+
+func getModelNames(configs []modelConfig) []string {
+	names := make([]string, 0, len(configs))
+	for _, c := range configs {
+		names = append(names, c.Name)
+	}
+	return names
+}
+
+func getLanguagesFromSamples(samples []contracts.SampleRef) string {
+	langs := make(map[string]int)
+	for _, s := range samples {
+		langs[s.Language]++
+	}
+	var parts []string
+	for _, l := range []string{"python", "go", "java", "cpp"} {
+		if langs[l] > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%d", l, langs[l]))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func trimErrorMsg(msg string, max int) string {
+	msg = strings.TrimSpace(msg)
+	if len(msg) <= max {
+		return msg
+	}
+	return msg[:max] + "..."
 }

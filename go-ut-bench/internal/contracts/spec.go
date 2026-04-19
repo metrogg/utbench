@@ -6,7 +6,7 @@ type RunSpec struct {
 	RunID           string       `json:"run_id"`
 	Models          []string     `json:"models"`
 	Languages       []string     `json:"languages"`
-	DatasetClass    DatasetClass `json:"dataset_class"`
+	DatasetClasses  []string     `json:"dataset_classes"`
 	DatasetScenario string       `json:"dataset_scenario,omitempty"`
 	DatasetLevel    string       `json:"dataset_level,omitempty"`
 	DatasetRoot     string       `json:"dataset_root"`

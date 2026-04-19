@@ -25,13 +25,14 @@ type Output struct {
 }
 
 type mutationBreakdown struct {
-	Total      int `json:"total"`
-	Killed     int `json:"killed"`
-	Survived   int `json:"survived"`
-	NoTests    int `json:"no_tests"`
-	Timeouts   int `json:"timeouts"`
-	Skipped    int `json:"skipped"`
-	Suspicious int `json:"suspicious"`
+	Total      int    `json:"total"`
+	Killed     int    `json:"killed"`
+	Survived   int    `json:"survived"`
+	NoTests    int    `json:"no_tests"`
+	Timeouts   int    `json:"timeouts"`
+	Skipped    int    `json:"skipped"`
+	Suspicious int    `json:"suspicious"`
+	Tool       string `json:"tool,omitempty"`
 }
 
 func NewService(logger *obs.Logger) *Service {
@@ -414,6 +415,9 @@ func buildMutationBreakdown(rows []contracts.EvaluationResult) mutationBreakdown
 		if row.MutationSuspicious != nil {
 			out.Suspicious += *row.MutationSuspicious
 		}
+		if row.MutationTool != "" && out.Tool == "" {
+			out.Tool = row.MutationTool
+		}
 	}
 	return out
 }
@@ -569,6 +573,7 @@ tr:hover td { background: #fafcff; }
 	b.WriteString(dimLanguageTable(payload.Dimensions.ByLanguage, payload.Thresholds))
 	b.WriteString(`<h3>变异统计详情</h3><table>
   <tr><th>指标</th><th>值</th></tr>
+  <tr><td>mutation_tool</td><td>` + breakdown.Tool + `</td></tr>
   <tr><td>mutation_total</td><td>` + fmt.Sprintf("%d", breakdown.Total) + `</td></tr>
   <tr><td>mutation_killed</td><td>` + fmt.Sprintf("%d", breakdown.Killed) + `</td></tr>
   <tr><td>mutation_survived</td><td>` + fmt.Sprintf("%d", breakdown.Survived) + `</td></tr>
@@ -583,7 +588,7 @@ tr:hover td { background: #fafcff; }
   <table id="sampleTable">
   <thead><tr>
     <th>模型</th><th>语言</th><th>样本ID</th><th>编译</th><th>测试</th><th>通过率</th>
-    <th>行覆盖</th><th>分支覆盖</th><th>变异得分</th><th>变异体</th><th>断言密度</th><th>错误</th>
+    <th>行覆盖</th><th>分支覆盖</th><th>变异得分</th><th>变异体</th><th>变异工具</th><th>断言密度</th><th>错误</th>
   </tr></thead><tbody>`)
 
 	for _, row := range rows {
@@ -622,6 +627,7 @@ tr:hover td { background: #fafcff; }
 		b.WriteString(fmt.Sprintf("<td>%s</td>", optPctCell(row.BranchCoverage)))
 		b.WriteString(fmt.Sprintf("<td>%s</td>", optPctCell(row.MutationScore)))
 		b.WriteString(fmt.Sprintf("<td class=\"mutation-total\">%s</td>", optIntCell(row.MutationTotal)))
+		b.WriteString(fmt.Sprintf("<td>%s</td>", escapeHTML(row.MutationTool)))
 		b.WriteString(fmt.Sprintf("<td>%s</td>", optFloatCell(row.AssertionDensity)))
 		b.WriteString(fmt.Sprintf("<td class=\"error-cell\" title=\"%s\">%s</td>", escapeHTML(errText), escapeHTML(errText)))
 		b.WriteString("</tr>")

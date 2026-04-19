@@ -414,14 +414,7 @@ func buildPrompt(language, samplePath, sourceCode string) string {
 		"- 保持测试可重复、可执行（避免随机性）。\n" +
 		"- Use clear assertions with meaningful expected values.\n" +
 		"- 使用清晰断言和有意义的期望值。\n" +
-		"- Test function names must start with `test_`.\n" +
-		"- 测试函数命名必须以 `test_` 开头。\n" +
-		"- Use plain `assert` and `pytest.raises` for failure paths.\n" +
-		"- 断言使用 `assert`，异常路径使用 `pytest.raises`。\n" +
-		"- Use function-based tests (e.g., `def test_xxx()`) instead of class-based.\n" +
-		"- 使用函数式测试（如 `def test_xxx()`），不要用 class-based（如 `class Test:`）。\n" +
-		fmt.Sprintf("- MUST import target symbols from local module `%s` before writing tests.\n", moduleName) +
-		fmt.Sprintf("- 必须先从同目录模块 `%s` 导入被测对象，再编写测试。\n", moduleName) +
+		buildLanguageSpecificRules(lang, moduleName) +
 		"- Avoid importing unrelated third-party packages by default.\n" +
 		"- 默认不要引入无关第三方包。\n" +
 		fmt.Sprintf("- Coverage targets（覆盖率目标，供参考）: %s\n", coverageTargets) +
@@ -453,7 +446,20 @@ func buildPrompt(language, samplePath, sourceCode string) string {
 		"- For `nearest_pair` or similar: the returned index fields are `left_index=min(original_indices)`\n" +
 		"  and `right_index=max(original_indices)` — trace the sorted enumeration carefully.\n" +
 		"- 对于类似 `nearest_pair` 的函数：返回的索引字段是 `left_index=min(原始索引)` 和\n" +
-		"  `right_index=max(原始索引)`，必须仔细追踪排序后的枚举过程。\n\n" +
+		"  `right_index=max(原始索引)`，必须仔细追踪排序后的枚举过程。\n" +
+		"- For file/directory operations: trace ALL branches of the conditional logic. If the code\n" +
+		"  has two distinct handling paths (e.g., 'invalid filename' vs 'valid filename'), your tests\n" +
+		"  must cover BOTH paths with appropriate expected outcomes for each.\n" +
+		"- 对于文件/目录操作类函数：必须追踪所有条件分支。如果代码有两条处理路径（如\"无效文件名\"\n" +
+		"  vs \"有效文件名\"），测试必须覆盖两条路径，并为每条路径设置正确的期望值。\n" +
+		"- DO NOT assume file extension classification behavior without reading the source code\n" +
+		"  carefully. The actual behavior may differ from intuition.\n" +
+		"- 不要凭直觉假设文件扩展名分类行为，必须仔细阅读源码后才能确定实际行为。\n" +
+		"- For functions with side effects (file moves, directory creation): verify the EXACT\n" +
+		"  destination path and naming logic from the source, not from assumptions.\n" +
+		"- 对于有副作用的函数（文件移动、目录创建）：必须从源码确认精确的目标路径和命名逻辑，不要假设。\n" +
+		"- When source code has `if/elif/else` chains: create at least one test case for EACH branch.\n" +
+		"- 当源码有 `if/elif/else` 链时：必须为每个分支至少创建一个测试用例。\n\n" +
 		"## Critical Conditions Extracted（关键逻辑条件）\n" +
 		criticalText +
 		"\n\n" +
@@ -476,6 +482,82 @@ func buildPrompt(language, samplePath, sourceCode string) string {
 		"- 不要输出解释文字。\n\n" +
 		"## Source Code Under Test（被测源码）\n" +
 		fmt.Sprintf("```%s\n%s\n```", lang, sourceCode)
+}
+
+func buildLanguageSpecificRules(lang, moduleName string) string {
+	switch lang {
+	case "python":
+		return "- Test function names must start with `test_` (e.g., `def test_xxx()`).\n" +
+			"- 测试函数命名必须以 `test_` 开头（如 `def test_xxx()`）。\n" +
+			"- Use plain `assert` and `pytest.raises` for failure paths.\n" +
+			"- 断言使用 `assert`，异常路径使用 `pytest.raises`。\n" +
+			"- Use function-based tests (e.g., `def test_xxx()`) instead of class-based.\n" +
+			"- 使用函数式测试（如 `def test_xxx()`），不要用 class-based。\n" +
+			fmt.Sprintf("- MUST import target symbols from local module `%s` before writing tests.\n", moduleName) +
+			fmt.Sprintf("- 必须先从同目录模块 `%s` 导入被测对象，再编写测试。\n", moduleName)
+
+	case "go":
+		return "- Test function names MUST start with `Test` (capital T) followed by a name (e.g., `func TestAdd(t *testing.T)`).\n" +
+			"- 测试函数命名必须以 `Test`（大写T）开头（如 `func TestAdd(t *testing.T)`）。\n" +
+			"- The test file must be named `xxx_test.go` where `xxx` matches the source file name.\n" +
+			"- 测试文件命名必须为 `xxx_test.go`，其中 `xxx` 与源文件名匹配。\n" +
+			"- Use `t.Error`, `t.Errorf`, `t.Fatal`, `t.Fatalf` for assertions, NOT plain `assert`.\n" +
+			"- 断言使用 `t.Error`、`t.Errorf`、`t.Fatal`、`t.Fatalf`，不要用 `assert`。\n" +
+			"- The test function parameter must be `t *testing.T`.\n" +
+			"- 测试函数参数必须是 `t *testing.T`。\n" +
+			"- Use `testing` package import: `import \"testing\"`.\n" +
+			"- 导入测试包：`import \"testing\"`。\n" +
+			"- Package name in test file should match source file package (usually same directory).\n" +
+			"- 测试文件包名应与源文件包名一致（通常在同目录）。\n"
+
+	case "java":
+		return "- Test class name MUST be `ClassNameTest` where `ClassName` matches the source class name.\n" +
+			"- 测试类命名必须为 `ClassNameTest`，其中 `ClassName` 与源类名匹配。\n" +
+			"- Test file MUST be named `ClassNameTest.java` (e.g., `EmployeeValidatorTest.java`).\n" +
+			"- 测试文件命名必须为 `ClassNameTest.java`（如 `EmployeeValidatorTest.java`）。\n" +
+			"- Use JUnit 4 annotations: `@Test` for test methods.\n" +
+			"- 使用 JUnit 4 注解：测试方法使用 `@Test`。\n" +
+			"- Test methods must be `public void` and can be named `testXxx()` or descriptively.\n" +
+			"- 测试方法必须是 `public void`，命名可以是 `testXxx()` 或有描述性的名称。\n" +
+			"- Import JUnit: `import org.junit.Test; import static org.junit.Assert.*;`.\n" +
+			"- 导入 JUnit：`import org.junit.Test; import static org.junit.Assert.*;`。\n" +
+			"- Use `assertEquals(expected, actual)`, `assertTrue(condition)`, `assertFalse(condition)`.\n" +
+			"- 断言使用 `assertEquals(expected, actual)`、`assertTrue(condition)`、`assertFalse(condition)`。\n" +
+			"- For exceptions, use `@Test(expected = IllegalArgumentException.class)` or try-catch.\n" +
+			"- 异常测试使用 `@Test(expected = IllegalArgumentException.class)` 或 try-catch。\n" +
+			"- For static methods, call them directly: `ClassName.methodName(args)`.\n" +
+			"- 静态方法直接调用：`ClassName.methodName(args)`。\n" +
+			"- Test class must be `public` and in the same package as source (no package declaration for simple files).\n" +
+			"- 测试类必须是 `public`，与源类在同一包中（简单文件无需包声明）。\n" +
+			"- For nested/inner classes in source: import them or reference as `OuterClass.InnerClass`.\n" +
+			"- 对于源码中的嵌套类：导入它们或使用 `OuterClass.InnerClass` 引用。\n" +
+			"- DO NOT access private fields/methods directly. Use public API or reflection only if necessary.\n" +
+			"- 不要直接访问私有字段/方法。使用公共 API，必要时才用反射。\n" +
+			"- Output COMPLETE test code. Ensure all braces `{}` are properly closed.\n" +
+			"- 输出完整的测试代码。确保所有 `{}` 大括号正确闭合。\n" +
+			"- Check your output: if source has inner classes, test must handle them correctly.\n" +
+			"- 检查输出：如果源码有嵌套类，测试必须正确处理。\n"
+
+	case "cpp":
+		return "- Use GoogleTest framework macros: `TEST()`, `EXPECT_EQ`, `ASSERT_EQ`.\n" +
+			"- 使用 GoogleTest 框架宏：`TEST()`、`EXPECT_EQ`、`ASSERT_EQ`。\n" +
+			"- Test function naming: `TEST(TestSuiteName, TestName)`.\n" +
+			"- 测试函数命名：`TEST(TestSuiteName, TestName)`。\n" +
+			"- Include `<gtest/gtest.h>` header.\n" +
+			"- 包含 `<gtest/gtest.h>` 头文件。\n"
+
+	case "javascript":
+		return "- Test function names should use `test()` or `it()` from Jest.\n" +
+			"- 测试函数使用 Jest 的 `test()` 或 `it()`。\n" +
+			"- Use `expect()` for assertions (e.g., `expect(result).toBe(expected)`).\n" +
+			"- 断言使用 `expect()`（如 `expect(result).toBe(expected)`）。\n" +
+			"- Test file should be named `xxx.test.js` or `xxx.spec.js`.\n" +
+			"- 测试文件命名应为 `xxx.test.js` 或 `xxx.spec.js`。\n"
+
+	default:
+		return "- Follow standard testing conventions for the language.\n" +
+			"- 遵循该语言的标准测试规范。\n"
+	}
 }
 
 func coverageTargetsText() string {

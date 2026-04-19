@@ -1,2 +1,0 @@
-[tool.mutmut]
-paths_to_mutate = ["dateutil/relativedelta.py"]

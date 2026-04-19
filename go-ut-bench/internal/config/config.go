@@ -34,8 +34,15 @@ func ValidateClass(v string) error {
 	if v == "" {
 		return nil
 	}
-	if v != string(contracts.DatasetClassSelfContained) && v != string(contracts.DatasetClassModuleLevel) {
-		return errors.New("dataset class must be self_contained or module_level")
+	validClasses := map[string]bool{
+		"self_contained": true,
+		"module_level":    true,
+	}
+	for _, c := range strings.Split(v, ",") {
+		c = strings.TrimSpace(c)
+		if !validClasses[c] {
+			return errors.New("dataset class must be self_contained or module_level (comma-separated allowed)")
+		}
 	}
 	return nil
 }

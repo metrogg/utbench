@@ -43,7 +43,7 @@ func TestDiscoverSamplesFromManifest(t *testing.T) {
 		OutputRoot:      root,
 		ConfigPath:      "dummy",
 		DatasetManifest: manifestPath,
-		DatasetClass:    contracts.DatasetClassModuleLevel,
+		DatasetClasses:  []string{"module_level"},
 		Languages:       []string{"go", "python"},
 	}
 
@@ -80,7 +80,7 @@ func TestDiscoverSamplesScenarioAndModuleLevelClass(t *testing.T) {
 		OutputRoot:      root,
 		ConfigPath:      "dummy",
 		Languages:       []string{"python"},
-		DatasetClass:    contracts.DatasetClassModuleLevel,
+		DatasetClasses:  []string{"module_level"},
 		DatasetScenario: "boundary",
 		MaxSamples:      10,
 	}
@@ -99,7 +99,7 @@ func TestDiscoverSamplesScenarioAndModuleLevelClass(t *testing.T) {
 		t.Fatalf("expected scenario boundary, got %s", samples[0].Scenario)
 	}
 
-	spec.DatasetClass = contracts.DatasetClassSelfContained
+	spec.DatasetClasses = []string{"self_contained"}
 	samples2, err := svc.DiscoverSamples(spec)
 	if err == nil {
 		t.Fatalf("expected no samples for self_contained filter, got %d", len(samples2))

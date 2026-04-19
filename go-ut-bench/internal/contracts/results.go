@@ -62,6 +62,7 @@ type EvaluationResult struct {
 	TestError          string   `json:"test_error,omitempty"`
 	CoverageError      string   `json:"coverage_error,omitempty"`
 	MutationError      string   `json:"mutation_error,omitempty"`
+	MutationTool      string   `json:"mutation_tool,omitempty"`
 }
 
 type EvaluationResultSet struct {

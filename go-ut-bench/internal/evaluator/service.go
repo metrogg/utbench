@@ -50,6 +50,12 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return Output{}, err
 	}
 
+	total := len(manifest.Cases)
+	fmt.Fprintf(os.Stderr, "\n[Evaluator] Starting evaluation of %d samples\n", total)
+	fmt.Fprintf(os.Stderr, "[Evaluator] Languages: %s | Mutation: %v\n", 
+		getLanguagesSummary(manifest.Cases), spec.MutationEnabled)
+	fmt.Fprintf(os.Stderr, "[Evaluator] Workers: %d\n\n", min(16, max(2, runtime.NumCPU())))
+
 	runRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID)
 	evalRoot := filepath.Join(runRoot, "evaluation")
 	if err := os.MkdirAll(evalRoot, 0o755); err != nil {
@@ -65,6 +71,11 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Fprintf(os.Stderr, "[worker panic] %v\n", r)
+				}
+			}()
 			for t := range tasks {
 				item := s.evaluateOne(ctx, spec, t.item)
 				select {
@@ -79,11 +90,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 	go func() {
 		defer close(tasks)
 		for _, item := range manifest.Cases {
-			select {
-			case <-ctx.Done():
-				return
-			case tasks <- evalTask{item: item}:
-			}
+			tasks <- evalTask{item: item}
 		}
 	}()
 
@@ -93,9 +100,21 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 	}()
 
 	rows := make([]contracts.EvaluationResult, 0, len(manifest.Cases))
+	completed := 0
 	for row := range results {
+		completed++
+		status := "PASS"
+		if !row.CompilePass {
+			status = "FAIL(compile)"
+		} else if row.TestPass != nil && !*row.TestPass {
+			status = "FAIL(test)"
+		}
+		fmt.Fprintf(os.Stderr, "[%d/%d] %s | %s | %s | %s | %dms\n",
+			completed, total, row.Model, row.Language, row.SampleID, status,
+			getRuntimeMS(row.RuntimeMS))
 		rows = append(rows, row)
 	}
+
 	if err := ctx.Err(); err != nil {
 		return Output{}, err
 	}
@@ -233,18 +252,18 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		if isModuleLevel {
 			if packageName != "" {
 				lineCov, branchCov, covErr := collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile)
-				if covErr != "" {
+				if covErr != "" && pass {
 					row.CoverageError = covErr
-				} else {
+				} else if covErr == "" {
 					row.LineCoverage = &lineCov
 					row.BranchCoverage = &branchCov
 				}
 			}
 		} else if sourceBase != "" {
 			lineCov, branchCov, covErr := collectPythonCoverage(workdir, testName, sourceBase, sourceStem, targets)
-			if covErr != "" {
+			if covErr != "" && pass {
 				row.CoverageError = covErr
-			} else {
+			} else if covErr == "" {
 				row.LineCoverage = &lineCov
 				row.BranchCoverage = &branchCov
 			}
@@ -281,6 +300,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 				row.MutationSkipped = &skipped
 				row.MutationSuspicious = &suspicious
 			}
+			row.MutationTool = "mutmut"
 		}
 	} else if strings.EqualFold(item.Language, "go") {
 		workdir, testName, sourceBase, _ := prepareGoWorkspace(item.GeneratedTestPath, item.SamplePath)
@@ -330,9 +350,9 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 
 		if sourceBase != "" {
 			lineCov, branchCov, covErr := collectGoCoverage(workdir, testName, sourceBase)
-			if covErr != "" {
+			if covErr != "" && pass {
 				row.CoverageError = covErr
-			} else {
+			} else if covErr == "" {
 				row.LineCoverage = &lineCov
 				row.BranchCoverage = &branchCov
 			}
@@ -351,6 +371,151 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			if mutationErr != "" {
 				row.MutationError = mutationErr
 			}
+			row.MutationTool = "go-mutesting"
+		}
+
+	} else if strings.EqualFold(item.Language, "java") {
+		workdir, testName, _, className := prepareJavaWorkspace(item.GeneratedTestPath, item.SamplePath)
+		if workdir == "" {
+			row.CompilePass = false
+			row.CompileError = testName // prepErr stored in testName
+			rt := int(time.Since(start).Milliseconds())
+			row.RuntimeMS = &rt
+			return row
+		}
+		defer cleanupWorkspace(workdir)
+
+		compilePass, compileErr := javaCompileCheck(workdir)
+		row.CompilePass = compilePass
+		if !compilePass {
+			row.CompileError = compileErr
+			rt := int(time.Since(start).Milliseconds())
+			row.RuntimeMS = &rt
+			return row
+		}
+
+		pass, testErr, runtimeMs := executeJavaTests(workdir)
+		row.TestPass = &pass
+		if !pass && testErr != "" {
+			row.TestError = testErr
+		}
+		if runtimeMs > 0 {
+			row.RuntimeMS = &runtimeMs
+		}
+
+		passCnt, totalCnt := parseJavaTestCounts(testErr)
+		if passCnt != nil {
+			row.TestPassCount = passCnt
+		}
+		if totalCnt != nil {
+			row.TestTotalCount = totalCnt
+		}
+		if passCnt != nil && totalCnt != nil && *totalCnt > 0 {
+			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
+			row.TestPassRate = &rate
+		}
+
+		assertCnt, testCnt, density := estimateAssertionDensity(filepath.Join(workdir, "src", "test", "java", testName), item.Language)
+		row.AssertionCount = &assertCnt
+		row.TestCaseCount = &testCnt
+		row.AssertionDensity = &density
+
+		if className != "" {
+			lineCov, branchCov, covErr := collectJavaCoverage(workdir, className)
+			if covErr != "" && pass {
+				row.CoverageError = covErr
+			} else if covErr == "" {
+				row.LineCoverage = &lineCov
+				row.BranchCoverage = &branchCov
+			}
+		}
+
+		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+			mutationScore, mutationStats, mutationErr := collectJavaMutation(ctx, workdir, className, spec.MutationTimeout)
+			row.MutationScore = &mutationScore
+			row.MutationTotal = &mutationStats.Total
+			row.MutationKilled = &mutationStats.Killed
+			row.MutationSurvived = &mutationStats.Survived
+			row.MutationNoTests = &mutationStats.NoTests
+			row.MutationTimeouts = &mutationStats.Timeout
+			row.MutationSkipped = &mutationStats.Skipped
+			row.MutationSuspicious = &mutationStats.Suspicious
+			if mutationErr != "" {
+				row.MutationError = mutationErr
+			}
+			row.MutationTool = "pitest"
+		}
+
+	} else if strings.EqualFold(item.Language, "cpp") {
+		workdir, testName, sourceBase, _, prepErr := prepareCppWorkspace(item.GeneratedTestPath, item.SamplePath)
+		if workdir == "" {
+			row.CompilePass = false
+			row.CompileError = prepErr
+			rt := int(time.Since(start).Milliseconds())
+			row.RuntimeMS = &rt
+			return row
+		}
+		defer cleanupWorkspace(workdir)
+
+		compilePass, compileErr := cppCompileCheck(workdir)
+		row.CompilePass = compilePass
+		if !compilePass {
+			row.CompileError = compileErr
+			rt := int(time.Since(start).Milliseconds())
+			row.RuntimeMS = &rt
+			return row
+		}
+
+		pass, testErr, runtimeMs := executeCppTests(workdir)
+		row.TestPass = &pass
+		if !pass && testErr != "" {
+			row.TestError = testErr
+		}
+		if runtimeMs > 0 {
+			row.RuntimeMS = &runtimeMs
+		}
+
+		passCnt, totalCnt := parseCppTestCounts(testErr)
+		if passCnt != nil {
+			row.TestPassCount = passCnt
+		}
+		if totalCnt != nil {
+			row.TestTotalCount = totalCnt
+		}
+		if passCnt != nil && totalCnt != nil && *totalCnt > 0 {
+			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
+			row.TestPassRate = &rate
+		}
+
+		assertCnt, testCnt, density := estimateCppAssertionDensity(filepath.Join(workdir, testName))
+		row.AssertionCount = &assertCnt
+		row.TestCaseCount = &testCnt
+		row.AssertionDensity = &density
+
+		if testName != "" {
+			lineCov, branchCov, covErr := collectCppCoverage(workdir, testName)
+			if covErr != "" && pass {
+				row.CoverageError = covErr
+			} else if covErr == "" {
+				row.LineCoverage = &lineCov
+				row.BranchCoverage = &branchCov
+			}
+		}
+
+		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+			mutationScore, mutationStats, mutationErr := collectCppMutation(ctx, workdir, sourceBase, spec.MutationTimeout)
+			row.MutationScore = &mutationScore
+			row.MutationTotal = &mutationStats.Total
+			row.MutationKilled = &mutationStats.Killed
+			row.MutationSurvived = &mutationStats.Survived
+			row.MutationNoTests = &mutationStats.NoTests
+			row.MutationTimeouts = &mutationStats.Timeout
+			row.MutationSkipped = &mutationStats.Skipped
+			row.MutationSuspicious = &mutationStats.Suspicious
+			if mutationErr != "" {
+				row.MutationError = mutationErr
+			}
+			row.MutationTool = "mull"
 		}
 
 	} else {
@@ -938,4 +1103,25 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func getLanguagesSummary(cases []contracts.GeneratedCase) string {
+	langs := make(map[string]int)
+	for _, c := range cases {
+		langs[c.Language]++
+	}
+	var parts []string
+	for _, l := range []string{"python", "go", "java", "cpp"} {
+		if langs[l] > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%d", l, langs[l]))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func getRuntimeMS(ms *int) int {
+	if ms == nil {
+		return 0
+	}
+	return *ms
 }
