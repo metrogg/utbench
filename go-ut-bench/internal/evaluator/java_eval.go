@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const defaultTestTimeoutSeconds = 120
+
 const javaPomTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -119,14 +121,16 @@ func prepareJavaWorkspace(testPath, samplePath string) (string, string, string, 
 		return "", "", "", fmt.Sprintf("failed to read source: %s", err)
 	}
 
-	className := extractClassNameFromSource(string(sourceData))
-	if className == "" {
-		className = sourceStem
+	classNames := extractAllClassNamesFromSource(string(sourceData))
+	if len(classNames) == 0 {
+		classNames = []string{sourceStem}
 	}
+
+	primaryClassName := classNames[0]
 
 	testClassName := extractTestClassNameFromTest(string(testSource))
 	if testClassName == "" {
-		testClassName = className + "Test"
+		testClassName = primaryClassName + "Test"
 	}
 	testFileName := testClassName + ".java"
 
@@ -146,10 +150,21 @@ func prepareJavaWorkspace(testPath, samplePath string) (string, string, string, 
 		return "", "", "", fmt.Sprintf("failed to create src/test/java: %s", err)
 	}
 
-	sourceDestPath := filepath.Join(srcMainJava, className+".java")
-	if err := os.WriteFile(sourceDestPath, sourceData, 0o644); err != nil {
-		_ = os.RemoveAll(workdir)
-		return "", "", "", fmt.Sprintf("failed to write source: %s", err)
+	if len(classNames) == 1 {
+		sourceDestPath := filepath.Join(srcMainJava, primaryClassName+".java")
+		if err := os.WriteFile(sourceDestPath, sourceData, 0o644); err != nil {
+			_ = os.RemoveAll(workdir)
+			return "", "", "", fmt.Sprintf("failed to write source: %s", err)
+		}
+	} else {
+		perClassSources := splitJavaSourceByClasses(string(sourceData))
+		for className, classSource := range perClassSources {
+			classFileName := className + ".java"
+			if err := os.WriteFile(filepath.Join(srcMainJava, classFileName), []byte(classSource), 0o644); err != nil {
+				_ = os.RemoveAll(workdir)
+				return "", "", "", fmt.Sprintf("failed to write class %s: %s", classFileName, err)
+			}
+		}
 	}
 
 	testDestPath := filepath.Join(srcTestJava, testFileName)
@@ -158,14 +173,14 @@ func prepareJavaWorkspace(testPath, samplePath string) (string, string, string, 
 		return "", "", "", fmt.Sprintf("failed to write test: %s", err)
 	}
 
-	pomContent := fmt.Sprintf(javaPomTemplate, className+"*", className+"Test", 5000)
+	pomContent := fmt.Sprintf(javaPomTemplate, primaryClassName+"*", classNames[0]+"Test", 5000)
 	pomPath := filepath.Join(workdir, "pom.xml")
 	if err := os.WriteFile(pomPath, []byte(pomContent), 0o644); err != nil {
 		_ = os.RemoveAll(workdir)
 		return "", "", "", fmt.Sprintf("failed to write pom.xml: %s", err)
 	}
 
-	return workdir, testFileName, sourceBase, className
+	return workdir, testFileName, sourceBase, primaryClassName
 }
 
 func extractJavaClassName(filename string) string {
@@ -191,6 +206,42 @@ func extractTestClassNameFromTest(test string) string {
 	return ""
 }
 
+func extractAllClassNamesFromSource(source string) []string {
+	classPattern := regexp.MustCompile(`(?:public\s+|private\s+|protected\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	uniqueNames := make(map[string]bool)
+	matches := classPattern.FindAllStringSubmatch(source, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			uniqueNames[match[1]] = true
+		}
+	}
+	names := make([]string, 0, len(uniqueNames))
+	for name := range uniqueNames {
+		names = append(names, name)
+	}
+	return names
+}
+
+func splitJavaSourceByClasses(source string) map[string]string {
+	classPattern := regexp.MustCompile(`(?:public\s+|private\s+|protected\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	classStarts := classPattern.FindAllStringIndex(source, -1)
+	if len(classStarts) == 0 {
+		return map[string]string{}
+	}
+	result := make(map[string]string)
+	for i, match := range classStarts {
+		className := classPattern.FindStringSubmatch(source[match[0]:match[1]])[1]
+		start := match[0]
+		end := len(source)
+		if i+1 < len(classStarts) {
+			end = classStarts[i+1][0]
+		}
+		classSource := strings.TrimSpace(source[start:end])
+		result[className] = classSource
+	}
+	return result
+}
+
 func javaCompileCheck(workdir string) (bool, string) {
 	cmd := exec.Command("mvn", "compile", "-q")
 	cmd.Dir = workdir
@@ -202,10 +253,29 @@ func javaCompileCheck(workdir string) (bool, string) {
 }
 
 func executeJavaTests(workdir string) (bool, string, int) {
+	return executeJavaTestsWithTimeout(workdir, defaultTestTimeoutSeconds)
+}
+
+func executeJavaTestsWithTimeout(workdir string, timeoutSeconds int) (bool, string, int) {
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = defaultTestTimeoutSeconds
+	}
 	cmd := exec.Command("mvn", "test", "-q")
 	cmd.Dir = workdir
 	started := time.Now()
-	output, err := cmd.CombinedOutput()
+	done := make(chan error, 1)
+	var output []byte
+	var err error
+	go func() {
+		output, err = cmd.CombinedOutput()
+		done <- nil
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Duration(timeoutSeconds) * time.Second):
+		cmd.Process.Kill()
+		return false, "test execution timed out", int(time.Since(started).Milliseconds())
+	}
 	latency := int(time.Since(started).Milliseconds())
 	if err == nil {
 		return true, string(output), latency

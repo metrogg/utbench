@@ -179,6 +179,8 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		return row
 	}
 
+	s.logger.Debug("evaluating", "model", item.Model, "lang", item.Language, "sample", item.SampleID)
+
 	if strings.EqualFold(item.Language, "python") {
 		var workdir, testName, sourceBase, sourceStem, packageName, targetFile string
 		var prepErr string
@@ -274,6 +276,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			if len(mutationTargets) == 0 && sourceBase != "" {
 				mutationTargets = []string{sourceBase}
 			}
+			fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s\n", item.Model, item.Language, item.SampleID)
 			mutationScore, mutationStats, mutationErr := collectPythonMutation(ctx, workdir, testName, mutationTargets, spec.MutationTimeout, testErr)
 			if mutationErr != "" {
 				if strings.EqualFold(spec.MutationPolicy, "warn") {
@@ -359,6 +362,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		}
 
 		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+			fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s\n", item.Model, item.Language, item.SampleID)
 			mutationScore, mutationStats, mutationErr := collectGoMutation(ctx, workdir, testName, sourceBase, spec.MutationTimeout)
 			row.MutationScore = &mutationScore
 			row.MutationTotal = &mutationStats.Total
@@ -394,7 +398,11 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			return row
 		}
 
-		pass, testErr, runtimeMs := executeJavaTests(workdir)
+		testTimeout := spec.TestTimeout
+		if testTimeout <= 0 {
+			testTimeout = 120
+		}
+		pass, testErr, runtimeMs := executeJavaTestsWithTimeout(workdir, testTimeout)
 		row.TestPass = &pass
 		if !pass && testErr != "" {
 			row.TestError = testErr
@@ -431,6 +439,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		}
 
 		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+			fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s\n", item.Model, item.Language, item.SampleID)
 			mutationScore, mutationStats, mutationErr := collectJavaMutation(ctx, workdir, className, spec.MutationTimeout)
 			row.MutationScore = &mutationScore
 			row.MutationTotal = &mutationStats.Total
@@ -503,6 +512,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		}
 
 		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+			fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s\n", item.Model, item.Language, item.SampleID)
 			mutationScore, mutationStats, mutationErr := collectCppMutation(ctx, workdir, sourceBase, spec.MutationTimeout)
 			row.MutationScore = &mutationScore
 			row.MutationTotal = &mutationStats.Total

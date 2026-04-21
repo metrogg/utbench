@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -55,7 +56,7 @@ target_link_libraries(test_runner_mull GTest::gtest_main)
 
 target_compile_options(test_runner_mull PRIVATE
     -fpass-plugin=/usr/lib/mull-ir-frontend-15
-    -g -grecord-command-line
+    -g -grecord-command-line -static-libstdc++
 )
 
 add_test(NAME AllTests COMMAND test_runner_mull)
@@ -92,12 +93,41 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 		return "", "", "", "", fmt.Sprintf("failed to write source: %s", err)
 	}
 
+	headerPattern := regexp.MustCompile(`#include\s+"([^"]+)"`)
+	headerMatches := headerPattern.FindAllStringSubmatch(string(testSource), -1)
+	for _, match := range headerMatches {
+		if len(match) < 2 {
+			continue
+		}
+		headerName := match[1]
+		headerPath := filepath.Join(workdir, headerName)
+		if _, err := os.Stat(headerPath); os.IsNotExist(err) {
+			if strings.HasSuffix(headerName, ".h") || strings.HasSuffix(headerName, ".hpp") {
+				declHeader := generateDeclarationsHeader(string(sourceData), strings.TrimSuffix(headerName, filepath.Ext(headerName)))
+				if err := os.WriteFile(headerPath, []byte(declHeader), 0644); err != nil {
+					_ = os.RemoveAll(workdir)
+					return "", "", "", "", fmt.Sprintf("failed to write header %s: %s", headerName, err)
+				}
+			}
+		}
+	}
+
 	hasSourceInclude := bytes.Contains(testSource, []byte("#include \""+sourceBase+"\"")) ||
-		bytes.Contains(testSource, []byte("#include <"+sourceBase+">"))
+		bytes.Contains(testSource, []byte("#include <"+sourceBase+">")) ||
+		bytes.Contains(testSource, []byte("#include \"source.cpp\"")) ||
+		bytes.Contains(testSource, []byte("#include <source.cpp>"))
+
 	modifiedTestSource := testSource
 	if !hasSourceInclude {
 		sourceInclude := []byte("#include \"" + sourceBase + "\"\n")
 		modifiedTestSource = append(sourceInclude, testSource...)
+	} else {
+		modifiedTestSource = bytes.ReplaceAll(modifiedTestSource,
+			[]byte("#include \"source.cpp\""),
+			[]byte("#include \""+sourceBase+"\""))
+		modifiedTestSource = bytes.ReplaceAll(modifiedTestSource,
+			[]byte("#include <source.cpp>"),
+			[]byte("#include \""+sourceBase+"\""))
 	}
 
 	if err := os.WriteFile(filepath.Join(workdir, testFileName), modifiedTestSource, 0644); err != nil {
@@ -113,6 +143,7 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 
 	return workdir, testFileName, sourceBase, sourceStem, ""
 }
+
 
 func cppCompileCheck(workdir string) (bool, string) {
 	buildDir := filepath.Join(workdir, "build")
@@ -251,40 +282,62 @@ func parseGcovOutput(content string) (float64, float64, string) {
 			continue
 		}
 
+		// Skip metadata lines (Source:, Graph:, Data:, Runs:)
+		if strings.HasPrefix(line, "Source:") || strings.HasPrefix(line, "Graph:") ||
+			strings.HasPrefix(line, "Data:") || strings.HasPrefix(line, "Runs:") {
+			continue
+		}
+
+		// Skip function/call summary lines
+		if strings.HasPrefix(line, "function ") || strings.HasPrefix(line, "call ") {
+			continue
+		}
+
+		// Parse branch coverage: "branch  0 taken 100% (fallthrough)" or "branch  1 taken 0%"
+		// or "branch  2 taken never"
 		if strings.HasPrefix(line, "branch") {
 			totalBranches++
-			if strings.Contains(line, "taken") && !strings.Contains(line, "taken 0") {
+			pct, ok := parseBranchPercent(line)
+			if ok && pct > 0 {
 				coveredBranches++
 			}
 			continue
 		}
 
-		if strings.HasPrefix(line, "call") {
-			continue
-		}
-
-		if strings.HasPrefix(line, "-:") || strings.HasPrefix(line, "#####:") || strings.HasPrefix(line, "=======") {
-			totalLines++
-			continue
-		}
-
 		parts := strings.SplitN(line, ":", 3)
-		if len(parts) < 2 {
+		if len(parts) < 3 {
 			continue
 		}
 
 		execCountStr := strings.TrimSpace(parts[0])
-		if execCountStr == "" || execCountStr == "-" || execCountStr == "######" || execCountStr == "======" {
-			totalLines++
+		lineNumStr := strings.TrimSpace(parts[1])
+		lineCode := strings.TrimSpace(parts[2])
+
+		// Skip if lineNum is 0 (metadata) or not a valid line number
+		if lineNumStr == "0" {
+			continue
+		}
+		if _, err := strconv.Atoi(lineNumStr); err != nil {
 			continue
 		}
 
-		count := parseIntOrZero(execCountStr)
-		if count > 0 {
-			coveredLines++
-			totalLines++
-		} else {
-			totalLines++
+		// Skip empty code lines
+		if lineCode == "" {
+			continue
+		}
+
+		// Only count lines that are in code blocks (not "-:" prefix)
+		// Lines with "-" count are not in any code block
+		if execCountStr == "-" {
+			continue
+		}
+
+		totalLines++
+
+		if execCountStr != "" && execCountStr != "######" && execCountStr != "======" {
+			if count, err := strconv.Atoi(execCountStr); err == nil && count > 0 {
+				coveredLines++
+			}
 		}
 	}
 
@@ -300,6 +353,27 @@ func parseGcovOutput(content string) (float64, float64, string) {
 	}
 
 	return lineCov, branchCov, ""
+}
+
+func parseBranchPercent(line string) (float64, bool) {
+	if !strings.Contains(line, "taken") {
+		return 0, false
+	}
+	idx := strings.Index(line, "taken")
+	afterTaken := strings.TrimSpace(line[idx+5:])
+	if strings.HasPrefix(afterTaken, "never") {
+		return 0, false
+	}
+	parts := strings.Fields(afterTaken)
+	if len(parts) == 0 {
+		return 0, false
+	}
+	pctStr := strings.TrimSuffix(parts[0], "%")
+	pct, err := strconv.ParseFloat(pctStr, 64)
+	if err != nil {
+		return 0, false
+	}
+	return pct, true
 }
 
 func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeoutSeconds int) (float64, mutationStats, string) {

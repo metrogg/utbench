@@ -1,9 +1,0 @@
-{
-  "generated_at": "2026-04-18T17:05:40",
-  "package_name": "go_project_env_handoff_go_boundary_8_validator",
-  "language": "go",
-  "sample_id": "go_boundary_8",
-  "repository_name": "go-playground/validator",
-  "entry_path": "translations/en/en.go",
-  "source_commit": "ad3e0488074b53a111b78284f3ed490acaacb384"
-}

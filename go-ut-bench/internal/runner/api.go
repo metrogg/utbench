@@ -363,7 +363,7 @@ func buildPrompt(language, samplePath, sourceCode string) string {
 	coverageTargets := coverageTargetsText()
 	mockReq := mockRequirement(sourceCode)
 	criticalConditions := extractCriticalConditions(sourceCode, lang)
-	moduleSymbols := extractModuleLevelSymbols(sourceCode)
+	moduleSymbols := extractModuleLevelSymbols(sourceCode, lang)
 
 	dependencyText := "none detected"
 	if len(dependencies) > 0 {
@@ -447,6 +447,14 @@ func buildPrompt(language, samplePath, sourceCode string) string {
 		"  and `right_index=max(original_indices)` — trace the sorted enumeration carefully.\n" +
 		"- 对于类似 `nearest_pair` 的函数：返回的索引字段是 `left_index=min(原始索引)` 和\n" +
 		"  `right_index=max(原始索引)`，必须仔细追踪排序后的枚举过程。\n" +
+		"- For functions returning collections where order may be non-deterministic (e.g., `most_common`\n" +
+		"  with ties, `sorted` with equal keys, `dict.items()`, set iterations): either (a) use test\n" +
+		"  inputs that produce a deterministic ordering, or (b) assert on properties rather than exact\n" +
+		"  order/position, or (c) check that the result CONTAINS the expected elements without\n" +
+		"  assuming their order.\n" +
+		"- 对于返回集合且顺序不确定的函数（如 ties 时的 `most_common`、equal keys 时的 `sorted`、\n" +
+		"  `dict.items()`、set 迭代器）：(a) 使用能产生确定性顺序的输入，或 (b) 断言属性而非精确\n" +
+		"  顺序/位置，或 (c) 检查结果包含期望元素而不假设其顺序。\n" +
 		"- For file/directory operations: trace ALL branches of the conditional logic. If the code\n" +
 		"  has two distinct handling paths (e.g., 'invalid filename' vs 'valid filename'), your tests\n" +
 		"  must cover BOTH paths with appropriate expected outcomes for each.\n" +
@@ -508,7 +516,12 @@ func buildLanguageSpecificRules(lang, moduleName string) string {
 			"- Use `testing` package import: `import \"testing\"`.\n" +
 			"- 导入测试包：`import \"testing\"`。\n" +
 			"- Package name in test file should match source file package (usually same directory).\n" +
-			"- 测试文件包名应与源文件包名一致（通常在同目录）。\n"
+			"- 测试文件包名应与源文件包名一致（通常在同目录）。\n" +
+			"- CRITICAL: Before calling ANY function in your test, verify it EXISTS in the source code.\n" +
+			"  Check the source code provided above for the exact function signature. Do NOT guess or\n" +
+			"  assume a function exists if you cannot see its definition in the source.\n" +
+			"- 重要：调用任何函数前，必须验证它存在于源码中。检查上面提供的源码中的确切函数签名。\n" +
+			"  如果源码中找不到函数定义，不要猜测或假设函数存在。\n"
 
 	case "java":
 		return "- Test class name MUST be `ClassNameTest` where `ClassName` matches the source class name.\n" +
@@ -783,22 +796,70 @@ func containsComparator(line string) bool {
 	return false
 }
 
-func extractModuleLevelSymbols(sourceCode string) string {
-	re := regexp.MustCompile("(?m)^([A-Za-z_][A-Za-z0-9_]*)\\s*=")
-	matches := re.FindAllStringSubmatch(sourceCode, -1)
+func extractModuleLevelSymbols(sourceCode, language string) string {
 	var symbols []string
 	seen := make(map[string]struct{})
-	for _, m := range matches {
-		name := m[1]
-		if _, ok := seen[name]; ok {
-			continue
+
+	addSymbol := func(name string) {
+		if name == "" || strings.HasPrefix(name, "_") {
+			return
 		}
-		if strings.HasPrefix(name, "_") {
-			continue
+		if _, ok := seen[name]; ok {
+			return
 		}
 		seen[name] = struct{}{}
 		symbols = append(symbols, name)
 	}
+
+	switch language {
+	case "go":
+		funcPattern := regexp.MustCompile(`(?m)^\s*func\s+(\([a-zA-Z\s]+\*?[a-zA-Z_][a-zA-Z0-9_]*\)\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
+		for _, m := range funcPattern.FindAllStringSubmatch(sourceCode, -1) {
+			if len(m) > 2 {
+				addSymbol(m[2])
+			}
+		}
+
+		typePattern := regexp.MustCompile(`(?m)^\s*type\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:struct|interface|int|string|bool|float|byte|rune|error|map|chan)\b`)
+		for _, m := range typePattern.FindAllStringSubmatch(sourceCode, -1) {
+			if len(m) > 1 {
+				addSymbol(m[1])
+			}
+		}
+
+		typeBlockPattern := regexp.MustCompile(`(?m)^\s*type\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\{`)
+		for _, m := range typeBlockPattern.FindAllStringSubmatch(sourceCode, -1) {
+			if len(m) > 1 {
+				addSymbol(m[1])
+			}
+		}
+
+		constBlock := regexp.MustCompile(`(?s)const\s*\(([^)]+)\)`)
+		for _, m := range constBlock.FindAllStringSubmatch(sourceCode, -1) {
+			lineConst := regexp.MustCompile(`(?m)^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=`)
+			for _, c := range lineConst.FindAllStringSubmatch(m[1], -1) {
+				if len(c) > 1 {
+					addSymbol(c[1])
+				}
+			}
+		}
+
+		varPattern := regexp.MustCompile(`(?m)^\s*var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[\]|map|chan|\*)`)
+		for _, m := range varPattern.FindAllStringSubmatch(sourceCode, -1) {
+			if len(m) > 1 {
+				addSymbol(m[1])
+			}
+		}
+
+	default:
+		re := regexp.MustCompile("(?m)^([A-Za-z_][A-Za-z0-9_]*)\\s*=")
+		for _, m := range re.FindAllStringSubmatch(sourceCode, -1) {
+			if len(m) > 1 {
+				addSymbol(m[1])
+			}
+		}
+	}
+
 	if len(symbols) == 0 {
 		return ""
 	}

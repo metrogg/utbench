@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -73,16 +74,15 @@ func executeGoTests(workdir, testFile, sourceFile string) (bool, string, int) {
 }
 
 func parseGoTestCounts(output string) (*int, *int) {
-	lines := strings.Split(output, "\n")
 	passed := 0
 	failed := 0
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "--- PASS:") {
-			passed++
-		}
-		if strings.HasPrefix(line, "--- FAIL:") {
-			failed++
+	for _, match := range regexp.MustCompile(`--- (PASS|FAIL):`).FindAllStringSubmatch(output, -1) {
+		if len(match) >= 2 {
+			if match[1] == "PASS" {
+				passed++
+			} else if match[1] == "FAIL" {
+				failed++
+			}
 		}
 	}
 	if passed > 0 || failed > 0 {

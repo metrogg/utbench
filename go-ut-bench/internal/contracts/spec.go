@@ -14,10 +14,11 @@ type RunSpec struct {
 	ConfigPath      string       `json:"config_path"`
 	Mode            RunMode      `json:"mode"`
 	DryRun          bool         `json:"dry_run"`
-	ResetCheckpoint bool         `json:"reset_checkpoint"`
-	MutationEnabled bool         `json:"mutation_enabled"`
+	ResetCheckpoint bool        `json:"reset_checkpoint"`
+	MutationEnabled bool        `json:"mutation_enabled"`
 	MutationTimeout int          `json:"mutation_timeout_seconds"`
 	MutationPolicy  string       `json:"mutation_error_policy"`
+	TestTimeout     int          `json:"test_timeout_seconds"`
 	MaxSamples      int          `json:"max_samples"`
 	OutputRoot      string       `json:"output_root"`
 	CreatedAtUTC    time.Time    `json:"created_at_utc"`
