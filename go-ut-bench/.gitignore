@@ -42,3 +42,14 @@ artifacts/go_test_manifest.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Build/Docker logs
+*.log
+docker_build*
+
+# Pre-built binaries
+*.tar
+*.exe
+
+# Environment files
+.env

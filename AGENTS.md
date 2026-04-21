@@ -1,118 +1,73 @@
 # AGENTS.md
 
-## 1) Purpose
+## 1) Repository Structure
 
-Evaluate multi-model unit-test generation quality across languages.
+This is a workspace containing a Go CLI benchmark tool and datasets:
 
-Current state:
-- **Python**: full pipeline (compile → test → coverage → mutation) works
-- **Java/Go/Cpp/JavaScript**: evaluator has placeholders only, no real toolchain
-- **Runner**: works for all languages; evaluator only processes Python
-- **Mutation testing**: requires Linux (mutmut not validated on Windows)
+- `go-ut-bench/` — main Go CLI tool for multi-model unit-test generation evaluation (has its own AGENTS.md)
+- `validated_balanced_single_file_eval_handoff_v3/` — validated dataset (200 samples per language: Python, JavaScript, Java, C++, Go)
+- `docker-compose.yml`, `docker.sh` — Docker orchestration for running go-ut-bench
+- `多模型单测生成效果横向评测.md` — Chinese project documentation
 
-## 2) Key Paths
+## 2) Primary Usage (Docker)
 
-- `benchmark/runner/` — model API calls, prompt construction, response parsing
-- `benchmark/evaluator/` — quality evaluation (Python only functional)
-- `benchmark/reporter/` — generates JSON/CSV/HTML reports from evaluator output
-- `benchmark/config/models.yaml` — model and benchmark configuration
-- `dataset/` — benchmark samples organized by `<lang>/<complexity>/`
-- `results/` — generated tests, artifacts, checkpoints, summaries
-
-## 3) CLIs
-
-### Runner
+The benchmark runs via Docker. Build and run from `go-ut-bench/`:
 
 ```bash
-python -m benchmark.runner                          # all enabled models × all languages
-python -m benchmark.runner --model deepseek --lang python --max-samples 2
-python -m benchmark.runner --model deepseek --lang python --sample-glob "boundary/*.py"
-python -m benchmark.runner --dry-run                # no real API calls
-python -m benchmark.runner --reset-checkpoint       # clear checkpoint before run
-python -m benchmark.runner --no-resume              # force full rerun
+cd go-ut-bench
+docker build -t utbench:latest .
+docker run --rm --env-file .env \
+  -v "$(pwd)/datasets:/app/datasets" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -v "$(pwd)/../benchmark/config:/app/config" \
+  utbench:latest run --models deepseek --langs python --max-samples 10 --dry-run
 ```
 
-### Evaluator
+Or use root-level helper: `./docker.sh build && ./docker.sh run-python`
+
+## 3) Environment Setup
+
+Copy `.env.example` to `.env` in `go-ut-bench/` and fill in API keys:
+
+```
+DEEPSEEK_API_KEY=...
+DASHSCOPE_API_KEY=...     # qwen
+MINIMAX_API_KEY=...
+VOLCENGINE_API_KEY=...    # doubao
+```
+
+## 4) Model Config
+
+Location: `go-ut-bench/configs/models.yaml`
+
+Enabled models: `qwen`, `deepseek`, `minimax`, `doubao-seed`
+
+Required per model: `enabled`, `provider`, `config.api_endpoint`, `config.model`, `config.api_key_env`
+
+## 5) For Development Work in go-ut-bench
+
+See `go-ut-bench/AGENTS.md` for full details on:
+- Go build commands (`go build -o utbench ./cmd/utbench/`)
+- CLI commands (`run`, `generate`, `evaluate`, `report`, `ingest`, `dataset`)
+- Dataset layout and code organization
+- Testing (`go test ./internal/...`)
+- Output structure
+
+## 6) Pre-built Docker Image
+
+`go-ut-bench/utbench.tar` contains a pre-built Docker image (~3GB). Load it:
 
 ```bash
-python -m benchmark.evaluator --results-root results
-python -m benchmark.evaluator --results-root results --model deepseek --lang python
-python -m benchmark.evaluator --results-root results --only-self-contained  # Python allowlist only
-python -m benchmark.evaluator --results-root results --all-history          # all test files per sample
+docker load -i go-ut-bench/utbench.tar
 ```
 
-### Reporter
+## 7) Datasets
 
-```bash
-python -m benchmark.reporter --results-root results
-python -m benchmark.reporter --results-root results --evaluator-summary results/evaluator_summary_*.json
-```
+- `go-ut-bench/datasets/` — dataset for benchmark runs
+- `validated_balanced_single_file_eval_handoff_v3/data/` — validated 5-language dataset (self-contained samples)
 
-### Pipeline script (runner → evaluator → reporter)
+## 8) Gotchas
 
-```bash
-bash scripts/run_benchmark.sh
-bash scripts/run_benchmark.sh --model deepseek --lang python --skip-reporter
-```
-
-## 4) Environment Setup
-
-```bash
-pip install pyyaml pytest coverage mutmut
-bash scripts/setup.sh
-```
-
-API keys (set before running runner):
-
-```powershell
-$env:DASHSCOPE_API_KEY="..."
-$env:DEEPSEEK_API_KEY="..."
-$env:MINIMAX_API_KEY="..."
-$env:VOLCENGINE_API_KEY="..."
-$env:BIGMODEL_API_KEY="..."   # for disabled 'glm' model
-```
-
-## 5) Model Config (models.yaml)
-
-Required fields per model: `enabled`, `provider`, `config.api_endpoint`, `config.model`, `config.api_key_env`
-
-Enabled models: `qwen`, `deepseek`, `minimax`, `doubao-seed`, `glm-4.7`
-
-## 6) Language Inference (Runner/Evaluator Contract)
-
-Runner infers language from dataset path `dataset/<lang>/...`, **not** file extension.
-
-Evaluator loader supports legacy bug where scenario folders were used as language:
-- `boundary`, `simple_function`, `complex_dependency`, `interface_mock` → mapped to `python`
-
-Generated test file pattern: `<model>_<language>_<sample_id>_<timestamp>.test.<ext>`
-
-Source path resolution: metadata `sample_path` > dataset search by `sample_id`
-
-## 7) Output Structure
-
-```
-results/
-  <model>/
-    tests/      # generated test files
-    reports/    # metadata JSON
-    artifacts/  # raw API responses
-  checkpoints/  # resume state
-  runner_summary_*.json
-  evaluator_summary_*.json
-  reports/reporter_*.{json,csv,html}
-```
-
-## 8) Code Conventions
-
-- User-facing docs in Chinese; code comments in English when needed
-- Use `pathlib.Path` for filesystem operations
-- Keep `None` for unavailable metrics (never fake zeros in summary JSON)
-- Follow PEP 8, type hints for public functions
-
-## 9) Gotchas
-
-- No unit tests exist for benchmark code itself (`tests/` is empty)
-- Evaluator `--only-self-contained` uses `benchmark/config/python_self_contained_allowlist.txt`
-- Windows: mutation testing skipped (mutmut needs Linux)
-- `go-ut-bench/` and `datasets/` directories are separate projects, not main benchmark
+- Root AGENTS.md does NOT describe a Python benchmark (that project was replaced by go-ut-bench)
+- When running Docker, model config path needs explicit override: `--config /app/config/models.yaml`
+- `mutmut` (Python mutation testing) may have issues on Windows; Docker image uses Linux

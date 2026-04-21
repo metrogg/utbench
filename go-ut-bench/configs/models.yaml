@@ -1,0 +1,101 @@
+models:
+  qwen:
+    enabled: true
+    provider: dashscope
+    config:
+      api_endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      model: "qwen3.6-plus"
+      api_key_env: "DASHSCOPE_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  deepseek:
+    enabled: true
+    provider: deepseek
+    config:
+      api_endpoint: "https://api.deepseek.com/v1"
+      model: "deepseek-chat"
+      api_key_env: "DEEPSEEK_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  minimax:
+    enabled: true
+    provider: minimax
+    config:
+      api_endpoint: "https://api.minimax.chat/v1"
+      model: "MiniMax-M2.7"
+      api_key_env: "MINIMAX_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  doubao-seed:
+    enabled: true
+    provider: volcengine
+    config:
+      api_endpoint: "https://ark.cn-beijing.volces.com/api/coding/v3"
+      model: "doubao-seed-2.0-pro"
+      api_key_env: "VOLCENGINE_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+benchmark:
+  thresholds:
+    compile_rate: 0.7
+    execution_rate: 0.70
+    line_coverage: 0.7
+    branch_coverage: 0.6
+    function_coverage: 0.8
+    mutation_score: 0.70
+
+  timeouts:
+    api_call: 120000
+    compilation: 60000
+    test_execution: 30000
+    mutation_test: 120000
+
+  parallel:
+    max_concurrent_models: 2
+    max_concurrent_samples: 4
+
+languages:
+  java:
+    compiler: "javac"
+    test_framework: "junit"
+    test_framework_version: "4.13"
+    coverage_tool: "jacoco"
+    mutation_tool: "pitest"
+    source_dir: "src/main/java"
+    test_dir: "src/test/java"
+
+  python:
+    compiler: "pylint"
+    test_framework: "pytest"
+    coverage_tool: "coverage"
+    mutation_tool: "mutmut"
+    source_dir: "src"
+    test_dir: "tests"
+
+  go:
+    compiler: "go build"
+    test_framework: "go test"
+    coverage_tool: "go tool cover"
+    mutation_tool: "go-mutesting"
+    source_dir: "."
+    test_dir: "."
+
+  cpp:
+    compiler: "g++"
+    test_framework: "gtest"
+    coverage_tool: "gcov"
+    mutation_tool: "mull"
+    source_dir: "src"
+    test_dir: "tests"

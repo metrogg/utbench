@@ -1,21 +1,26 @@
 package main
 
-import (
-	"encoding/hex"
-	"fmt"
-	"math/rand"
-)
-
-func RandomCryptoString() (string, error) {
-	buf := make([]byte, 32)
-	n, err := rand.Read(buf)
-	if err != nil {
-		return "", err
+func SafeDivide(numerator, denominator float64) float64 {
+	if denominator == 0 {
+		panic("cannot divide by zero")
 	}
-
-	if n != len(buf) {
-		return "", fmt.Errorf("not enough random bytes read")
+	if numerator == 0 {
+		return 0.0
 	}
+	result := numerator / denominator
+	return result
+}
 
-	return hex.EncodeToString(buf), nil
+func SafeSqrt(value int) int {
+	if value < 0 {
+		panic("cannot compute square root of negative number")
+	}
+	if value == 0 {
+		return 0
+	}
+	i := 0
+	for i * i <= value {
+		i++
+	}
+	return i - 1
 }

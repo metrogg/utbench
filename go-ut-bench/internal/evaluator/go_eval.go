@@ -7,12 +7,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
 
 func goCompileCheck(workdir, testFile string) (bool, string) {
-	cmd := exec.Command("go", "build", "-o", "/dev/null", testFile)
+	// Cross-platform: use temp file instead of /dev/null
+	tempOutput := filepath.Join(workdir, "compile_check_output")
+	if runtime.GOOS == "windows" {
+		tempOutput = filepath.Join(workdir, "compile_check_output.exe")
+	}
+	defer os.Remove(tempOutput)
+	
+	cmd := exec.Command("go", "build", "-o", tempOutput, testFile)
 	cmd.Dir = workdir
 	output, err := cmd.CombinedOutput()
 	if err == nil {

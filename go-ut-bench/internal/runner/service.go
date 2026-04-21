@@ -1,3 +1,5 @@
+// runner 包提供测试生成功能
+// 负责调用LLM API生成单元测试，支持多模型并行和checkpoint恢复
 package runner
 
 import (
@@ -18,30 +20,60 @@ import (
 	"go-ut-bench/internal/obs"
 )
 
+// Service 测试生成服务结构
+// 提供完整的测试生成流程管理
 type Service struct {
-	logger *obs.Logger
+	logger *obs.Logger // 日志记录器
 }
 
+// Output 生成操作的输出结果
+// 包含生成的测试清单和文件路径
 type Output struct {
-	Manifest     contracts.GeneratedManifest
-	ManifestPath string
+	Manifest     contracts.GeneratedManifest // 生成清单
+	ManifestPath string                       // 清单文件路径
 }
 
+// task 生成任务结构
+// 定义一个模型对一个样本的生成任务
 type task struct {
-	model  modelConfig
-	sample contracts.SampleRef
+	model  modelConfig              // 模型配置
+	sample contracts.SampleRef      // 样本引用
 }
 
+// NewService 创建新的生成服务实例
+// 参数:
+//   - logger: 日志记录器实例
+//
+// 返回值:
+//   - *Service: 新的服务实例
 func NewService(logger *obs.Logger) *Service {
 	return &Service{logger: logger}
 }
 
+// Generate 执行测试生成流程
+// 参数:
+//   - ctx: 上下文，用于取消操作
+//   - spec: 运行规格说明
+//   - samples: 要处理的样本列表
+//
+// 返回值:
+//   - Output: 生成结果输出
+//   - error: 生成失败时的错误
+//
+// 功能说明:
+//   1. 加载模型配置
+//   2. 创建输出目录结构
+//   3. 检查checkpoint（增量模式）
+//   4. 使用worker池并行调用LLM API生成测试
+//   5. 保存测试文件和元数据
+//   6. 生成清单文件
 func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples []contracts.SampleRef) (Output, error) {
 	modelConfigs, err := loadModelConfigs(spec.ConfigPath, spec.Models)
 	if err != nil {
 		return Output{}, err
 	}
 
+	// 创建输出目录结构
 	runRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID)
 	genRoot := filepath.Join(runRoot, "generated")
 	testRoot := filepath.Join(genRoot, "tests")
@@ -53,6 +85,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		return Output{}, err
 	}
 
+	// 处理checkpoint
 	checkpointPath := buildCheckpointPath(spec, modelConfigs)
 	completed := map[string]struct{}{}
 	if spec.ResetCheckpoint {
@@ -62,6 +95,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		completed, _ = loadCheckpoint(checkpointPath)
 	}
 
+	// 输出配置信息
 	totalTasks := len(modelConfigs) * len(samples)
 	fmt.Fprintf(os.Stderr, "\n[Runner] Starting test generation for %d models × %d samples = %d tasks\n",
 		len(modelConfigs), len(samples), totalTasks)
@@ -69,6 +103,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	fmt.Fprintf(os.Stderr, "[Runner] Languages: %s\n", getLanguagesFromSamples(samples))
 	fmt.Fprintf(os.Stderr, "[Runner] Workers: %d | Mode: %s\n\n", min(16, max(2, runtime.NumCPU())), spec.Mode)
 
+	// 创建worker池
 	workerCount := min(16, max(2, runtime.NumCPU()))
 	tasks := make(chan task)
 	results := make(chan contracts.GeneratedCase)
@@ -89,6 +124,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		}()
 	}
 
+	// 发送任务，处理checkpoint过滤
 	skippedByCheckpoint := 0
 	go func() {
 		defer close(tasks)

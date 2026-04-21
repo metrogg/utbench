@@ -1,12 +1,11 @@
+// evaluator 包提供单元测试评测功能
+// 负责编译、运行测试、收集覆盖率、执行变异测试并生成评测报告
 package evaluator
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,23 +20,50 @@ import (
 	"go-ut-bench/internal/obs"
 )
 
+// Service 评测服务结构
+// 提供完整的测试评测流程管理
 type Service struct {
-	logger *obs.Logger
+	logger *obs.Logger // 日志记录器
 }
 
+// Output 评测操作的输出结果
+// 包含评测结果集和结果文件路径
 type Output struct {
-	Result     contracts.EvaluationResultSet
-	ResultPath string
+	Result     contracts.EvaluationResultSet // 评测结果集
+	ResultPath string                         // 结果JSON文件路径
 }
 
+// evalTask 评测任务结构
+// 用于在worker之间传递评测任务
 type evalTask struct {
-	item contracts.GeneratedCase
+	item contracts.GeneratedCase // 要评测的生成案例
 }
 
+// NewService 创建新的评测服务实例
+// 参数:
+//   - logger: 日志记录器实例
+//
+// 返回值:
+//   - *Service: 新的服务实例
 func NewService(logger *obs.Logger) *Service {
 	return &Service{logger: logger}
 }
 
+// Evaluate 执行完整的评测流程
+// 参数:
+//   - ctx: 上下文，用于取消操作
+//   - spec: 运行规格说明
+//   - manifestPath: 生成的测试清单文件路径
+//
+// 返回值:
+//   - Output: 评测结果输出
+//   - error: 评测失败时的错误
+//
+// 功能说明:
+//   1. 读取生成的测试清单
+//   2. 使用worker池并行评测每个样本
+//   3. 对每个样本执行：编译 -> 测试 -> 覆盖率 -> 变异测试
+//   4. 汇总结果并写入JSON文件
 func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifestPath string) (Output, error) {
 	s.logger.Debug(
 		"evaluate options",
@@ -50,18 +76,21 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return Output{}, err
 	}
 
+	// 输出评测配置信息
 	total := len(manifest.Cases)
 	fmt.Fprintf(os.Stderr, "\n[Evaluator] Starting evaluation of %d samples\n", total)
 	fmt.Fprintf(os.Stderr, "[Evaluator] Languages: %s | Mutation: %v\n", 
 		getLanguagesSummary(manifest.Cases), spec.MutationEnabled)
 	fmt.Fprintf(os.Stderr, "[Evaluator] Workers: %d\n\n", min(16, max(2, runtime.NumCPU())))
 
+	// 创建输出目录
 	runRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID)
 	evalRoot := filepath.Join(runRoot, "evaluation")
 	if err := os.MkdirAll(evalRoot, 0o755); err != nil {
 		return Output{}, err
 	}
 
+	// 创建worker池处理评测任务
 	workerCount := min(16, max(2, runtime.NumCPU()))
 	tasks := make(chan evalTask)
 	results := make(chan contracts.EvaluationResult)
@@ -72,6 +101,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		go func() {
 			defer wg.Done()
 			defer func() {
+				// 捕获worker中的panic，防止整个程序崩溃
 				if r := recover(); r != nil {
 					fmt.Fprintf(os.Stderr, "[worker panic] %v\n", r)
 				}
@@ -87,6 +117,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		}()
 	}
 
+	// 生产者：发送所有评测任务
 	go func() {
 		defer close(tasks)
 		for _, item := range manifest.Cases {
@@ -94,11 +125,13 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		}
 	}()
 
+	// 消费者：收集结果
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
+	// 收集并显示评测结果
 	rows := make([]contracts.EvaluationResult, 0, len(manifest.Cases))
 	completed := 0
 	for row := range results {
@@ -115,10 +148,12 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		rows = append(rows, row)
 	}
 
+	// 检查是否被取消
 	if err := ctx.Err(); err != nil {
 		return Output{}, err
 	}
 
+	// 排序结果：按模型 -> 语言 -> 样本ID
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Model == rows[j].Model {
 			if rows[i].Language == rows[j].Language {
@@ -129,6 +164,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return rows[i].Model < rows[j].Model
 	})
 
+	// 构建结果集
 	set := contracts.EvaluationResultSet{
 		SchemaVersion:  contracts.SchemaVersion,
 		RunID:          spec.RunID,
@@ -141,6 +177,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return Output{}, err
 	}
 
+	// 如果启用变异测试且策略为fail，检查是否有错误
 	if spec.MutationEnabled && strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "fail") {
 		mutationErrCount := 0
 		for _, row := range rows {
@@ -955,14 +992,14 @@ func estimateAssertionDensity(path, language string) (int, int, float64) {
 }
 
 func estimateGoAssertionDensity(text string) (int, int, float64) {
-	assertCount := strings.Count(text, "if ")
+	assertCount := strings.Count(text, "if ") + 
+		strings.Count(text, "assert.") + 
+		strings.Count(text, "Expect(") +
+		strings.Count(text, "require.")
 	testCount := strings.Count(text, "func Test")
 	if testCount <= 0 {
 		return assertCount, 0, 0
 	}
-	fset := token.NewFileSet()
-	_, _ = parser.ParseFile(fset, "generated_test.go", text, parser.ParseComments)
-	_ = ast.File{}
 	return assertCount, testCount, round(float64(assertCount)/float64(testCount), 6)
 }
 

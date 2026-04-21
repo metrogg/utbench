@@ -1,28 +1,20 @@
 package main
 
-// Write a function that accepts two lists of strings and returns the list that has
-// total number of chars in the all strings of the list less than the other list.
-// 
-// if the two lists have the same number of chars, return the first list.
-// 
-// Examples
-// TotalMatch([], []) ➞ []
-// TotalMatch(['hi', 'admin'], ['hI', 'Hi']) ➞ ['hI', 'Hi']
-// TotalMatch(['hi', 'admin'], ['hi', 'hi', 'admin', 'project']) ➞ ['hi', 'admin']
-// TotalMatch(['hi', 'admin'], ['hI', 'hi', 'hi']) ➞ ['hI', 'hi', 'hi']
-// TotalMatch(['4'], ['1', '2', '3', '4', '5']) ➞ ['4']
-func TotalMatch(lst1 []string,lst2 []string) []string {
-    var numchar1 = 0
-	var numchar2 = 0
-	for _, item := range lst1 {
-		numchar1 += len(item)
+func ReverseString(s string) string {
+	if s == "" {
+		return ""
 	}
-	for _, item := range lst2 {
-		numchar2 += len(item)
+	result := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		result[i] = s[len(s)-1-i]
 	}
-	if numchar1 <= numchar2 {
-		return lst1
-	} else {
-		return lst2
+	return string(result)
+}
+
+func IsPalindrome(s string) bool {
+	if s == "" {
+		return false
 	}
+	reversed := ReverseString(s)
+	return s == reversed
 }

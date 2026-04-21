@@ -230,7 +230,11 @@ func splitJavaSourceByClasses(source string) map[string]string {
 	}
 	result := make(map[string]string)
 	for i, match := range classStarts {
-		className := classPattern.FindStringSubmatch(source[match[0]:match[1]])[1]
+		submatch := classPattern.FindStringSubmatch(source[match[0]:match[1]])
+		if len(submatch) < 2 {
+			continue
+		}
+		className := submatch[1]
 		start := match[0]
 		end := len(source)
 		if i+1 < len(classStarts) {

@@ -239,15 +239,15 @@ func collectCppCoverage(workdir, testFileName string) (float64, float64, string)
 	gcdaLink := filepath.Join(gcovDir, strings.TrimSuffix(testFileName, filepath.Ext(testFileName))+".gcda")
 
 	if _, err := os.Stat(gcnoLink); err != nil {
-		if err := os.Symlink(testFileName+".gcno", gcnoLink); err != nil {
-			return 0, 0, "failed to create gcno symlink: " + err.Error()
+		if err := copyFile(testFileName+".gcno", gcnoLink); err != nil {
+			return 0, 0, "failed to copy gcno file: " + err.Error()
 		}
 	}
 
 	if _, err := os.Stat(gcdaFile); err == nil {
 		if _, err := os.Stat(gcdaLink); err != nil {
-			if err := os.Symlink(testFileName+".gcda", gcdaLink); err != nil {
-				return 0, 0, "failed to create gcda symlink: " + err.Error()
+			if err := copyFile(testFileName+".gcda", gcdaLink); err != nil {
+				return 0, 0, "failed to copy gcda file: " + err.Error()
 			}
 		}
 	}
