@@ -8,7 +8,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 
 # System dependencies (cached layer)
-RUN apt-get update && apt-get install -y \
+# Use Tsinghua HTTP mirror for stable downloads
+RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list && \
+    sed -i 's|http://security.ubuntu.com|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list
+RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     build-essential \
     gcc \
     g++ \

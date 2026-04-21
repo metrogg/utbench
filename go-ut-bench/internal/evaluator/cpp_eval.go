@@ -144,7 +144,6 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 	return workdir, testFileName, sourceBase, sourceStem, ""
 }
 
-
 func cppCompileCheck(workdir string) (bool, string) {
 	buildDir := filepath.Join(workdir, "build")
 
@@ -239,14 +238,14 @@ func collectCppCoverage(workdir, testFileName string) (float64, float64, string)
 	gcdaLink := filepath.Join(gcovDir, strings.TrimSuffix(testFileName, filepath.Ext(testFileName))+".gcda")
 
 	if _, err := os.Stat(gcnoLink); err != nil {
-		if err := copyFile(testFileName+".gcno", gcnoLink); err != nil {
+		if err := copyFile(gcnoFile, gcnoLink); err != nil {
 			return 0, 0, "failed to copy gcno file: " + err.Error()
 		}
 	}
 
 	if _, err := os.Stat(gcdaFile); err == nil {
 		if _, err := os.Stat(gcdaLink); err != nil {
-			if err := copyFile(testFileName+".gcda", gcdaLink); err != nil {
+			if err := copyFile(gcdaFile, gcdaLink); err != nil {
 				return 0, 0, "failed to copy gcda file: " + err.Error()
 			}
 		}
@@ -393,7 +392,7 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 
 	testFileName := strings.TrimSuffix(sourceBase, filepath.Ext(sourceBase)) + "_test.cpp"
 	cmakeContent := fmt.Sprintf(cppMullCMakeTemplate, sourceBase, testFileName)
-	
+
 	mullCmakePath := filepath.Join(mullBuildDir, "CMakeLists.txt")
 	if err := os.WriteFile(mullCmakePath, []byte(cmakeContent), 0644); err != nil {
 		return 0, mutationStats{}, "failed to write Mull CMakeLists: " + err.Error()
@@ -401,7 +400,7 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 
 	sourceCopy := filepath.Join(mullBuildDir, sourceBase)
 	testCopy := filepath.Join(mullBuildDir, testFileName)
-	
+
 	if err := copyFile(filepath.Join(workdir, sourceBase), sourceCopy); err != nil {
 		return 0, mutationStats{}, "failed to copy source: " + err.Error()
 	}
@@ -627,7 +626,7 @@ func generateDeclarationsHeader(sourceCode, sourceStem string) string {
 			continue
 		}
 		className := classDefPattern.FindStringSubmatch(sourceCode[startIdx[0]:startIdx[1]])[2]
-	braceCount := 0
+		braceCount := 0
 		endIdx := -1
 		for _, endIdxPair := range classDefEnds {
 			if endIdxPair[0] < startIdx[1] {

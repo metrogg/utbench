@@ -207,40 +207,51 @@ func extractTestClassNameFromTest(test string) string {
 }
 
 func extractAllClassNamesFromSource(source string) []string {
-	classPattern := regexp.MustCompile(`(?:public\s+|private\s+|protected\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)`)
-	uniqueNames := make(map[string]bool)
-	matches := classPattern.FindAllStringSubmatch(source, -1)
-	for _, match := range matches {
-		if len(match) > 1 {
-			uniqueNames[match[1]] = true
+	typePattern := regexp.MustCompile(`(?m)(?:^|\n)\s*(?:public\s+|private\s+|protected\s+)?(?:abstract\s+|final\s+|static\s+)*\b(?:class|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	seen := make(map[string]bool)
+	out := make([]string, 0)
+	for _, match := range typePattern.FindAllStringSubmatch(source, -1) {
+		if len(match) < 2 {
+			continue
 		}
+		name := match[1]
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
 	}
-	names := make([]string, 0, len(uniqueNames))
-	for name := range uniqueNames {
-		names = append(names, name)
-	}
-	return names
+	return out
 }
 
 func splitJavaSourceByClasses(source string) map[string]string {
-	classPattern := regexp.MustCompile(`(?:public\s+|private\s+|protected\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)`)
-	classStarts := classPattern.FindAllStringIndex(source, -1)
-	if len(classStarts) == 0 {
+	typePattern := regexp.MustCompile(`(?m)(?:^|\n)\s*(?:public\s+|private\s+|protected\s+)?(?:abstract\s+|final\s+|static\s+)*\b(?:class|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	decls := typePattern.FindAllStringSubmatchIndex(source, -1)
+	if len(decls) == 0 {
 		return map[string]string{}
 	}
+
+	firstStart := decls[0][0]
+	header := strings.TrimSpace(source[:firstStart])
+
 	result := make(map[string]string)
-	for i, match := range classStarts {
-		submatch := classPattern.FindStringSubmatch(source[match[0]:match[1]])
-		if len(submatch) < 2 {
+	for i, match := range decls {
+		if len(match) < 4 {
 			continue
 		}
-		className := submatch[1]
+		className := source[match[2]:match[3]]
 		start := match[0]
+		for start < len(source) && (source[start] == '\n' || source[start] == '\r') {
+			start++
+		}
 		end := len(source)
-		if i+1 < len(classStarts) {
-			end = classStarts[i+1][0]
+		if i+1 < len(decls) {
+			end = decls[i+1][0]
 		}
 		classSource := strings.TrimSpace(source[start:end])
+		if header != "" {
+			classSource = header + "\n\n" + classSource
+		}
 		result[className] = classSource
 	}
 	return result
@@ -339,13 +350,13 @@ func collectJavaCoverage(workdir, className string) (float64, float64, string) {
 }
 
 type JacocoReport struct {
-	XMLName xml.Name `xml:"report"`
+	XMLName xml.Name        `xml:"report"`
 	Package []JacocoPackage `xml:"package"`
 }
 
 type JacocoPackage struct {
-	Name    string        `xml:"name,attr"`
-	Class   []JacocoClass `xml:"class"`
+	Name  string        `xml:"name,attr"`
+	Class []JacocoClass `xml:"class"`
 }
 
 type JacocoClass struct {
@@ -440,14 +451,14 @@ func collectJavaMutation(ctx context.Context, workdir, className string, timeout
 }
 
 type PitMutationSummary struct {
-	XMLName       xml.Name `xml:"mutations"`
-	Mutations     []PitMutation `xml:"mutation"`
-	MutationsTotal int `xml:"mutationsTotal,attr"`
-	MutationsKilled int `xml:"mutationsKilled,attr"`
-	MutationsSurvived int `xml:"mutationsSurvived,attr"`
-	MutationsNoCoverage int `xml:"mutationsNoCoverage,attr"`
-	MutationsTimedOut int `xml:"mutationsTimedOut,attr"`
-	MutationsSkipped int `xml:"mutationsSkipped,attr"`
+	XMLName             xml.Name      `xml:"mutations"`
+	Mutations           []PitMutation `xml:"mutation"`
+	MutationsTotal      int           `xml:"mutationsTotal,attr"`
+	MutationsKilled     int           `xml:"mutationsKilled,attr"`
+	MutationsSurvived   int           `xml:"mutationsSurvived,attr"`
+	MutationsNoCoverage int           `xml:"mutationsNoCoverage,attr"`
+	MutationsTimedOut   int           `xml:"mutationsTimedOut,attr"`
+	MutationsSkipped    int           `xml:"mutationsSkipped,attr"`
 }
 
 type PitMutation struct {

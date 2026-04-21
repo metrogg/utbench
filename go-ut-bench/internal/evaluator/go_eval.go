@@ -13,14 +13,15 @@ import (
 )
 
 func goCompileCheck(workdir, testFile string) (bool, string) {
-	// Cross-platform: use temp file instead of /dev/null
-	tempOutput := filepath.Join(workdir, "compile_check_output")
+	_ = testFile
+	// Compile check for Go tests must use `go test -c`; `go build` rejects *_test.go files.
+	tempOutput := filepath.Join(workdir, "compile_check_output.test")
 	if runtime.GOOS == "windows" {
-		tempOutput = filepath.Join(workdir, "compile_check_output.exe")
+		tempOutput = filepath.Join(workdir, "compile_check_output.test.exe")
 	}
 	defer os.Remove(tempOutput)
-	
-	cmd := exec.Command("go", "build", "-o", tempOutput, testFile)
+
+	cmd := exec.Command("go", "test", "-c", "-o", tempOutput, ".")
 	cmd.Dir = workdir
 	output, err := cmd.CombinedOutput()
 	if err == nil {

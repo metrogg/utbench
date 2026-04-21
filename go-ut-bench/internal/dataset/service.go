@@ -38,7 +38,7 @@ func (s *Service) ValidateSpec(spec contracts.RunSpec) error {
 	if len(spec.DatasetClasses) > 0 {
 		validClasses := map[string]bool{
 			"self_contained": true,
-			"module_level":    true,
+			"module_level":   true,
 		}
 		for _, c := range spec.DatasetClasses {
 			if !validClasses[c] {
@@ -126,16 +126,16 @@ func (s *Service) DiscoverSamples(spec contracts.RunSpec) ([]contracts.SampleRef
 					return nil
 				}
 				if spec.DatasetScenario != "" {
-				allowedScenarios := make(map[string]struct{})
-				for _, sc := range strings.Split(spec.DatasetScenario, ",") {
-					if n := normalizeScenario(strings.TrimSpace(sc)); n != "" {
-						allowedScenarios[n] = struct{}{}
+					allowedScenarios := make(map[string]struct{})
+					for _, sc := range strings.Split(spec.DatasetScenario, ",") {
+						if n := normalizeScenario(strings.TrimSpace(sc)); n != "" {
+							allowedScenarios[n] = struct{}{}
+						}
+					}
+					if _, ok := allowedScenarios[scenario]; !ok {
+						return nil
 					}
 				}
-				if _, ok := allowedScenarios[scenario]; !ok {
-					return nil
-				}
-			}
 
 				hash, err := fileMD5(path)
 				if err != nil {
@@ -207,43 +207,9 @@ func (s *Service) DiscoverSamples(spec contracts.RunSpec) ([]contracts.SampleRef
 		}
 	}
 
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].Language == all[j].Language {
-			return all[i].ID < all[j].ID
-		}
-		return all[i].Language < all[j].Language
-	})
-
-	// Apply max-samples per language+scenario (not global)
+	sortSampleRefs(all)
 	if spec.MaxSamples > 0 {
-		perLangScenario := make(map[string][]contracts.SampleRef)
-		for _, s := range all {
-			key := s.Language + "_" + s.Scenario
-			perLangScenario[key] = append(perLangScenario[key], s)
-		}
-		result := make([]contracts.SampleRef, 0)
-		for _, lang := range langs {
-			for key, samples := range perLangScenario {
-				if strings.HasPrefix(key, lang+"_") {
-					if len(samples) > spec.MaxSamples {
-						samples = samples[:spec.MaxSamples]
-					}
-					for _, sample := range samples {
-						found := false
-						for _, existing := range result {
-							if existing.ID == sample.ID && existing.Language == sample.Language {
-								found = true
-								break
-							}
-						}
-						if !found {
-							result = append(result, sample)
-						}
-					}
-				}
-			}
-		}
-		all = result
+		all = applyMaxSamplesPerLanguageScenario(all, spec.MaxSamples)
 	}
 	if len(all) == 0 {
 		return nil, fmt.Errorf("no dataset samples found (langs=%v classes=%v)", langs, spec.DatasetClasses)
@@ -310,46 +276,9 @@ func (s *Service) discoverFromManifest(spec contracts.RunSpec) ([]contracts.Samp
 		})
 	}
 
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].Scenario == all[j].Scenario {
-			if all[i].Language == all[j].Language {
-				return all[i].ID < all[j].ID
-			}
-			return all[i].Language < all[j].Language
-		}
-		return all[i].Scenario < all[j].Scenario
-	})
-
-	if spec.MaxSamples > 0 && len(all) > spec.MaxSamples {
-		groups := make(map[string][]contracts.SampleRef)
-		for _, s := range all {
-			groups[s.Scenario] = append(groups[s.Scenario], s)
-		}
-		scenarios := make([]string, 0, len(groups))
-		for k := range groups {
-			scenarios = append(scenarios, k)
-		}
-		sort.Strings(scenarios)
-		result := make([]contracts.SampleRef, 0, spec.MaxSamples)
-		indices := make(map[string]int)
-		for len(result) < spec.MaxSamples {
-			took := false
-			for _, sc := range scenarios {
-				if indices[sc] >= len(groups[sc]) {
-					continue
-				}
-				result = append(result, groups[sc][indices[sc]])
-				indices[sc]++
-				took = true
-				if len(result) >= spec.MaxSamples {
-					break
-				}
-			}
-			if !took {
-				break
-			}
-		}
-		all = result
+	sortSampleRefs(all)
+	if spec.MaxSamples > 0 {
+		all = applyMaxSamplesPerLanguageScenario(all, spec.MaxSamples)
 	}
 	if len(all) == 0 {
 		return nil, fmt.Errorf("no dataset samples found in manifest=%s", manifestPath)
@@ -608,6 +537,55 @@ func fileMD5(path string) (string, error) {
 	}
 	h := md5.Sum(raw)
 	return fmt.Sprintf("%x", h[:]), nil
+}
+
+func sortSampleRefs(samples []contracts.SampleRef) {
+	sort.Slice(samples, func(i, j int) bool {
+		if samples[i].Language != samples[j].Language {
+			return samples[i].Language < samples[j].Language
+		}
+		if samples[i].Scenario != samples[j].Scenario {
+			return samples[i].Scenario < samples[j].Scenario
+		}
+		if samples[i].ID != samples[j].ID {
+			return samples[i].ID < samples[j].ID
+		}
+		if samples[i].Category != samples[j].Category {
+			return samples[i].Category < samples[j].Category
+		}
+		return samples[i].Path < samples[j].Path
+	})
+}
+
+func applyMaxSamplesPerLanguageScenario(samples []contracts.SampleRef, maxSamples int) []contracts.SampleRef {
+	if maxSamples <= 0 || len(samples) == 0 {
+		return samples
+	}
+
+	grouped := make(map[string][]contracts.SampleRef)
+	for _, sample := range samples {
+		key := sample.Language + "|" + sample.Scenario
+		grouped[key] = append(grouped[key], sample)
+	}
+
+	keys := make([]string, 0, len(grouped))
+	for key := range grouped {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	result := make([]contracts.SampleRef, 0, len(samples))
+	for _, key := range keys {
+		group := grouped[key]
+		sortSampleRefs(group)
+		if len(group) > maxSamples {
+			group = group[:maxSamples]
+		}
+		result = append(result, group...)
+	}
+
+	sortSampleRefs(result)
+	return result
 }
 
 func loadModuleLevelMeta(samplePath string) (*contracts.ModuleLevelMeta, bool) {

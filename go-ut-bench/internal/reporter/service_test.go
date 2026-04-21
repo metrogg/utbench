@@ -39,3 +39,35 @@ func TestBuildMutationBreakdown(t *testing.T) {
 		t.Fatalf("unexpected breakdown: %+v", b)
 	}
 }
+
+func TestBuildSummaryUsesSampleLevelTestPassRateWhenCountsMissing(t *testing.T) {
+	pass := true
+	fail := false
+	lineCov := 0.5
+
+	rows := []contracts.EvaluationResult{
+		{
+			CompilePass:  true,
+			TestPass:     &pass,
+			LineCoverage: &lineCov,
+		},
+		{
+			CompilePass: true,
+			TestPass:    &fail,
+		},
+	}
+
+	s := buildSummary(rows)
+	if s.TotalSamples != 2 {
+		t.Fatalf("expected total samples 2, got %d", s.TotalSamples)
+	}
+	if s.CompilePassRate != 1 {
+		t.Fatalf("expected compile pass rate 1.0, got %v", s.CompilePassRate)
+	}
+	if s.TestPassCount != 1 {
+		t.Fatalf("expected test pass count 1, got %d", s.TestPassCount)
+	}
+	if s.TestPassRate != 0.5 {
+		t.Fatalf("expected test pass rate 0.5, got %v", s.TestPassRate)
+	}
+}

@@ -202,6 +202,9 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		SampleID:          item.SampleID,
 		GeneratedTestPath: item.GeneratedTestPath,
 		SourcePath:        item.SamplePath,
+		PromptTokens:      item.PromptTokens,
+		CompletionTokens:  item.CompletionTokens,
+		TotalTokens:       item.TotalTokens,
 	}
 
 	if !item.Success {
