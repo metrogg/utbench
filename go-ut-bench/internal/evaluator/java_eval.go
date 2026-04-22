@@ -304,12 +304,20 @@ func stripANSICodes(s string) string {
 
 func parseJavaTestCounts(output string) (*int, *int) {
 	clean := stripANSICodes(output)
-	passedPattern := regexp.MustCompile(`Tests run:\s*(\d+),\s*Failures:\s*(\d+)`)
+	
+	// Match: Tests run: X, Failures: Y, Errors: Z
+	// Note: Maven may output either "Failures" or "Errors" or both
+	passedPattern := regexp.MustCompile(`Tests run:\s*(\d+),\s*Failures:\s*(\d+)(?:,\s*Errors:\s*(\d+))?`)
 	match := passedPattern.FindStringSubmatch(clean)
 	if match != nil && len(match) >= 3 {
 		totalRuns := parseIntOrZero(match[1])
 		failures := parseIntOrZero(match[2])
-		passed := totalRuns - failures
+		errors := 0
+		if len(match) >= 4 && match[3] != "" {
+			errors = parseIntOrZero(match[3])
+		}
+		totalFailures := failures + errors
+		passed := totalRuns - totalFailures
 		if passed < 0 {
 			passed = 0
 		}

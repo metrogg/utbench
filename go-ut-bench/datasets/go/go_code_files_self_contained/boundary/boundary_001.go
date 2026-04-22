@@ -1,26 +1,21 @@
 package main
 
-func SafeDivide(numerator, denominator float64) float64 {
-	if denominator == 0 {
-		panic("cannot divide by zero")
-	}
-	if numerator == 0 {
-		return 0.0
-	}
-	result := numerator / denominator
-	return result
-}
+import (
+	"encoding/hex"
+	"fmt"
+	"math/rand"
+)
 
-func SafeSqrt(value int) int {
-	if value < 0 {
-		panic("cannot compute square root of negative number")
+func RandomCryptoString() (string, error) {
+	buf := make([]byte, 32)
+	n, err := rand.Read(buf)
+	if err != nil {
+		return "", err
 	}
-	if value == 0 {
-		return 0
+
+	if n != len(buf) {
+		return "", fmt.Errorf("not enough random bytes read")
 	}
-	i := 0
-	for i * i <= value {
-		i++
-	}
-	return i - 1
+
+	return hex.EncodeToString(buf), nil
 }

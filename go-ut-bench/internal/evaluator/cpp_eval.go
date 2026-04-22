@@ -34,6 +34,24 @@ target_compile_options(test_runner PRIVATE --coverage -fprofile-arcs -ftest-cove
 add_test(NAME AllTests COMMAND test_runner)
 `
 
+const cppMullConfigTemplate = `mutators:
+  - cxx_arithmetic
+  - cxx_comparison
+  - cxx_boundary
+  - cxx_bitwise
+  - cxx_logical
+  - cxx_increment_decrement
+  - cxx_remove_void_call
+
+excludePaths:
+  - ".*\\.h$"
+  - ".*\\.hpp$"
+  - "^/usr/.*"
+  - ".*googletest.*"
+
+timeout: 30000
+`
+
 const cppMullCMakeTemplate = `cmake_minimum_required(VERSION 3.10)
 project(utbench_mull)
 
@@ -55,8 +73,10 @@ add_executable(test_runner_mull
 target_link_libraries(test_runner_mull GTest::gtest_main)
 
 target_compile_options(test_runner_mull PRIVATE
-    -fpass-plugin=/usr/lib/mull-ir-frontend-15
-    -g -grecord-command-line -static-libstdc++
+    -fpass-plugin=%s
+    -g -grecord-command-line
+    -fPIC
+    -O0
 )
 
 add_test(NAME AllTests COMMAND test_runner_mull)
@@ -385,13 +405,27 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 		return 0, mutationStats{}, "Mull not installed. Install: sudo apt-get install -y llvm-15 clang-15 mull-15"
 	}
 
+	// Find mull-ir-frontend plugin path
+	mullFrontend := findMullFrontend()
+	if mullFrontend == "" {
+		return 0, mutationStats{}, "mull-ir-frontend-15 not found"
+	}
+
 	mullBuildDir := filepath.Join(workdir, "build_mull")
 	if err := os.MkdirAll(mullBuildDir, 0755); err != nil {
 		return 0, mutationStats{}, "failed to create mull build dir: " + err.Error()
 	}
 
 	testFileName := strings.TrimSuffix(sourceBase, filepath.Ext(sourceBase)) + "_test.cpp"
-	cmakeContent := fmt.Sprintf(cppMullCMakeTemplate, sourceBase, testFileName)
+	
+	// Write mull.yml config
+	mullConfigPath := filepath.Join(mullBuildDir, "mull.yml")
+	if err := os.WriteFile(mullConfigPath, []byte(cppMullConfigTemplate), 0644); err != nil {
+		return 0, mutationStats{}, "failed to write mull.yml: " + err.Error()
+	}
+	
+	// Generate CMakeLists.txt with correct plugin path
+	cmakeContent := fmt.Sprintf(cppMullCMakeTemplate, sourceBase, testFileName, mullFrontend)
 
 	mullCmakePath := filepath.Join(mullBuildDir, "CMakeLists.txt")
 	if err := os.WriteFile(mullCmakePath, []byte(cmakeContent), 0644); err != nil {
@@ -466,6 +500,22 @@ func findMullRunner() string {
 	for _, c := range candidates {
 		if path, err := exec.LookPath(c); err == nil {
 			return path
+		}
+	}
+	return ""
+}
+
+func findMullFrontend() string {
+	// Try common paths for mull-ir-frontend
+	candidates := []string{
+		"/usr/lib/mull-ir-frontend-15",
+		"/usr/lib/llvm-15/lib/mull-ir-frontend-15.so",
+		"/usr/lib/x86_64-linux-gnu/mull-ir-frontend-15.so",
+		"/usr/local/lib/mull-ir-frontend-15.so",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
 		}
 	}
 	return ""
