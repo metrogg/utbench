@@ -57,7 +57,7 @@ RUN curl -1sLf 'https://dl.cloudsmith.io/public/mull-project/mull-stable/setup.d
     rm -rf /var/lib/apt/lists/*
 
 # Install Python testing tools
-RUN pip3 install pytest coverage mutmut
+RUN pip3 install --break-system-packages pytest coverage mutmut
 
 # Install Go mutation testing tool (gremlins - modern replacement for go-mutesting)
 RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
