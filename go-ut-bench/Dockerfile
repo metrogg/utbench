@@ -20,6 +20,8 @@ RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     python3 \
     python3-pip \
     python3-dev \
+    python3-pytest \
+    python3-venv \
     openjdk-21-jdk \
     maven \
     libgtest-dev \
@@ -56,8 +58,12 @@ RUN curl -1sLf 'https://dl.cloudsmith.io/public/mull-project/mull-stable/setup.d
     apt-get update && apt-get install -y mull-19 && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python testing tools
-RUN pip3 install --break-system-packages pytest coverage mutmut
+# Install Python testing tools - use venv for mutmut to avoid conflicts
+RUN python3 -m venv /opt/venv && \
+    /opt/venv/bin/pip install --upgrade pip && \
+    /opt/venv/bin/pip install coverage mutmut && \
+    ln -sf /opt/venv/bin/mutmut /usr/local/bin/mutmut && \
+    ln -sf /opt/venv/bin/coverage /usr/local/bin/coverage
 
 # Install Go mutation testing tool (gremlins - modern replacement for go-mutesting)
 RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
