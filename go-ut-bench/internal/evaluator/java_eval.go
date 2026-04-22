@@ -55,6 +55,12 @@ const javaPomTemplate = `<?xml version="1.0" encoding="UTF-8"?>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.1.2</version>
+                <configuration>
+                    <!-- 即使测试失败也继续运行，不中断构建 -->
+                    <testFailureIgnore>true</testFailureIgnore>
+                    <!-- 跳过无法运行的测试类 -->
+                    <skipAfterFailureCount>0</skipAfterFailureCount>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
@@ -100,6 +106,17 @@ const javaPomTemplate = `<?xml version="1.0" encoding="UTF-8"?>
                     <timeoutFactor>1.5</timeoutFactor>
                     <timeoutConstant>%d</timeoutConstant>
                     <threads>1</threads>
+                    <!-- 关键配置：即使基线测试有失败也继续运行变异 -->
+                    <failWhenNoMutations>false</failWhenNoMutations>
+                    <skipFailingTests>true</skipFailingTests>
+                    <excludedTestMethods>
+                        <!-- 自动排除失败的测试方法 -->
+                        <excludedTestMethod>*#*fail*</excludedTestMethod>
+                        <excludedTestMethod>*#*error*</excludedTestMethod>
+                    </excludedTestMethods>
+                    <!-- 变异测试运行失败也不中断，继续生成报告 -->
+                    <failOnError>false</failOnError>
+                    <failWhenNoCoverage>false</failWhenNoCoverage>
                 </configuration>
             </plugin>
         </plugins>
@@ -258,7 +275,7 @@ func splitJavaSourceByClasses(source string) map[string]string {
 }
 
 func javaCompileCheck(workdir string) (bool, string) {
-	cmd := exec.Command("mvn", "compile", "-q")
+	cmd := exec.Command("mvn", "test-compile", "-q")
 	cmd.Dir = workdir
 	output, err := cmd.CombinedOutput()
 	if err == nil {
@@ -304,7 +321,7 @@ func stripANSICodes(s string) string {
 
 func parseJavaTestCounts(output string) (*int, *int) {
 	clean := stripANSICodes(output)
-	
+
 	// Match: Tests run: X, Failures: Y, Errors: Z
 	// Note: Maven may output either "Failures" or "Errors" or both
 	passedPattern := regexp.MustCompile(`Tests run:\s*(\d+),\s*Failures:\s*(\d+)(?:,\s*Errors:\s*(\d+))?`)
@@ -424,17 +441,34 @@ func parseJacocoXML(content, className string) (float64, float64, string) {
 	return 0, 0, "class not found in coverage report"
 }
 
-func collectJavaMutation(ctx context.Context, workdir, className string, timeoutSeconds int) (float64, mutationStats, string) {
+func collectJavaMutation(ctx context.Context, workdir, className string, timeoutSeconds int, testPassRate *float64, testPassed, testTotal int) (float64, mutationStats, string) {
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 120
+	}
+
+	minPassRate := GetMinPassRateForTool("pitest")
+	passed := 0
+	total := 0
+	if testPassed > 0 || testTotal > 0 {
+		passed = testPassed
+		total = testTotal
+	} else if testPassRate != nil {
+		total = 1
+		passed = int(*testPassRate * float64(total))
+		if passed == 0 && *testPassRate > 0 {
+			passed = 1
+		}
+	}
+
+	checkResult := CheckTestPassRate(passed, total, "PITest", minPassRate)
+	if !checkResult.ShouldRun {
+		return 0, mutationStats{}, checkResult.Message
 	}
 
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
-	cmd := exec.CommandContext(runCtx, "mvn", "org.pitest:pitest-maven:mutationCoverage", "-q")
-	cmd.Dir = workdir
-	runOut, runErr := cmd.CombinedOutput()
+	runOut, runErr := runCommandWithProcessGroupKill(runCtx, "mvn", []string{"org.pitest:pitest-maven:mutationCoverage", "-q"}, workdir, nil)
 
 	stats, parseErr := parsePitXML(workdir)
 	if parseErr != "" {

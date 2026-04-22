@@ -206,9 +206,28 @@ func estimateGoStmtCount(rangeStr string) int {
 	return count
 }
 
-func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string, timeoutSeconds int) (float64, mutationStats, string) {
+func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string, timeoutSeconds int, testPassRate *float64, testPassed, testTotal int) (float64, mutationStats, string) {
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 120
+	}
+
+	minPassRate := GetMinPassRateForTool("go-mutesting")
+	passed := 0
+	total := 0
+	if testPassed > 0 || testTotal > 0 {
+		passed = testPassed
+		total = testTotal
+	} else if testPassRate != nil {
+		total = 1
+		passed = int(*testPassRate * float64(total))
+		if passed == 0 && *testPassRate > 0 {
+			passed = 1
+		}
+	}
+
+	checkResult := CheckTestPassRate(passed, total, "go-mutesting", minPassRate)
+	if !checkResult.ShouldRun {
+		return 0, mutationStats{}, checkResult.Message
 	}
 
 	targetPath := filepath.Join(workdir, sourceBase)
@@ -224,9 +243,7 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
-	cmd := exec.CommandContext(runCtx, mutestingPath, "./...")
-	cmd.Dir = workdir
-	runOut, runErr := cmd.CombinedOutput()
+	runOut, runErr := runCommandWithProcessGroupKill(runCtx, mutestingPath, []string{"./..."}, workdir, nil)
 
 	stats, parseErr := parseGoMutestingOutput(string(runOut))
 	if parseErr != "" {
@@ -246,7 +263,13 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 		return 0, stats, formatMutationError("go-mutesting no killed/survived results", runErr, runOut, nil, nil)
 	}
 
-	score := round(float64(stats.Killed)/float64(stats.Killed+stats.Survived), 6)
+	// 更科学的得分计算：测试能杀死的变异 / 所有生成的变异
+	// 包含NoTests部分，能真实反映测试覆盖度
+	effectiveTotal := stats.Killed + stats.Survived + stats.NoTests
+	if effectiveTotal == 0 {
+		return 0, stats, "no effective mutants found"
+	}
+	score := round(float64(stats.Killed)/float64(effectiveTotal), 6)
 	return score, stats, ""
 }
 

@@ -33,7 +33,11 @@ RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     software-properties-common \
     clang-15 \
     llvm-15 \
+    llvm-15-dev \
+    libclang-15-dev \
     lld-15 \
+    libstdc++6 \
+    libgcc-s1 \
     && cd /usr/src/gtest && cmake . && make && cp lib/*.a /usr/lib/ \
     && rm -rf /var/lib/apt/lists/*
 
@@ -47,10 +51,12 @@ ENV GOPROXY=https://goproxy.cn,direct
 # LLVM/Clang 15 paths (installed in system dependencies layer)
 ENV LLVM_DIR=/usr/lib/llvm-15
 ENV PATH="${LLVM_DIR}/bin:${PATH}"
+ENV LD_LIBRARY_PATH="${LLVM_DIR}/lib:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64:${LD_LIBRARY_PATH}"
+ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-15
 
 # Install Mull 15 (C++ mutation testing) from Cloudsmith
 RUN curl -1sLf 'https://dl.cloudsmith.io/public/mull-project/mull-stable/setup.deb.sh' | bash && \
-    apt-get update && apt-get install -y mull-15 && \
+    apt-get update && apt-get install -y mull-15 mull-ir-frontend-15 && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python testing tools (cached layer)

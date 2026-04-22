@@ -5,24 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
-
-type mutationStats struct {
-	Total      int
-	Killed     int
-	Survived   int
-	NoTests    int
-	NotChecked int
-	Timeout    int
-	Skipped    int
-	Suspicious int
-}
 
 func collectPythonMutation(ctx context.Context, workdir, testName string, mutationTargets []string, timeoutSeconds int, testOutput string) (float64, mutationStats, string) {
 	if len(mutationTargets) == 0 {
@@ -55,17 +43,11 @@ func collectPythonMutation(ctx context.Context, workdir, testName string, mutati
 
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
-	runCmd := exec.CommandContext(runCtx, py, "-m", "mutmut", "run")
-	runCmd.Dir = workdir
-	runCmd.Env = env
-	runOut, runErr := runCmd.CombinedOutput()
+	runOut, runErr := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "mutmut", "run"}, workdir, env)
 
 	exportCtx, cancelExport := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelExport()
-	exportCmd := exec.CommandContext(exportCtx, py, "-m", "mutmut", "export-cicd-stats")
-	exportCmd.Dir = workdir
-	exportCmd.Env = env
-	exportOut, exportErr := exportCmd.CombinedOutput()
+	exportOut, exportErr := runCommandWithProcessGroupKill(exportCtx, py, []string{"-m", "mutmut", "export-cicd-stats"}, workdir, env)
 
 	statsFile := filepath.Join(workdir, "mutants", "mutmut-cicd-stats.json")
 	raw, err := os.ReadFile(statsFile)
@@ -260,7 +242,6 @@ func buildMutmutEnv(workdir string) ([]string, error) {
 		merged = merged + string(os.PathListSeparator) + pyPath
 	}
 
-
 	out := make([]string, 0, len(env)+1)
 	set := false
 	for _, entry := range env {
@@ -420,9 +401,7 @@ func collectFailingTestsByRerun(ctx context.Context, workdir, testName string) [
 	py := pythonExecutable()
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, py, "-m", "pytest", testName, "-q", "--tb=no", "--maxfail=9999")
-	cmd.Dir = workdir
-	out, _ := cmd.CombinedOutput()
+	out, _ := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "pytest", testName, "-q", "--tb=no", "--maxfail=9999"}, workdir, nil)
 	return collectFailingTestsFromPytestOutput(string(out))
 }
 

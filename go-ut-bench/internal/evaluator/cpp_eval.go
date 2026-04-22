@@ -40,7 +40,6 @@ const cppMullConfigTemplate = `mutators:
   - cxx_boundary
   - cxx_bitwise
   - cxx_logical
-  - cxx_increment_decrement
   - cxx_remove_void_call
 
 excludePaths:
@@ -67,16 +66,20 @@ enable_testing()
 
 add_executable(test_runner_mull
     %s
-    %s
 )
 
-target_link_libraries(test_runner_mull GTest::gtest_main)
+target_link_libraries(test_runner_mull GTest::gtest_main -lpthread -ldl)
 
 target_compile_options(test_runner_mull PRIVATE
     -fpass-plugin=%s
     -g -grecord-command-line
     -fPIC
     -O0
+)
+
+set_target_properties(test_runner_mull PROPERTIES
+    BUILD_RPATH "/usr/lib/llvm-15/lib;/usr/lib/x86_64-linux-gnu;/lib/x86_64-linux-gnu;/usr/lib64"
+    INSTALL_RPATH "/usr/lib/llvm-15/lib;/usr/lib/x86_64-linux-gnu;/lib/x86_64-linux-gnu;/usr/lib64"
 )
 
 add_test(NAME AllTests COMMAND test_runner_mull)
@@ -96,6 +99,8 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 	if err != nil {
 		return "", "", "", "", fmt.Sprintf("failed to read source: %s", err)
 	}
+
+	testSource = stripRedundantDefinitions(testSource, sourceData)
 
 	workdir, err := os.MkdirTemp("", "utbench_cpp_eval_")
 	if err != nil {
@@ -395,9 +400,28 @@ func parseBranchPercent(line string) (float64, bool) {
 	return pct, true
 }
 
-func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeoutSeconds int) (float64, mutationStats, string) {
+func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeoutSeconds int, testPassRate *float64, testPassed, testTotal int) (float64, mutationStats, string) {
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 120
+	}
+
+	minPassRate := GetMinPassRateForTool("mull")
+	passed := 0
+	total := 0
+	if testPassed > 0 || testTotal > 0 {
+		passed = testPassed
+		total = testTotal
+	} else if testPassRate != nil {
+		total = 1
+		passed = int(*testPassRate * float64(total))
+		if passed == 0 && *testPassRate > 0 {
+			passed = 1
+		}
+	}
+
+	checkResult := CheckTestPassRate(passed, total, "Mull", minPassRate)
+	if !checkResult.ShouldRun {
+		return 0, mutationStats{}, checkResult.Message
 	}
 
 	mullRunner := findMullRunner()
@@ -417,15 +441,15 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 	}
 
 	testFileName := strings.TrimSuffix(sourceBase, filepath.Ext(sourceBase)) + "_test.cpp"
-	
+
 	// Write mull.yml config
 	mullConfigPath := filepath.Join(mullBuildDir, "mull.yml")
 	if err := os.WriteFile(mullConfigPath, []byte(cppMullConfigTemplate), 0644); err != nil {
 		return 0, mutationStats{}, "failed to write mull.yml: " + err.Error()
 	}
-	
+
 	// Generate CMakeLists.txt with correct plugin path
-	cmakeContent := fmt.Sprintf(cppMullCMakeTemplate, sourceBase, testFileName, mullFrontend)
+	cmakeContent := fmt.Sprintf(cppMullCMakeTemplate, testFileName, mullFrontend)
 
 	mullCmakePath := filepath.Join(mullBuildDir, "CMakeLists.txt")
 	if err := os.WriteFile(mullCmakePath, []byte(cmakeContent), 0644); err != nil {
@@ -438,8 +462,17 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 	if err := copyFile(filepath.Join(workdir, sourceBase), sourceCopy); err != nil {
 		return 0, mutationStats{}, "failed to copy source: " + err.Error()
 	}
-	if err := copyFile(filepath.Join(workdir, testFileName), testCopy); err != nil {
-		return 0, mutationStats{}, "failed to copy test: " + err.Error()
+
+	testContent, err := os.ReadFile(filepath.Join(workdir, testFileName))
+	if err != nil {
+		return 0, mutationStats{}, "failed to read test file: " + err.Error()
+	}
+
+	// Don't remove source include - Mull needs to compile test file which includes source
+	// The source is included via #include, not as separate compilation unit
+
+	if err := os.WriteFile(testCopy, testContent, 0644); err != nil {
+		return 0, mutationStats{}, "failed to write test: " + err.Error()
 	}
 
 	cmakeCmd := exec.Command("cmake", ".")
@@ -466,33 +499,48 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
-	mullCmd := exec.CommandContext(runCtx, mullRunner, execPath)
-	mullCmd.Dir = mullBuildDir
-	mullCmd.Env = append(os.Environ(),
-		"LD_LIBRARY_PATH=/usr/lib/llvm-15/lib:/usr/lib/x86_64-linux-gnu:/usr/lib64:"+os.Getenv("LD_LIBRARY_PATH"),
+	// 环境变量兜底：即使全局环境变量丢失，也能确保Mull找到库
+	mullEnv := append(os.Environ(),
+		"LD_LIBRARY_PATH=/usr/lib/llvm-15/lib:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64:"+os.Getenv("LD_LIBRARY_PATH"),
+		"LLVM_CONFIG_PATH=/usr/bin/llvm-config-15",
+		"CC=/usr/bin/clang-15",
+		"CXX=/usr/bin/clang++-15",
 	)
-	mullOut, mullErr := mullCmd.CombinedOutput()
+	mullOut, mullErr := runCommandWithProcessGroupKill(runCtx, mullRunner, []string{execPath}, mullBuildDir, mullEnv)
 
 	stats, parseErr := parseMullOutput(string(mullOut))
 	if parseErr != "" {
-		return 0, stats, formatMutationError("mull parse error", mullErr, mullOut, nil, nil)
+		return 0, stats, formatMullError("mull error", mullErr, mullOut)
 	}
 
 	if stats.Total <= 0 {
-		return 0, stats, formatMutationError("mull produced zero mutants", mullErr, mullOut, nil, nil)
+		return 0, stats, formatMullError("mull produced zero mutants", mullErr, mullOut)
 	}
 
 	processed := stats.Killed + stats.Survived + stats.NoTests + stats.Timeout + stats.Skipped
 	if processed <= 0 {
-		return 0, stats, formatMutationError("mull did not execute any mutants", mullErr, mullOut, nil, nil)
+		return 0, stats, formatMullError("mull did not execute any mutants", mullErr, mullOut)
 	}
 
 	if stats.Killed+stats.Survived <= 0 {
-		return 0, stats, formatMutationError("mull no killed/survived results", mullErr, mullOut, nil, nil)
+		return 0, stats, formatMullError("mull no killed/survived results", mullErr, mullOut)
 	}
 
 	score := round(float64(stats.Killed)/float64(stats.Killed+stats.Survived), 6)
 	return score, stats, ""
+}
+
+func formatMullError(prefix string, runErr error, runOut []byte) string {
+	runMsg := ""
+	if runErr != nil {
+		runMsg = runErr.Error()
+	}
+	return fmt.Sprintf(
+		"%s; mull-runner err=%q; mull_out=%q",
+		prefix,
+		runMsg,
+		trimErr(string(runOut), 1500),
+	)
 }
 
 func findMullRunner() string {
@@ -765,4 +813,224 @@ func generateDeclarationsHeader(sourceCode, sourceStem string) string {
 	decls = append(decls, "#endif // "+strings.ToUpper(sourceStem)+"_DECL_H")
 
 	return strings.Join(decls, "\n")
+}
+
+func stripRedundantDefinitions(testSource, sourceData []byte) []byte {
+	testCode := string(testSource)
+	sourceCode := string(sourceData)
+
+	classNames := extractClassStructNames(sourceCode)
+	constNames := extractConstNames(sourceCode)
+	funcNames := extractTopLevelFuncNames(sourceCode)
+	structNames := extractStructNames(sourceCode)
+
+	result := stripClassDefinitions(testCode, classNames)
+	result = stripStructDefinitions(result, structNames)
+	result = stripConstDefinitions(result, constNames)
+	result = stripTopLevelFuncDefinitions(result, funcNames)
+
+	return []byte(result)
+}
+
+func extractClassStructNames(sourceCode string) []string {
+	pattern := regexp.MustCompile(`(?m)^\s*(?:class|struct)\s+(\w+)\s*(?:\{|:|\s*$)`)
+	matches := pattern.FindAllStringSubmatch(sourceCode, -1)
+	names := make(map[string]bool)
+	for _, m := range matches {
+		if len(m) > 1 {
+			names[m[1]] = true
+		}
+	}
+	result := make([]string, 0, len(names))
+	for n := range names {
+		result = append(result, n)
+	}
+	return result
+}
+
+func extractStructNames(sourceCode string) []string {
+	pattern := regexp.MustCompile(`(?m)^\s*struct\s+(\w+)\s*\{`)
+	matches := pattern.FindAllStringSubmatch(sourceCode, -1)
+	names := make(map[string]bool)
+	for _, m := range matches {
+		if len(m) > 1 {
+			names[m[1]] = true
+		}
+	}
+	result := make([]string, 0, len(names))
+	for n := range names {
+		result = append(result, n)
+	}
+	return result
+}
+
+func extractConstNames(sourceCode string) []string {
+	pattern := regexp.MustCompile(`(?m)^\s*(?:const|static\s+const)\s+\w+\s+(\w+)\s*=`)
+	matches := pattern.FindAllStringSubmatch(sourceCode, -1)
+	names := make(map[string]bool)
+	for _, m := range matches {
+		if len(m) > 1 {
+			names[m[1]] = true
+		}
+	}
+	result := make([]string, 0, len(names))
+	for n := range names {
+		result = append(result, n)
+	}
+	return result
+}
+
+func extractTopLevelFuncNames(sourceCode string) []string {
+	pattern := regexp.MustCompile(`(?m)^\s*(?:inline\s+)?(?:static\s+)?(?:\w+(?:\s*\*|\s*&)?\s+)+(\w+)\s*\([^)]*\)\s*\{`)
+	matches := pattern.FindAllStringSubmatch(sourceCode, -1)
+	names := make(map[string]bool)
+	for _, m := range matches {
+		if len(m) > 1 {
+			name := m[1]
+			if name == "if" || name == "while" || name == "for" || name == "switch" || name == "main" {
+				continue
+			}
+			names[name] = true
+		}
+	}
+	result := make([]string, 0, len(names))
+	for n := range names {
+		result = append(result, n)
+	}
+	return result
+}
+
+func stripClassDefinitions(code string, classNames []string) string {
+	for _, name := range classNames {
+		pattern := regexp.MustCompile(`(?m)(?://[^\n]*\n)?\s*class\s+` + name + `\s*(?:\{|:\s*(?:public|private|protected)\s+\w+\s*\{)`)
+
+		matches := pattern.FindAllStringIndex(code, -1)
+		for _, match := range matches {
+			startIdx := match[0]
+			braceStart := strings.Index(code[startIdx:], "{")
+			if braceStart == -1 {
+				continue
+			}
+			braceStart += startIdx
+
+			braceCount := 1
+			endIdx := braceStart + 1
+			for endIdx < len(code) && braceCount > 0 {
+				if code[endIdx] == '{' {
+					braceCount++
+				} else if code[endIdx] == '}' {
+					braceCount--
+				}
+				endIdx++
+			}
+
+			if braceCount == 0 {
+				endMarker := endIdx
+				for endMarker < len(code) && (code[endMarker] == ';' || code[endMarker] == '\n' || code[endMarker] == ' ' || code[endMarker] == '\t') {
+					endMarker++
+				}
+
+				classBlock := code[startIdx:endMarker]
+				replacement := "// class " + name + " definition removed (already in source)\n"
+				code = strings.Replace(code, classBlock, replacement, 1)
+			}
+		}
+	}
+	return code
+}
+
+func stripStructDefinitions(code string, structNames []string) string {
+	for _, name := range structNames {
+		pattern := regexp.MustCompile(`(?m)(?://[^\n]*\n)?\s*struct\s+` + name + `\s*\{`)
+
+		matches := pattern.FindAllStringIndex(code, -1)
+		for _, match := range matches {
+			startIdx := match[0]
+			braceStart := strings.Index(code[startIdx:], "{")
+			if braceStart == -1 {
+				continue
+			}
+			braceStart += startIdx
+
+			braceCount := 1
+			endIdx := braceStart + 1
+			for endIdx < len(code) && braceCount > 0 {
+				if code[endIdx] == '{' {
+					braceCount++
+				} else if code[endIdx] == '}' {
+					braceCount--
+				}
+				endIdx++
+			}
+
+			if braceCount == 0 {
+				endMarker := endIdx
+				for endMarker < len(code) && (code[endMarker] == ';' || code[endMarker] == '\n' || code[endMarker] == ' ' || code[endMarker] == '\t') {
+					endMarker++
+				}
+
+				structBlock := code[startIdx:endMarker]
+				replacement := "// struct " + name + " definition removed (already in source)\n"
+				code = strings.Replace(code, structBlock, replacement, 1)
+			}
+		}
+	}
+	return code
+}
+
+func stripConstDefinitions(code string, constNames []string) string {
+	for _, name := range constNames {
+		constPattern := regexp.MustCompile(`(?m)^\s*(?:const|static\s+const)\s+\w+\s+` + name + `\s*=.*;`)
+		code = constPattern.ReplaceAllString(code, "// const "+name+" definition removed (already in source)\n")
+	}
+	return code
+}
+
+func stripTopLevelFuncDefinitions(code string, funcNames []string) string {
+	for _, name := range funcNames {
+		pattern := regexp.MustCompile(`(?m)(?://[^\n]*\n)?\s*(?:inline\s+)?(?:static\s+)?(?:\w+(?:\s*\*|\s*&)?\s+)+` + name + `\s*\([^)]*\)\s*\{`)
+
+		matches := pattern.FindAllStringIndex(code, -1)
+		for _, match := range matches {
+			startIdx := match[0]
+			braceStart := strings.Index(code[startIdx:], "{")
+			if braceStart == -1 {
+				continue
+			}
+			braceStart += startIdx
+
+			braceCount := 1
+			endIdx := braceStart + 1
+			for endIdx < len(code) && braceCount > 0 {
+				if code[endIdx] == '{' {
+					braceCount++
+				} else if code[endIdx] == '}' {
+					braceCount--
+				}
+				endIdx++
+			}
+
+			if braceCount == 0 {
+				funcBlock := code[startIdx:endIdx]
+				replacement := "// function " + name + " definition removed (already in source)\n"
+				code = strings.Replace(code, funcBlock, replacement, 1)
+			}
+		}
+	}
+	return code
+}
+
+func removeSourceInclude(testContent []byte, sourceBase string) []byte {
+	code := string(testContent)
+
+	includePattern := regexp.MustCompile(`(?m)^\s*#include\s*"` + sourceBase + `"\s*\n?`)
+	code = includePattern.ReplaceAllString(code, "")
+
+	sourceCppPattern := regexp.MustCompile(`(?m)^\s*#include\s*"source\.cpp"\s*\n?`)
+	code = sourceCppPattern.ReplaceAllString(code, "")
+
+	anglePattern := regexp.MustCompile(`(?m)^\s*#include\s*<` + sourceBase + `>\s*\n?`)
+	code = anglePattern.ReplaceAllString(code, "")
+
+	return []byte(code)
 }

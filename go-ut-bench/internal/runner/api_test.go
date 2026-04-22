@@ -45,3 +45,90 @@ func TestExtractDependencies_GoImportBlock(t *testing.T) {
 		t.Fatalf("unexpected go deps: %v", deps)
 	}
 }
+
+func TestExtractFinishReason_OpenAIFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		response map[string]any
+		provider string
+		want     bool
+	}{
+		{
+			name: "finish_reason_length",
+			response: map[string]any{
+				"choices": []any{
+					map[string]any{
+						"message":       map[string]any{"content": "test"},
+						"finish_reason": "length",
+					},
+				},
+			},
+			provider: "deepseek",
+			want:     true,
+		},
+		{
+			name: "finish_reason_stop",
+			response: map[string]any{
+				"choices": []any{
+					map[string]any{
+						"message":       map[string]any{"content": "test"},
+						"finish_reason": "stop",
+					},
+				},
+			},
+			provider: "deepseek",
+			want:     false,
+		},
+		{
+			name: "no_finish_reason",
+			response: map[string]any{
+				"choices": []any{
+					map[string]any{
+						"message": map[string]any{"content": "test"},
+					},
+				},
+			},
+			provider: "deepseek",
+			want:     false,
+		},
+		{
+			name: "dashscope_format_length",
+			response: map[string]any{
+				"output": map[string]any{
+					"choices": []any{
+						map[string]any{
+							"message":       map[string]any{"content": "test"},
+							"finish_reason": "length",
+						},
+					},
+				},
+			},
+			provider: "dashscope",
+			want:     true,
+		},
+		{
+			name: "dashscope_format_stop",
+			response: map[string]any{
+				"output": map[string]any{
+					"choices": []any{
+						map[string]any{
+							"message":       map[string]any{"content": "test"},
+							"finish_reason": "stop",
+						},
+					},
+				},
+			},
+			provider: "dashscope",
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractFinishReason(tt.response, tt.provider)
+			if got != tt.want {
+				t.Errorf("extractFinishReason() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -30,14 +30,14 @@ type Service struct {
 // 包含生成的测试清单和文件路径
 type Output struct {
 	Manifest     contracts.GeneratedManifest // 生成清单
-	ManifestPath string                       // 清单文件路径
+	ManifestPath string                      // 清单文件路径
 }
 
 // task 生成任务结构
 // 定义一个模型对一个样本的生成任务
 type task struct {
-	model  modelConfig              // 模型配置
-	sample contracts.SampleRef      // 样本引用
+	model  modelConfig         // 模型配置
+	sample contracts.SampleRef // 样本引用
 }
 
 // NewService 创建新的生成服务实例
@@ -61,12 +61,12 @@ func NewService(logger *obs.Logger) *Service {
 //   - error: 生成失败时的错误
 //
 // 功能说明:
-//   1. 加载模型配置
-//   2. 创建输出目录结构
-//   3. 检查checkpoint（增量模式）
-//   4. 使用worker池并行调用LLM API生成测试
-//   5. 保存测试文件和元数据
-//   6. 生成清单文件
+//  1. 加载模型配置
+//  2. 创建输出目录结构
+//  3. 检查checkpoint（增量模式）
+//  4. 使用worker池并行调用LLM API生成测试
+//  5. 保存测试文件和元数据
+//  6. 生成清单文件
 func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples []contracts.SampleRef) (Output, error) {
 	modelConfigs, err := loadModelConfigs(spec.ConfigPath, spec.Models)
 	if err != nil {
@@ -158,10 +158,16 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		completedCount++
 		cases = append(cases, item)
 		status := "OK"
+		if item.Truncated {
+			status = "TRUNC"
+		}
 		if !item.Success {
 			status = "FAIL"
 			if item.Error != nil {
 				status = fmt.Sprintf("FAIL(%s)", trimErrorMsg(item.Error.Message, 30))
+			}
+			if item.Truncated {
+				status = "FAIL(truncated)"
 			}
 		}
 		fmt.Fprintf(os.Stderr, "[%d/%d] %s | %s | %s | %s | %dms\n",
@@ -270,6 +276,7 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 	var promptTokens *int
 	var completionTokens *int
 	var totalTokens *int
+	var truncated bool
 	latencyMS := 0
 
 	if spec.DryRun {
@@ -294,15 +301,16 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		}
 
 		client := newAPIClient()
-		generated, response, latency, pTok, cTok, tTok, genErr := client.generateTest(
+		generated, response, latency, pTok, cTok, tTok, isTruncated, genErr := client.generateTest(
 			ctx,
 			modelCfg,
 			sample.Language,
 			sample.Path,
 			string(sourceCode),
 		)
+		truncated = isTruncated
 		if genErr != nil {
-			_ = contracts.WriteJSON(respPath, map[string]any{"error": genErr})
+			_ = contracts.WriteJSON(respPath, map[string]any{"error": genErr, "truncated": truncated})
 			return contracts.GeneratedCase{
 				Model:             model,
 				Language:          sample.Language,
@@ -312,6 +320,7 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				ResponsePath:      respPath,
 				GeneratedAtUTC:    time.Now().UTC(),
 				Success:           false,
+				Truncated:         truncated,
 				Error:             genErr,
 			}
 		}
@@ -362,6 +371,7 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 			"completion_tokens": completionTokens,
 			"total_tokens":      totalTokens,
 		},
+		"truncated":      truncated,
 		"created_at_utc": time.Now().UTC(),
 		"success":        true,
 	}
@@ -385,6 +395,7 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		TotalTokens:       totalTokens,
 		GeneratedAtUTC:    time.Now().UTC(),
 		Success:           true,
+		Truncated:         truncated,
 	}
 }
 

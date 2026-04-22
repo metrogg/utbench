@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ut-bench 可视化评测报告</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #f3efe7;
+      --bg-2: #ede3cf;
+      --card: rgba(255, 252, 247, 0.9);
+      --card-strong: #fffdf8;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --accent: #0f766e;
+      --accent-soft: rgba(15, 118, 110, 0.20);
+      --accent-2: rgba(12, 74, 110, 0.75);
+      --warn: #b45309;
+      --ok: #166534;
+      --line: rgba(148, 163, 184, 0.24);
+      --shadow: 0 24px 60px rgba(120, 98, 62, 0.12);
+      --hero-ink: #f9f6ef;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--text); background:
+      radial-gradient(circle at top left, rgba(15,118,110,0.08), transparent 24%),
+      radial-gradient(circle at top right, rgba(217,119,6,0.10), transparent 26%),
+      linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 18%, #f8f5ee 100%);
+      font-family: "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 26px 20px 40px; }
+    .hero { position: relative; overflow: hidden; padding: 24px; margin-bottom: 18px; border-radius: 28px; background:
+      radial-gradient(circle at 15% 20%, rgba(255,255,255,0.18), transparent 26%),
+      radial-gradient(circle at 82% 24%, rgba(255,255,255,0.10), transparent 22%),
+      linear-gradient(135deg, #0f172a 0%, #16324f 45%, #3b2f2f 100%);
+      box-shadow: 0 28px 80px rgba(15, 23, 42, 0.22); color: var(--hero-ink); }
+    .hero > h1, .hero > .sub, .hero > .meta { display: none; }
+    .hero-top { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 18px; flex-wrap: wrap; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.14); color: rgba(249,246,239,0.92); }
+    .hero h1 { max-width: 760px; margin: 0; font-family: "Georgia", "Times New Roman", "Songti SC", serif; font-size: clamp(30px, 5vw, 48px); line-height: 1.06; font-weight: 700; letter-spacing: -0.02em; }
+    .hero .sub { max-width: 760px; margin-top: 12px; color: rgba(249,246,239,0.78); font-size: 14px; line-height: 1.75; }
+    .hero-meta-card { min-width: 240px; padding: 14px 16px; border-radius: 18px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); backdrop-filter: blur(10px); }
+    .hero-meta-card .meta-title { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(249,246,239,0.66); margin-bottom: 8px; }
+    .meta { color: rgba(249,246,239,0.88); font-size: 12px; line-height: 1.7; }
+    .hero-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .hero-chip { padding: 12px 14px; border-radius: 18px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(8px); }
+    .hero-chip .k { color: rgba(249,246,239,0.64); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .hero-chip .v { margin-top: 6px; color: #ffffff; font-size: 20px; font-weight: 700; }
+    .jump-nav { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 18px; }
+    .jump-nav a { text-decoration: none; color: #264653; background: rgba(255,255,255,0.72); border: 1px solid rgba(38,70,83,0.10); border-radius: 999px; padding: 10px 14px; font-size: 13px; box-shadow: 0 8px 20px rgba(120, 98, 62, 0.08); }
+    .section { background: linear-gradient(180deg, rgba(255,255,255,0.94), rgba(255,252,247,0.88)); border: 1px solid var(--line); border-radius: 22px; padding: 18px 18px 16px; box-shadow: var(--shadow); margin-bottom: 16px; backdrop-filter: blur(10px); }
+    h2 { margin: 0 0 12px; font-family: "Georgia", "Times New Roman", "Songti SC", serif; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+    h3 { margin: 14px 0 10px; font-size: 13px; color: #243b53; text-transform: uppercase; letter-spacing: 0.06em; }
+    .prompt-banner { position: relative; overflow: hidden; background:
+      radial-gradient(circle at top left, rgba(14,165,233,0.20), transparent 34%),
+      radial-gradient(circle at bottom right, rgba(16,185,129,0.16), transparent 30%),
+      linear-gradient(135deg, #0f172a 0%, #102a43 100%);
+      color: #e2e8f0; border: none; }
+    .prompt-banner h2 { color: #f8fafc; font-size: 16px; }
+    .prompt-banner .subnote { color: rgba(226,232,240,0.78); font-size: 13px; line-height: 1.7; margin: 0 0 10px; }
+    .prompt-badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; }
+    .prompt-badge { display: inline-flex; align-items: center; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.10); color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.12); }
+    .prompt-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; }
+    .prompt-panel { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); border-radius: 14px; padding: 14px; backdrop-filter: blur(6px); }
+    .prompt-panel h3 { margin-top: 0; color: #f8fafc; font-size: 13px; }
+    .prompt-list { margin: 0; padding-left: 18px; line-height: 1.7; font-size: 13px; color: rgba(241,245,249,0.92); }
+    .prompt-fields { display: flex; gap: 8px; flex-wrap: wrap; }
+    .prompt-chip { display: inline-flex; align-items: center; padding: 5px 9px; border-radius: 999px; background: rgba(15,23,42,0.42); color: #bae6fd; border: 1px solid rgba(125,211,252,0.22); font-size: 12px; }
+    .prompt-template-wrap { margin-top: 14px; }
+    .prompt-template-note { color: rgba(226,232,240,0.78); font-size: 12px; margin: 0 0 8px; }
+    .prompt-template-box { margin: 0; padding: 14px; border-radius: 14px; background: rgba(2,6,23,0.52); border: 1px solid rgba(148,163,184,0.22); color: #e2e8f0; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.65; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .cards { display: grid; gap: 12px; grid-template-columns: repeat(4, 1fr); margin: 10px 0 6px; }
+    .card { position: relative; overflow: hidden; background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,250,243,0.92)); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 18px; padding: 14px 16px; }
+    .card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 5px; background: linear-gradient(180deg, var(--accent), #c08457); }
+    .card .k { color: var(--muted); font-size: 12px; }
+    .card .v { margin-top: 6px; font-size: 24px; font-weight: 800; color: #0f4c5c; }
+    .card .hint { margin-top: 4px; font-size: 12px; color: var(--muted); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .panel { background: var(--card-strong); border: 1px solid var(--line); border-radius: 18px; padding: 14px; }
+    .chart-box { height: 280px; }
+    .chart-box canvas { width: 100% !important; height: 100% !important; }
+    .conclusion { margin: 0; padding-left: 18px; color: #243b53; line-height: 1.6; font-size: 13px; }
+    .conclusion li strong { color: var(--accent); }
+    .table-wrap { border: 1px solid var(--line); border-radius: 18px; overflow: auto; background: rgba(255,255,255,0.86); }
+    .table-hero th { background: #f7f1e4; color: #102a43; border-bottom: 1px solid var(--line); font-weight: 800; }
+    .table-hero tbody tr:nth-child(even) td { background: #ffffff; }
+    .table-hero td { background: #ffffff; }
+    .table-hero th { top: 0; }
+    table { width: 100%; border-collapse: collapse; background: var(--card); }
+    th, td { border-bottom: 1px solid var(--line); padding: 7px 10px; font-size: 12.5px; text-align: left; vertical-align: top; white-space: nowrap; }
+    th { position: sticky; top: 0; background: #faf8f2; z-index: 1; }
+    tbody tr:nth-child(even) td { background: #fffaf3; }
+    tr:last-child td { border-bottom: none; }
+    .filters { display: flex; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
+    select, input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font-size: 12.5px; }
+    label { font-size: 12px; color: var(--muted); }
+    .small { color: var(--muted); font-size: 12px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin-left: 6px; background: #f1f5f9; color: #334155; }
+    .status { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 12px; line-height: 18px; border: 1px solid transparent; }
+    .status.ok { background: rgba(34,197,94,0.12); color: #15803d; border-color: rgba(34,197,94,0.25); }
+    .status.bad { background: rgba(239,68,68,0.12); color: #b91c1c; border-color: rgba(239,68,68,0.25); }
+    .status.na { background: rgba(148,163,184,0.18); color: #475569; border-color: rgba(148,163,184,0.25); }
+    .leaderboard { display: flex; flex-direction: column; gap: 12px; }
+    .lb-item { display: grid; grid-template-columns: 42px 1fr auto; gap: 12px; padding: 14px; border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 18px; background: linear-gradient(180deg, #fffdf8, #fff8ef); }
+    .lb-rank { width: 34px; height: 34px; border-radius: 999px; display: grid; place-items: center; font-weight: 800; font-size: 13px; background: linear-gradient(180deg, #efe2c3, #e7d0a2); color: #5c3b16; margin-top: 2px; }
+    .lb-title { font-weight: 800; font-size: 14px; margin: 0 0 6px 0; }
+    .lb-metrics { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+    .metric { display: flex; gap: 8px; align-items: center; }
+    .metric .name { color: var(--muted); font-size: 12px; }
+    .bar { width: 110px; height: 7px; border-radius: 999px; background: #eadfca; overflow: hidden; }
+    .bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #d97706); }
+    .metric .val { font-size: 12px; color: #0f172a; }
+    .kpi-mini-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0 14px; }
+    .kpi-mini { border-radius: 14px; padding: 10px 12px; background: linear-gradient(180deg, #fffef9, #fff9ef); border: 1px solid rgba(148,163,184,0.2); }
+    .kpi-mini .k { color: #5b6472; font-size: 12px; }
+    .kpi-mini .v { margin-top: 4px; font-size: 20px; font-weight: 800; color: #1f3b4d; }
+    .kpi-mini .hint { margin-top: 3px; color: #7b8794; font-size: 11px; }
+    .accordion { display: grid; gap: 10px; }
+    details.accordion-item { border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,0.84); overflow: hidden; }
+    details.accordion-item > summary { list-style: none; cursor: pointer; padding: 12px 14px; font-weight: 700; color: #16324f; background: linear-gradient(180deg, #fdf8ee, #f7efe2); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    details.accordion-item > summary::-webkit-details-marker { display: none; }
+    details.accordion-item > summary::after { content: '展开'; font-size: 12px; color: #64748b; font-weight: 500; }
+    details.accordion-item[open] > summary::after { content: '收起'; }
+    .accordion-body { padding: 12px; }
+    .kv-table { width: 100%; border-collapse: collapse; }
+    .kv-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; white-space: normal; }
+    .kv-table tr:last-child td { border-bottom: none; }
+    .muted-note { margin: 0 0 10px; color: #5f6b7a; font-size: 12.5px; }
+    /* leaderboard enhancements */
+    .lb-item.gold { background: linear-gradient(180deg, #fff9e8, #fff2c9); border-color: rgba(217,119,6,0.35); }
+    .lb-item.silver { background: linear-gradient(180deg, #f8f9fa, #e9ecef); border-color: rgba(108,117,125,0.35); }
+    .lb-item.bronze { background: linear-gradient(180deg, #fff0e6, #f5d9c4); border-color: rgba(168,90,18,0.35); }
+    .lb-rank.gold { background: linear-gradient(180deg, #fbbf24, #d97706); color: #fff; box-shadow: 0 2px 8px rgba(217,119,6,0.35); }
+    .lb-rank.silver { background: linear-gradient(180deg, #e5e7eb, #9ca3af); color: #fff; box-shadow: 0 2px 8px rgba(107,114,128,0.35); }
+    .lb-rank.bronze { background: linear-gradient(180deg, #fdba74, #c2410c); color: #fff; box-shadow: 0 2px 8px rgba(194,65,12,0.35); }
+    .lb-score { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+    .lb-score .score-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .lb-score .score-val { font-size: 20px; font-weight: 800; color: var(--accent); line-height: 1; }
+    .lb-meta { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(148,163,184,0.25); }
+    .lb-meta .m-item { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #475569; }
+    .lb-meta .m-item strong { color: #0f172a; font-weight: 700; }
+    /* collapsible sections */
+    .section-collapsible { border: 1px solid var(--line); border-radius: 22px; background: linear-gradient(180deg, rgba(255,255,255,0.94), rgba(255,252,247,0.88)); box-shadow: var(--shadow); margin-bottom: 16px; overflow: hidden; backdrop-filter: blur(10px); }
+    .section-collapsible > summary { list-style: none; cursor: pointer; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-family: "Georgia", "Times New Roman", "Songti SC", serif; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(255,252,247,0.4)); }
+    .section-collapsible > summary::-webkit-details-marker { display: none; }
+    .section-collapsible > summary::after { content: '展开'; font-size: 13px; color: #64748b; font-weight: 500; padding: 6px 12px; border-radius: 999px; background: rgba(148,163,184,0.12); border: 1px solid rgba(148,163,184,0.18); }
+    .section-collapsible[open] > summary::after { content: '收起'; }
+    .section-collapsible .section-body { padding: 0 18px 18px; }
+    /* compact prompt */
+    .prompt-compact { background: linear-gradient(135deg, #0f172a 0%, #102a43 100%); color: #e2e8f0; border: none; }
+    .prompt-compact h2 { color: #f8fafc; font-size: 18px; margin: 0; }
+    .prompt-compact .prompt-tags { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+    .prompt-compact .prompt-tag { display: inline-flex; align-items: center; padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,0.10); color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.12); }
+    .prompt-compact .prompt-bullets { margin: 0; padding-left: 18px; line-height: 1.8; font-size: 13px; color: rgba(241,245,249,0.92); }
+    .prompt-compact details { margin-top: 14px; border-radius: 14px; background: rgba(2,6,23,0.35); border: 1px solid rgba(148,163,184,0.18); overflow: hidden; }
+    .prompt-compact details > summary { list-style: none; cursor: pointer; padding: 10px 14px; font-size: 13px; color: #bae6fd; display: flex; align-items: center; justify-content: space-between; }
+    .prompt-compact details > summary::-webkit-details-marker { display: none; }
+    .prompt-compact details > summary::after { content: '查看原文 ▼'; font-size: 12px; color: #7dd3fc; }
+    .prompt-compact details[open] > summary::after { content: '收起原文 ▲'; }
+    .prompt-compact .prompt-template-box { margin: 0; padding: 14px; border-radius: 0; background: rgba(2,6,23,0.52); border: none; border-top: 1px solid rgba(148,163,184,0.22); color: #e2e8f0; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.65; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    @media (max-width: 900px) {
+      .hero-top { flex-direction: column; }
+      .hero-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid-2 { grid-template-columns: 1fr; }
+      .prompt-grid { grid-template-columns: 1fr; }
+      .wrap { padding: 14px; }
+      .hero h1 { font-size: 32px; }
+      .chart-box { height: 260px; }
+      .cards { grid-template-columns: repeat(2, 1fr); }
+            .kpi-mini-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .bar { width: 90px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="hero-top">
+        <div>
+          <div class="eyebrow">UT-BENCH REPORTER</div>
+          <h1>Unit Test Generation Benchmark Report</h1>
+          <div class="sub">An editorial-style view of model quality across compile success, execution success, coverage, mutation, and prompt consistency.</div>
+        </div>
+        <div class="hero-meta-card">
+          <div class="meta-title">Run Context</div>
+          <div class="meta">Generated at: 2026-04-22T02:19:37.310004358Z<br/>Source: /app/artifacts/runs/run_1776817763964/evaluation/evaluation_result.json</div>
+        </div>
+      </div>
+      <div class="hero-strip">
+        <div class="hero-chip"><div class="k">Samples</div><div class="v">128</div></div>
+        <div class="hero-chip"><div class="k">Compile</div><div class="v">75.00%</div></div>
+        <div class="hero-chip"><div class="k">Line Coverage</div><div class="v">94.04%</div></div>
+        <div class="hero-chip"><div class="k">Mutation</div><div class="v">52.97%</div></div>
+      </div>
+      <h1>单元测试生成能力评测报告</h1>
+      <div class="sub">ut-bench 多模型单测生成对比</div>
+      <div class="meta">生成时间：2026-04-22T02:19:37.310004358Z | 数据源：/app/artifacts/runs/run_1776817763964/evaluation/evaluation_result.json</div>
+    </div>
+
+    <div class="jump-nav">
+      <a href="#leaderboard">Leaderboard</a>
+      <a href="#summary">Summary</a>
+      <a href="#details">Details</a>
+      <a href="#analysis">Analysis</a>
+      <a href="#appendix">Appendix</a>
+      <a href="#prompt">Prompt</a>
+      <a href="#samples">Samples</a>
+    </div>
+
+    <div class="section" id="leaderboard">
+      <h2>模型排名</h2>
+      <div class="leaderboard"><div class="lb-item gold"><div class="lb-rank gold">1</div><div style="flex:1;min-width:0"><div class="lb-title">deepseek-chat</div><div class="lb-metrics"><div class="metric"><span class="name">生成</span><div class="bar"><span style="width:85.60%"></span></div><span class="val">86%</span></div><div class="metric"><span class="name">覆盖</span><div class="bar"><span style="width:93.91%"></span></div><span class="val">94%</span></div><div class="metric"><span class="name">变异</span><div class="bar"><span style="width:54.79%"></span></div><span class="val">55%</span></div><div class="metric"><span class="name">耗时</span><span class="val">N/Ams</span></div><div class="metric"><span class="name">Token</span><span class="val">4420.88</span></div></div><div class="lb-meta"><div class="m-item">编译 <strong>75.00%</strong></div><div class="m-item">分支 <strong>80.52%</strong></div><div class="m-item">断言密度 <strong>N/A</strong>/100LOC</div></div></div><div class="lb-score"><div class="score-label">综合得分</div><div class="score-val">0.79</div></div></div><div class="lb-item silver"><div class="lb-rank silver">2</div><div style="flex:1;min-width:0"><div class="lb-title">MiniMax-M2.7</div><div class="lb-metrics"><div class="metric"><span class="name">生成</span><div class="bar"><span style="width:81.03%"></span></div><span class="val">81%</span></div><div class="metric"><span class="name">覆盖</span><div class="bar"><span style="width:94.20%"></span></div><span class="val">94%</span></div><div class="metric"><span class="name">变异</span><div class="bar"><span style="width:51.11%"></span></div><span class="val">51%</span></div><div class="metric"><span class="name">耗时</span><span class="val">N/Ams</span></div><div class="metric"><span class="name">Token</span><span class="val">4866.95</span></div></div><div class="lb-meta"><div class="m-item">编译 <strong>75.00%</strong></div><div class="m-item">分支 <strong>79.33%</strong></div><div class="m-item">断言密度 <strong>N/A</strong>/100LOC</div></div></div><div class="lb-score"><div class="score-label">综合得分</div><div class="score-val">0.76</div></div></div></div>
+    </div>
+
+    <div class="section" id="summary">
+      <h2>摘要</h2>
+      <div class="cards"><div class="card"><div class="k">样本总数</div><div class="v">128</div></div><div class="card"><div class="k">编译通过率</div><div class="v">75.00%</div></div><div class="card"><div class="k">平均测试通过率</div><div class="v">N/A</div></div><div class="card"><div class="k">平均行覆盖率</div><div class="v">94.04%</div></div><div class="card"><div class="k">平均分支覆盖率</div><div class="v">N/A</div></div><div class="card"><div class="k">平均变异得分</div><div class="v">52.97%</div></div><div class="card"><div class="k">有效变异杀死率</div><div class="v">N/A</div></div><div class="card"><div class="k">平均生成耗时(ms)</div><div class="v">N/A</div></div><div class="card"><div class="k">平均总 Token</div><div class="v">N/A</div></div></div>
+    </div>
+
+    <div class="section" id="details">
+      <h2>结构化详情</h2>
+      <p class="muted-note">重要结论放在首屏，以下分层细节可按需点击展开。</p>
+      <div class="kpi-mini-grid"><div class="kpi-mini"><div class="k">模型维度</div><div class="v">2</div><div class="hint">主榜单模型数量</div></div><div class="kpi-mini"><div class="k">语言维度</div><div class="v">4</div><div class="hint">语言层级对比</div></div><div class="kpi-mini"><div class="k">场景维度</div><div class="v">16</div><div class="hint">任务场景分层</div></div><div class="kpi-mini"><div class="k">模型×场景</div><div class="v">32</div><div class="hint">细分交叉维度</div></div><div class="kpi-mini"><div class="k">失败分类</div><div class="v">7</div><div class="hint">故障条目总数</div></div><div class="kpi-mini"><div class="k">样本明细</div><div class="v">0</div><div class="hint">可筛选样本</div></div></div>
+      <div class="accordion"><details class="accordion-item" open><summary>模型-场景细分矩阵</summary><div class="accordion-body"><p class="muted-note">用于定位某模型在某语言/场景上的短板。</p><div class="table-wrap"><table><thead><tr><th>模型</th><th>语言</th><th>场景</th><th>样本数</th><th>编译通过率</th><th>平均测试通过率</th><th>平均行覆盖率</th><th>平均分支覆盖率</th><th>平均变异得分</th><th>平均总Token</th></tr></thead><tbody><tr><td>deepseek</td><td>cpp</td><td>boundary</td><td>4</td><td>50.00%</td><td>96.70%</td><td>67.62%</td><td>27.29%</td><td>0.00%</td><td>5713</td></tr><tr><td>deepseek</td><td>cpp</td><td>complex</td><td>4</td><td>25.00%</td><td>75.00%</td><td>77.27%</td><td>32.87%</td><td>0.00%</td><td>5142.75</td></tr><tr><td>deepseek</td><td>cpp</td><td>interface</td><td>4</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>7505.75</td></tr><tr><td>deepseek</td><td>cpp</td><td>simple</td><td>4</td><td>100.00%</td><td>80.70%</td><td>83.22%</td><td>35.71%</td><td>0.00%</td><td>3249.25</td></tr><tr><td>deepseek</td><td>go</td><td>boundary</td><td>4</td><td>75.00%</td><td>93.22%</td><td>90.00%</td><td>90.00%</td><td>75.50%</td><td>3067.5</td></tr><tr><td>deepseek</td><td>go</td><td>complex</td><td>4</td><td>100.00%</td><td>90.57%</td><td>100.00%</td><td>100.00%</td><td>98.94%</td><td>3018</td></tr><tr><td>deepseek</td><td>go</td><td>interface</td><td>4</td><td>75.00%</td><td>66.67%</td><td>100.00%</td><td>100.00%</td><td>66.67%</td><td>2887.25</td></tr><tr><td>deepseek</td><td>go</td><td>simple</td><td>4</td><td>100.00%</td><td>89.47%</td><td>100.00%</td><td>100.00%</td><td>100.00%</td><td>3153.25</td></tr><tr><td>deepseek</td><td>java</td><td>boundary</td><td>4</td><td>75.00%</td><td>95.18%</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>6019.5</td></tr><tr><td>deepseek</td><td>java</td><td>complex</td><td>4</td><td>50.00%</td><td>50.00%</td><td>97.67%</td><td>92.11%</td><td>42.97%</td><td>6541.75</td></tr><tr><td>deepseek</td><td>java</td><td>interface</td><td>4</td><td>50.00%</td><td>85.71%</td><td>100.00%</td><td>100.00%</td><td>50.00%</td><td>6072</td></tr><tr><td>deepseek</td><td>java</td><td>simple</td><td>4</td><td>100.00%</td><td>93.62%</td><td>100.00%</td><td>100.00%</td><td>18.33%</td><td>3786</td></tr><tr><td>deepseek</td><td>python</td><td>boundary</td><td>4</td><td>100.00%</td><td>79.91%</td><td>93.65%</td><td>92.71%</td><td>74.52%</td><td>3553.5</td></tr><tr><td>deepseek</td><td>python</td><td>complex</td><td>4</td><td>100.00%</td><td>90.60%</td><td>98.81%</td><td>70.31%</td><td>55.60%</td><td>3991</td></tr><tr><td>deepseek</td><td>python</td><td>interface</td><td>4</td><td>100.00%</td><td>81.31%</td><td>100.00%</td><td>95.83%</td><td>85.24%</td><td>3756</td></tr><tr><td>deepseek</td><td>python</td><td>simple</td><td>4</td><td>100.00%</td><td>89.58%</td><td>100.00%</td><td>100.00%</td><td>71.72%</td><td>3277.5</td></tr><tr><td>minimax</td><td>cpp</td><td>boundary</td><td>4</td><td>50.00%</td><td>100.00%</td><td>73.38%</td><td>26.20%</td><td>0.00%</td><td>5551.25</td></tr><tr><td>minimax</td><td>cpp</td><td>complex</td><td>4</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>5760</td></tr><tr><td>minimax</td><td>cpp</td><td>interface</td><td>4</td><td>25.00%</td><td>100.00%</td><td>80.23%</td><td>26.17%</td><td>0.00%</td><td>6989.25</td></tr><tr><td>minimax</td><td>cpp</td><td>simple</td><td>4</td><td>75.00%</td><td>77.14%</td><td>88.10%</td><td>37.50%</td><td>0.00%</td><td>4232.5</td></tr><tr><td>minimax</td><td>go</td><td>boundary</td><td>4</td><td>75.00%</td><td>88.89%</td><td>80.00%</td><td>80.00%</td><td>87.50%</td><td>3510.5</td></tr><tr><td>minimax</td><td>go</td><td>complex</td><td>4</td><td>100.00%</td><td>79.07%</td><td>100.00%</td><td>100.00%</td><td>100.00%</td><td>3997</td></tr><tr><td>minimax</td><td>go</td><td>interface</td><td>4</td><td>100.00%</td><td>70.83%</td><td>100.00%</td><td>100.00%</td><td>50.00%</td><td>3186.75</td></tr><tr><td>minimax</td><td>go</td><td>simple</td><td>4</td><td>100.00%</td><td>77.78%</td><td>100.00%</td><td>100.00%</td><td>90.00%</td><td>3763.75</td></tr><tr><td>minimax</td><td>java</td><td>boundary</td><td>4</td><td>75.00%</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>7077.5</td></tr><tr><td>minimax</td><td>java</td><td>complex</td><td>4</td><td>50.00%</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>6303.25</td></tr><tr><td>minimax</td><td>java</td><td>interface</td><td>4</td><td>50.00%</td><td>50.00%</td><td>97.56%</td><td>100.00%</td><td>50.00%</td><td>6153.25</td></tr><tr><td>minimax</td><td>java</td><td>simple</td><td>4</td><td>100.00%</td><td>86.67%</td><td>0.00%</td><td>0.00%</td><td>0.00%</td><td>4384.75</td></tr><tr><td>minimax</td><td>python</td><td>boundary</td><td>4</td><td>100.00%</td><td>81.83%</td><td>93.65%</td><td>92.71%</td><td>72.51%</td><td>4455.25</td></tr><tr><td>minimax</td><td>python</td><td>complex</td><td>4</td><td>100.00%</td><td>73.06%</td><td>100.00%</td><td>66.67%</td><td>61.21%</td><td>4432.25</td></tr><tr><td>minimax</td><td>python</td><td>interface</td><td>4</td><td>100.00%</td><td>86.44%</td><td>100.00%</td><td>100.00%</td><td>79.09%</td><td>3734.25</td></tr><tr><td>minimax</td><td>python</td><td>simple</td><td>4</td><td>100.00%</td><td>83.44%</td><td>100.00%</td><td>100.00%</td><td>72.45%</td><td>4339.75</td></tr></tbody></table></div></div></details><details class="accordion-item"><summary>Top 模型与基础信息</summary><div class="accordion-body"><p class="muted-note">把模型榜单和模型元信息集中到一个折叠区域。</p><p class="small">No data.</p><p class="small">No data.</p></div></details><details class="accordion-item"><summary>失败分类与示例</summary><div class="accordion-body"><p class="muted-note">汇总错误类型、阶段和示例信息，便于回溯问题。</p><div class="table-wrap"><table><thead><tr><th>阶段</th><th>错误类型</th><th>数量</th><th>示例模型</th><th>示例样本</th><th>示例信息</th></tr></thead><tbody><tr><td>测试</td><td>其他</td><td>35</td><td>deepseek</td><td>boundary_002</td><td>Running main() from ./googletest/src/gtest_main.cc [==========] Running 18 tests from 1 test suite. [----------] Global test environment set-up. [----------] 18 tests from BinaryConverterTest [ RUN ] BinaryConverterTest.EmptyStringThrows [ OK ] BinaryConverterTest.EmptyStringThrows (0 ms) [ RUN ] BinaryConverterTest.TooLongStringThrows [ OK ] BinaryConverterTest.TooLongStringThrows (0 ms) [ RUN ] BinaryConverterTest.InvalidCharThrows [ OK ] BinaryConverterTest.InvalidCharThrows (0 ms) [ RUN ] Bi...</td></tr><tr><td>变异</td><td>mutation_error</td><td>34</td><td>deepseek</td><td>boundary_002</td><td>make failed: [ 33%] Building CXX object CMakeFiles/test_runner_mull.dir/boundary_002.cpp.o [ 66%] Building CXX object CMakeFiles/test_runner_mull.dir/boundary_002_test.cpp.o [warning] Unknown mutator: cxx_increment_decrement [warning] Unknown mutator: cxx_increment_decrement [100%] Linking CXX executable test_runner_mull /usr/bin/ld: /usr/bin/ld: DWARF error: invalid or unhandled FORM value: 0x23 CMakeFiles/test_runner_mull.dir/boundary_002_test.cpp.o: in function `binary_converter(std::__cxx11:...</td></tr><tr><td>编译</td><td>其他</td><td>31</td><td>deepseek</td><td>boundary_000</td><td>[ 50%] Building CXX object CMakeFiles/test_runner.dir/boundary_000_test.cpp.o /tmp/utbench_cpp_eval_2662213389/boundary_000_test.cpp:11:7: error: redefinition of &#x27;class BigInt&#x27; 11 | class BigInt { | ^~~~~~ In file included from /tmp/utbench_cpp_eval_2662213389/boundary_000_test.cpp:1: /tmp/utbench_cpp_eval_2662213389/boundary_000.cpp:8:7: note: previous definition of &#x27;class BigInt&#x27; 8 | class BigInt { | ^~~~~~ /tmp/utbench_cpp_eval_2662213389/boundary_000_test.cpp: In member function &#x27;virtual voi...</td></tr><tr><td>测试</td><td>断言失败</td><td>23</td><td>deepseek</td><td>boundary_000</td><td>[[1;31mERROR[m] [1;31mTests [0;1mrun: [0;1m32[m, [1;31mFailures: [0;1;31m1[m, [1;31mErrors: [0;1;31m1[m, Skipped: 0, Time elapsed: 0.690 s[1;31m &lt;&lt;&lt; FAILURE![m -- in [1mEmployeeValidatorTest[m [[1;31mERROR[m] EmployeeValidatorTest.testValidateEmail_ExceedsLength30 -- Time elapsed: 0.050 s &lt;&lt;&lt; ERROR! java.lang.Exception: Unexpected exception, expected&lt;java.lang.IllegalArgumentException&gt; but was&lt;java.lang.AssertionError&gt; at org.junit.internal.runners.statements.ExpectException.ev...</td></tr><tr><td>测试</td><td>名称错误</td><td>3</td><td>deepseek</td><td>complex_dependency_002</td><td>..F.FFF..FF [100%] =================================== FAILURES =================================== _____________________ test_task_func_successful_execution ______________________ def test_task_func_successful_execution(): &quot;&quot;&quot;Test successful execution with CSV file.&quot;&quot;&quot; test_csv_content = &quot;col1,col2\nval1,val2\nval3,val4\nval5,val6\nval7,val8\nval9,val10\n&quot; with tempfile.TemporaryDirectory() as tmpdir: csv_file = os.path.join(tmpdir, &#x27;test.csv&#x27;) with open(csv_file, &#x27;w&#x27;) as f: f.write(test_csv_co...</td></tr><tr><td>测试</td><td>超时</td><td>2</td><td>deepseek</td><td>complex_dependency_000</td><td>F.FFF..FF [100%] =================================== FAILURES =================================== _______________________ test_task_func_normal_operation ________________________ def test_task_func_normal_operation(): &quot;&quot;&quot;Test normal server operation with a client connection.&quot;&quot;&quot; # Mock socket and select to simulate a client connecting and sending data mock_server_socket = MagicMock(spec=socket.socket) mock_client_socket = MagicMock(spec=socket.socket) mock_client_socket.recv.return_value = b&quot;Hell...</td></tr><tr><td>编译</td><td>断言失败</td><td>1</td><td>minimax</td><td>simple_function_002</td><td>[ 50%] Building CXX object CMakeFiles/test_runner.dir/simple_function_002_test.cpp.o /tmp/utbench_cpp_eval_2331893751/simple_function_002_test.cpp:96:26: error: unterminated argument list invoking macro &quot;ASSERT_EQ&quot; 96 | ASSERT_EQ(result.size | ^ /tmp/utbench_cpp_eval_2331893751/simple_function_002_test.cpp: In member function &#x27;virtual void SortArrayTest_Duplicates_Test::TestBody()&#x27;: /tmp/utbench_cpp_eval_2331893751/simple_function_002_test.cpp:96:5: error: &#x27;ASSERT_EQ&#x27; was not declared in this sc...</td></tr></tbody></table></div></div></details><details class="accordion-item"><summary>Token 与成本统计</summary><div class="accordion-body"><p class="muted-note">查看总体 token 消耗及均值，支撑成本评估。</p><p class="small">No data.</p></div></details><details class="accordion-item"><summary>变异测试拆解</summary><div class="accordion-body"><p class="muted-note">查看变异体命中结果分布，判断测试有效性。</p><p class="small">No data.</p></div></details></div>
+    </div>
+
+    <details class="section-collapsible" id="analysis">
+      <summary>统计分析洞察</summary>
+      <div class="section-body">
+        <div class="grid-2">
+          <div class="panel">
+            <h3>模型综合分排名</h3>
+            <div class="chart-box"><canvas id="chartComposite"></canvas></div>
+          </div>
+          <div class="panel">
+            <h3>任务维度对比（测试通过率/Gate率）</h3>
+            <div class="chart-box"><canvas id="chartScenario"></canvas></div>
+          </div>
+          <div class="panel">
+            <h3>模型能力雷达（Top5）</h3>
+            <div class="chart-box"><canvas id="chartRadarTop5"></canvas></div>
+          </div>
+          <div class="panel">
+            <h3>错误类型分布</h3>
+            <div class="chart-box"><canvas id="chartErrors"></canvas></div>
+          </div>
+        </div>
+        <h3>关键洞察</h3>
+        <ul class="conclusion"><li>最佳表现：deepseek-chat 以 0.788506 的综合得分领先。</li><li>领先优势：Top1-Top2 差值 0.028450。</li></ul>
+      </div>
+    </details>
+
+    <details class="section-collapsible">
+      <summary>详细分析</summary>
+      <div class="section-body">
+        <div class="grid-2">
+          <div class="panel">
+            <h3>模型关键指标柱状图</h3>
+            <div class="chart-box"><canvas id="barModel"></canvas></div>
+          </div>
+          <div class="panel">
+            <h3>复杂度-测试通过率折线图</h3>
+            <div class="chart-box"><canvas id="lineComplexity"></canvas></div>
+          </div>
+          <div class="panel">
+            <h3>五维能力雷达图（模型均值）</h3>
+            <div class="chart-box"><canvas id="radarDimensions"></canvas></div>
+          </div>
+          <div class="panel">
+            <h3>模型×语言热力图（测试通过率）</h3>
+            <div class="chart-box"><canvas id="heatmapModelLang"></canvas></div>
+          </div>
+        </div>
+        <h3>失败类型统计</h3>
+        <div class="table-wrap"><table><thead><tr><th>阶段</th><th>错误类型</th><th>数量</th><th>示例模型</th><th>示例样本</th><th>示例信息</th></tr></thead><tbody><tr><td>测试</td><td>其他</td><td>35</td><td>deepseek</td><td>boundary_002</td><td>Running main() from ./googletest/src/gtest_main.cc [==========] Running 18 tests from 1 test suite. [----------] Global test environment set-up. [----------] 18 tests from BinaryConverterTest [ RUN ] BinaryConverterTest.EmptyStringThrows [ OK ] BinaryConverterTest.EmptyStringThrows (0 ms) [ RUN ] BinaryConverterTest.TooLongStringThrows [ OK ] BinaryConverterTest.TooLongStringThrows (0 ms) [ RUN ] BinaryConverterTest.InvalidCharThrows [ OK ] BinaryConverterTest.InvalidCharThrows (0 ms) [ RUN ] Bi...</td></tr><tr><td>变异</td><td>mutation_error</td><td>34</td><td>deepseek</td><td>boundary_002</td><td>make failed: [ 33%] Building CXX object CMakeFiles/test_runner_mull.dir/boundary_002.cpp.o [ 66%] Building CXX object CMakeFiles/test_runner_mull.dir/boundary_002_test.cpp.o [warning] Unknown mutator: cxx_increment_decrement [warning] Unknown mutator: cxx_increment_decrement [100%] Linking CXX executable test_runner_mull /usr/bin/ld: /usr/bin/ld: DWARF error: invalid or unhandled FORM value: 0x23 CMakeFiles/test_runner_mull.dir/boundary_002_test.cpp.o: in function `binary_converter(std::__cxx11:...</td></tr><tr><td>编译</td><td>其他</td><td>31</td><td>deepseek</td><td>boundary_000</td><td>[ 50%] Building CXX object CMakeFiles/test_runner.dir/boundary_000_test.cpp.o /tmp/utbench_cpp_eval_2662213389/boundary_000_test.cpp:11:7: error: redefinition of &#x27;class BigInt&#x27; 11 | class BigInt { | ^~~~~~ In file included from /tmp/utbench_cpp_eval_2662213389/boundary_000_test.cpp:1: /tmp/utbench_cpp_eval_2662213389/boundary_000.cpp:8:7: note: previous definition of &#x27;class BigInt&#x27; 8 | class BigInt { | ^~~~~~ /tmp/utbench_cpp_eval_2662213389/boundary_000_test.cpp: In member function &#x27;virtual voi...</td></tr><tr><td>测试</td><td>断言失败</td><td>23</td><td>deepseek</td><td>boundary_000</td><td>[[1;31mERROR[m] [1;31mTests [0;1mrun: [0;1m32[m, [1;31mFailures: [0;1;31m1[m, [1;31mErrors: [0;1;31m1[m, Skipped: 0, Time elapsed: 0.690 s[1;31m &lt;&lt;&lt; FAILURE![m -- in [1mEmployeeValidatorTest[m [[1;31mERROR[m] EmployeeValidatorTest.testValidateEmail_ExceedsLength30 -- Time elapsed: 0.050 s &lt;&lt;&lt; ERROR! java.lang.Exception: Unexpected exception, expected&lt;java.lang.IllegalArgumentException&gt; but was&lt;java.lang.AssertionError&gt; at org.junit.internal.runners.statements.ExpectException.ev...</td></tr><tr><td>测试</td><td>名称错误</td><td>3</td><td>deepseek</td><td>complex_dependency_002</td><td>..F.FFF..FF [100%] =================================== FAILURES =================================== _____________________ test_task_func_successful_execution ______________________ def test_task_func_successful_execution(): &quot;&quot;&quot;Test successful execution with CSV file.&quot;&quot;&quot; test_csv_content = &quot;col1,col2\nval1,val2\nval3,val4\nval5,val6\nval7,val8\nval9,val10\n&quot; with tempfile.TemporaryDirectory() as tmpdir: csv_file = os.path.join(tmpdir, &#x27;test.csv&#x27;) with open(csv_file, &#x27;w&#x27;) as f: f.write(test_csv_co...</td></tr><tr><td>测试</td><td>超时</td><td>2</td><td>deepseek</td><td>complex_dependency_000</td><td>F.FFF..FF [100%] =================================== FAILURES =================================== _______________________ test_task_func_normal_operation ________________________ def test_task_func_normal_operation(): &quot;&quot;&quot;Test normal server operation with a client connection.&quot;&quot;&quot; # Mock socket and select to simulate a client connecting and sending data mock_server_socket = MagicMock(spec=socket.socket) mock_client_socket = MagicMock(spec=socket.socket) mock_client_socket.recv.return_value = b&quot;Hell...</td></tr><tr><td>编译</td><td>断言失败</td><td>1</td><td>minimax</td><td>simple_function_002</td><td>[ 50%] Building CXX object CMakeFiles/test_runner.dir/simple_function_002_test.cpp.o /tmp/utbench_cpp_eval_2331893751/simple_function_002_test.cpp:96:26: error: unterminated argument list invoking macro &quot;ASSERT_EQ&quot; 96 | ASSERT_EQ(result.size | ^ /tmp/utbench_cpp_eval_2331893751/simple_function_002_test.cpp: In member function &#x27;virtual void SortArrayTest_Duplicates_Test::TestBody()&#x27;: /tmp/utbench_cpp_eval_2331893751/simple_function_002_test.cpp:96:5: error: &#x27;ASSERT_EQ&#x27; was not declared in this sc...</td></tr></tbody></table></div>
+        <h3>结论摘要</h3>
+        <ul class="conclusion">
+          <li><strong>正确性：</strong>整体编译通过率 75.00%，平均测试通过率 N/A。</li>
+          <li><strong>覆盖率：</strong>行覆盖率 94.04%，分支覆盖率 N/A。</li>
+          <li><strong>有效性：</strong>变异得分均值 52.97%，有效变异杀死率 N/A，与目标 85.00% 对比可持续优化。</li>
+          <li><strong>效率：</strong>平均生成耗时 N/A ms，平均总 Token N/A。</li>
+        </ul>
+        <h3>数据质量说明</h3>
+        <p class="small">无样本数据。</p>
+      </div>
+    </details>
+
+    <details class="section-collapsible" id="appendix">
+      <summary>附录（统计表）</summary>
+      <div class="section-body">
+        <h3>按模型统计表</h3>
+        <div class="table-wrap table-hero"><table><thead><tr><th>模型</th><th>样本数</th><th>编译通过率</th><th>测试通过率</th><th>平均行覆盖率</th><th>平均分支覆盖率</th><th>平均变异得分</th><th>平均生成耗时(ms)</th><th>平均总Token</th></tr></thead><tbody><tr><td>deepseek</td><td>64</td><td>75.00%</td><td>N/A</td><td>93.91%</td><td>80.52%</td><td>54.79%</td><td>N/A</td><td>4420.88</td></tr><tr><td>minimax</td><td>64</td><td>75.00%</td><td>N/A</td><td>94.20%</td><td>79.33%</td><td>51.11%</td><td>N/A</td><td>4866.95</td></tr></tbody></table></div>
+        <h3>按语言统计表</h3>
+        <div class="table-wrap"><table><thead><tr><th>语言</th><th>样本数</th><th>编译通过率</th><th>测试通过率</th><th>平均行覆盖率</th><th>平均分支覆盖率</th><th>平均变异得分</th><th>avg_assertion_density_per_100_loc</th><th>avg_assertions_per_testcase</th><th>平均生成耗时(ms)</th><th>平均总Token</th></tr></thead><tbody><tr><td>cpp</td><td>32</td><td>40.62%</td><td>N/A</td><td>79.74%</td><td>32.41%</td><td>0.00%</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td></tr><tr><td>go</td><td>32</td><td>90.62%</td><td>N/A</td><td>96.92%</td><td>96.92%</td><td>84.30%</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td></tr><tr><td>java</td><td>32</td><td>68.75%</td><td>N/A</td><td>98.81%</td><td>98.03%</td><td>16.33%</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td></tr><tr><td>python</td><td>32</td><td>100.00%</td><td>N/A</td><td>98.21%</td><td>90.52%</td><td>71.88%</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td></tr></tbody></table></div>
+      </div>
+    </details>
+
+    <div class="section prompt-compact" id="prompt"><h2>Prompt 策略</h2><div class="prompt-tags"><span class="prompt-tag">同一模板</span><span class="prompt-tag">跨模型一致</span><span class="prompt-tag">样本上下文驱动</span><span class="prompt-tag">只输出原始测试代码</span></div><ul class="prompt-bullets"><li>角色定位为资深单元测试工程师，目标是生成可执行且与源码行为严格一致的测试。</li><li>统一要求先识别可调用符号与输入输出契约，再构造正常/边界/异常测试矩阵。</li><li>期望值必须严格从实现语义推导，禁止按常识补全源码未实现的行为。</li><li>强制要求测试可重复、可运行，使用清晰断言，异常路径使用 pytest.raises。</li><li>要求优先从同目录目标模块导入被测对象，避免导入源码未定义符号和无关第三方依赖。</li><li>存在阈值或边界判断时，必须显式覆盖等于边界的断言样例。</li><li>当注释、文档或直觉与实现冲突时，以实际实现为准。</li><li>对结构化返回值必须逐字段断言，避免只做整体对象相等比较。</li><li>输出格式统一为原始测试代码，不包含 Markdown 代码块和解释文字。</li></ul><details><summary>Prompt 模板详情</summary><ol class="prompt-bullets"><li>识别源码中的可调用符号、依赖和输入输出契约。</li><li>构造 normal / boundary / exception 三类测试矩阵。</li><li>仅依据实现语义推导断言期望值。</li><li>编写确定性、可执行、断言明确的测试代码。</li><li>输出前自检语法、导入和断言引用是否正确。</li></ol><div class="prompt-tags"><span class="prompt-tag">language</span><span class="prompt-tag">framework</span><span class="prompt-tag">sample_id</span><span class="prompt-tag">scenario</span><span class="prompt-tag">complexity</span><span class="prompt-tag">module_import_name</span><span class="prompt-tag">dependencies_detected</span><span class="prompt-tag">coverage_targets</span><span class="prompt-tag">mock_requirement</span><span class="prompt-tag">critical_conditions</span><span class="prompt-tag">source_code_under_test</span></div><pre class="prompt-template-box">You are an expert unit testing engineer.
+你是一名资深单元测试工程师。
+Generate high-quality unit tests based on the following specification.
+请基于以下规范生成高质量单元测试。
+
+## Role &amp; Objective（角色与目标）
+- Goal: produce executable tests that match source behavior exactly.
+- 目标：生成可执行且与源码行为严格一致的测试。
+
+## Language &amp; Framework（语言与框架）
+- Language（语言）: {data.language}
+- Test Framework（测试框架）: {framework}
+
+## Step-by-Step Workflow（分步流程）
+1) Identify callable symbols and input/output contracts from source.
+2) Build a test matrix: normal, boundary, and exception paths.
+3) Derive expected values only from implementation semantics.
+4) Write deterministic, runnable tests with clear assertions.
+5) Self-check syntax/imports/assertions before final output.
+
+## Test Requirements（测试要求）
+- Cover normal paths, boundary conditions, and error/exception behavior.
+- 覆盖正常路径、边界条件和异常行为。
+- Keep tests deterministic and runnable.
+- 保持测试可重复、可执行（避免随机性）。
+- Use clear assertions with meaningful expected values.
+- 使用清晰断言和有意义的期望值。
+- Test function names must start with `test_`.
+- 测试函数命名必须以 `test_` 开头。
+- Use plain `assert` and `pytest.raises` for failure paths.
+- 断言使用 `assert`，异常路径使用 `pytest.raises`。
+- Use function-based tests (e.g., `def test_xxx()`) instead of class-based.
+- 使用函数式测试（如 `def test_xxx()`），不要用 class-based（如 `class Test:`）。
+- MUST import target symbols from local module `{module_name}` before writing tests.
+- 必须先从同目录模块 `{module_name}` 导入被测对象，再编写测试。
+- NEVER import symbols that are not defined/exported by the source module.
+- 严禁导入源码中不存在/未导出的符号。
+- Allowed source symbols（允许导入的源码符号）: {symbols_text}
+- Avoid importing unrelated third-party packages by default.
+- 默认不要引入无关第三方包。
+- Coverage targets（覆盖率目标，供参考）: {coverage_targets}
+- Mock requirements（Mock 要求）: {mock_requirement}
+
+## Semantic Alignment Hard Rules（语义对齐硬约束）
+- Derive expected values strictly from the given source code behavior.
+- 期望值必须严格依据给定源码行为推导，不要按题型常识脑补。
+- Respect exact comparison semantics in code (`&lt;`, `&lt;=`, `&gt;`, `&gt;=`, `==`).
+- 必须严格遵守源码比较符号语义（尤其阈值边界等于时）。
+- Include explicit boundary-equality assertions when threshold/limit checks exist.
+- 当存在阈值/边界判断时，必须包含“等于边界”的断言样例。
+- If implementation looks counter-intuitive, still assert implementation behavior.
+- 若实现与常识不一致，也必须以源码实现为准。
+- If docstring/comment conflicts with implementation, trust implementation.
+- 若注释/文档示例与实现冲突，以实现为准。
+- Do NOT assume implicit coercion not present in code (e.g., str-&gt;number).
+- 不要假设源码未实现的隐式转换（例如字符串自动转数字）。
+- For sliding-window or two-pointer counting algorithms: when the loop condition is
+  `while left &lt; right and sorted[right] - sorted[left] &gt;= threshold`,
+  a threshold of 0 with duplicate values produces a count of 0 — the window only
+  advances when `&gt;` threshold, NOT when `==` threshold.
+- 对于滑窗/双指针计数算法：当循环条件是 `&gt;= threshold` 时，
+  threshold=0 且有重复值的情况下会计数为 0 —— 只有 `&gt;` threshold 时窗口才右移。
+- Trace through the algorithm by hand for boundary values before writing assertions.
+- 写断言前，必须手工推导一遍算法在边界值上的执行过程。
+- For functions returning structured results (e.g., namedtuple, dataclass): always assert
+  each field individually. Never assert the whole object equality without field-level checks.
+- 对于返回结构体结果的函数，必须逐字段断言，切勿直接做整体相等判断而不验证字段值。
+- For `nearest_pair` or similar: the returned index fields are `left_index=min(original_indices)`
+  and `right_index=max(original_indices)` — trace the sorted enumeration carefully.
+- 对于类似 `nearest_pair` 的函数：返回的索引字段是 `left_index=min(原始索引)` 和
+  `right_index=max(原始索引)`，必须仔细追踪排序后的枚举过程。
+
+## Critical Conditions Extracted（关键逻辑条件）
+{critical_text}
+
+## Error Prevention Checklist（错误预防清单，仅内部执行）
+- No placeholder tests like `assert True`.
+- No assertions for behavior that cannot be inferred from source.
+- Ensure every referenced symbol exists in source imports/definitions.
+- Ensure every `from module import ...` name appears in the allowed source symbols.
+- Ensure generated file is directly runnable by the target test framework.
+
+## Context Information（上下文信息）
+- Sample ID（样本ID）: {data.sample_id}
+- Scenario（场景）: {scenario_text}
+- Complexity（复杂度）: {complexity_text}
+- Dependencies detected（检测到依赖）: {dependency_text}
+
+## Output Format（输出格式）
+- Return raw test code only (no Markdown fences).
+- 仅输出原始测试代码，不要 Markdown 代码块。
+- Do not include explanations.
+- 不要输出解释文字。
+
+## Source Code Under Test（被测源码）
+```{data.language}
+{data.source_code}
+```</pre></details></div>
+
+    <div class="section" id="samples">
+      <h2>原始样本明细（支持筛选）</h2>
+    <div class="filters">
+      <label>模型
+        <select id="modelFilter">
+          <option value="all">全部</option>
+          
+        </select>
+      </label>
+      <label>语言
+        <select id="languageFilter">
+          <option value="all">全部</option>
+          
+        </select>
+      </label>
+      <label>测试状态
+        <select id="testStatusFilter">
+          <option value="pass" selected>仅通过</option>
+          <option value="all">全部</option>
+          <option value="fail">仅失败</option>
+          <option value="none">未执行</option>
+        </select>
+      </label>
+      <label>覆盖率
+        <select id="coverageFilter">
+          <option value="all">全部</option>
+          <option value="has">有覆盖率</option>
+          <option value="none">无覆盖率</option>
+        </select>
+      </label>
+      <label>变异状态
+        <select id="mutationFilter">
+          <option value="all">全部</option>
+          <option value="has_score">有变异得分</option>
+          <option value="has_stats">有变异统计</option>
+          <option value="stats_no_score">有统计但无得分</option>
+          <option value="none">无变异统计</option>
+          <option value="error">变异阶段报错</option>
+        </select>
+      </label>
+      <label>样本关键词
+        <input id="sampleKeywordFilter" type="text" placeholder="输入 sample_id 关键字" />
+      </label>
+    </div>
+    <p id="filterStats" class="small"></p>
+    <p class="small">No sample rows.</p>
+    <p class="small">提示：默认仅显示测试通过样本；可切换筛选查看失败样本和异常样本。</p>
+  </div>
+
+  <script>
+    const styleConfig = {"accent": "#0f766e", "accent_soft": "rgba(15, 118, 110, 0.20)", "accent_2": "rgba(12, 74, 110, 0.75)", "warn": "#b45309", "ok": "#166534"};
+    const modelNames = ["deepseek-chat", "MiniMax-M2.7"];
+    const testPassRates = [0.85604, 0.810278];
+    const lineCoverages = [0.939087, 0.942016];
+    const mutationScores = [0.54788, 0.511133];
+    const compositeLabels = ["deepseek-chat", "MiniMax-M2.7"];
+    const compositeScores = [78.8506, 76.0056];
+    const scenarioLabels = ["boundary", "complex", "interface", "simple", "boundary", "complex", "interface", "simple", "boundary", "complex", "interface", "simple", "boundary", "complex", "interface", "simple"];
+    const scenarioTestRates = [97.931, 75.0, 100.0, 79.3478, 91.1504, 85.4167, 69.2308, 84.3137, 91.8605, 25.0, 81.25, 89.7196, 80.9388, 81.4046, 83.6815, 84.03190000000001];
+    const scenarioGateRates = [50.0, 12.5, 12.5, 87.5, 75.0, 100.0, 87.5, 100.0, 75.0, 50.0, 50.0, 100.0, 100.0, 100.0, 100.0, 100.0];
+    const radarTop5Models = ["deepseek-chat", "MiniMax-M2.7"];
+    const radarTop5Dims = ["通过率", "覆盖率", "变异", "断言密度"];
+    const radarTop5Values = [[85.604, 93.9087, 54.788000000000004, 0.0], [81.0278, 94.2016, 51.113299999999995, 0.0]];
+    const errorLabels = ["other", "mutation_error", "assertion_failure", "name_error", "timeout"];
+    const errorValues = [66, 34, 24, 3, 2];
+    const complexityNames = [];
+    const complexityTestRates = [];
+    const radarCompile = [0.75, 0.75];
+    const radarBranch = [0.80524, 0.793303];
+    const heatmapModels = [];
+    const heatmapLanguages = [];
+    const heatmapValues = [];
+
+    const thresholdCompile = 1.0;
+    const thresholdTest = 0.7;
+    const thresholdLine = 0.7;
+    const thresholdBranch = 0.6;
+    const thresholdMutation = 0.85;
+
+    function avg(arr) {
+      if (!arr || arr.length === 0) return 0;
+      return arr.reduce((sum, value) => sum + value, 0) / arr.length;
+    }
+
+    function chartDefaults() {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: { enabled: true }
+        }
+      };
+    }
+
+    const compositeCtx = document.getElementById('chartComposite');
+    if (compositeCtx && compositeLabels.length > 0) {
+      new Chart(compositeCtx, {
+        type: 'bar',
+        data: {
+          labels: compositeLabels,
+          datasets: [{ label: '综合分', data: compositeScores, backgroundColor: '#2563eb' }]
+        },
+        options: {
+          ...chartDefaults(),
+          scales: { y: { beginAtZero: true, max: 100 } },
+        }
+      });
+    }
+
+    const scenarioCtx = document.getElementById('chartScenario');
+    if (scenarioCtx && scenarioLabels.length > 0) {
+      new Chart(scenarioCtx, {
+        type: 'bar',
+        data: {
+          labels: scenarioLabels,
+          datasets: [
+            { label: '测试通过率', data: scenarioTestRates, backgroundColor: '#10b981' },
+            { label: 'Gate率(编译通过)', data: scenarioGateRates, backgroundColor: '#f59e0b' },
+          ]
+        },
+        options: {
+          ...chartDefaults(),
+          scales: {
+            y: { beginAtZero: true, max: 100 },
+            x: { ticks: { maxRotation: 20, minRotation: 20 } }
+          }
+        }
+      });
+    }
+
+    const radarTopCtx = document.getElementById('chartRadarTop5');
+    if (radarTopCtx && radarTop5Models.length > 0) {
+      const colors = ['#2563eb', '#ef4444', '#f97316', '#10b981', '#8b5cf6'];
+      const datasets = radarTop5Models.map((name, idx) => {
+        const v = radarTop5Values[idx] || [0,0,0,0];
+        // last dimension (assert density) is not pct; normalize by 1.0 -> treat as /100 loc already; cap at 100.
+        const normalized = [v[0], v[1], v[2], Math.min(100, v[3])];
+        return {
+          label: name,
+          data: normalized,
+          borderColor: colors[idx % colors.length],
+          backgroundColor: colors[idx % colors.length] + '22',
+        };
+      });
+      new Chart(radarTopCtx, {
+        type: 'radar',
+        data: { labels: radarTop5Dims, datasets },
+        options: {
+          ...chartDefaults(),
+          scales: { r: { min: 0, max: 100 } }
+        }
+      });
+    }
+
+    const errorCtx = document.getElementById('chartErrors');
+    if (errorCtx && errorLabels.length > 0) {
+      const colors = errorLabels.map((_, idx) => ['#10b981', '#ef4444', '#f59e0b', '#64748b', '#8b5cf6'][idx % 5]);
+      new Chart(errorCtx, {
+        type: 'pie',
+        data: {
+          labels: errorLabels,
+          datasets: [{ data: errorValues, backgroundColor: colors }]
+        },
+        options: chartDefaults(),
+      });
+    }
+
+    const barCtx = document.getElementById('barModel');
+    if (barCtx && modelNames.length > 0) {
+      new Chart(barCtx, {
+        type: 'bar',
+        data: {
+          labels: modelNames,
+          datasets: [
+            { label: '测试通过率', data: testPassRates.map(v => v * 100), backgroundColor: styleConfig.accent },
+            { label: '行覆盖率', data: lineCoverages.map(v => v * 100), backgroundColor: styleConfig.accentSoft },
+            { label: '变异得分', data: mutationScores.map(v => v * 100), backgroundColor: styleConfig.accent2 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { y: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' } } },
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+
+    const lineCtx = document.getElementById('lineComplexity');
+    if (lineCtx && complexityNames.length > 0) {
+      new Chart(lineCtx, {
+        type: 'line',
+        data: {
+          labels: complexityNames,
+          datasets: [
+            {
+              label: '测试通过率',
+              data: complexityTestRates.map(v => v * 100),
+              borderColor: styleConfig.accent,
+              backgroundColor: styleConfig.accentSoft,
+              tension: 0.3,
+              fill: true,
+            },
+            {
+              label: '测试通过率阈值',
+              data: complexityNames.map(() => thresholdTest * 100),
+              borderColor: styleConfig.warn,
+              borderDash: [6, 4],
+              pointRadius: 0,
+              tension: 0,
+            },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { y: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' } } },
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+
+    const radarCtx = document.getElementById('radarDimensions');
+    if (radarCtx) {
+      new Chart(radarCtx, {
+        type: 'radar',
+        data: {
+          labels: ['编译通过率', '测试通过率', '行覆盖率', '分支覆盖率', '变异得分'],
+          datasets: [
+            {
+              label: '模型均值',
+              data: [
+                avg(radarCompile) * 100,
+                avg(testPassRates) * 100,
+                avg(lineCoverages) * 100,
+                avg(radarBranch) * 100,
+                avg(mutationScores) * 100,
+              ],
+              borderColor: styleConfig.accent,
+              backgroundColor: styleConfig.accentSoft,
+            },
+            {
+              label: '目标阈值',
+              data: [
+                thresholdCompile * 100,
+                thresholdTest * 100,
+                thresholdLine * 100,
+                thresholdBranch * 100,
+                thresholdMutation * 100,
+              ],
+              borderColor: styleConfig.warn,
+              backgroundColor: 'rgba(0,0,0,0)',
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { r: { min: 0, max: 100, ticks: { callback: (v) => v + '%' } } },
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+
+    function drawHeatmap() {
+      const canvas = document.getElementById('heatmapModelLang');
+      if (!canvas || heatmapModels.length === 0 || heatmapLanguages.length === 0) return;
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+
+      const paddingLeft = 90;
+      const paddingTop = 30;
+      const paddingRight = 20;
+      const paddingBottom = 40;
+      const gridWidth = width - paddingLeft - paddingRight;
+      const gridHeight = height - paddingTop - paddingBottom;
+      const cellW = gridWidth / heatmapLanguages.length;
+      const cellH = gridHeight / heatmapModels.length;
+
+      function colorFor(value) {
+        const v = Math.max(0, Math.min(1, value));
+        const r = Math.round(240 - 90 * v);
+        const g = Math.round(249 - 120 * v);
+        const b = Math.round(255 - 180 * v);
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+
+      ctx.font = '12px "Noto Sans SC", "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      for (let i = 0; i < heatmapModels.length; i++) {
+        for (let j = 0; j < heatmapLanguages.length; j++) {
+          const x = paddingLeft + j * cellW;
+          const y = paddingTop + i * cellH;
+          const value = heatmapValues[i][j];
+          ctx.fillStyle = colorFor(value);
+          ctx.fillRect(x, y, cellW, cellH);
+          ctx.strokeStyle = '#dbe7f5';
+          ctx.strokeRect(x, y, cellW, cellH);
+          ctx.fillStyle = value >= 0.6 ? '#102a43' : '#334e68';
+          ctx.fillText((value * 100).toFixed(1) + '%', x + cellW / 2, y + cellH / 2);
+        }
+      }
+
+      ctx.fillStyle = '#334e68';
+      ctx.textAlign = 'right';
+      for (let i = 0; i < heatmapModels.length; i++) {
+        const y = paddingTop + i * cellH + cellH / 2;
+        ctx.fillText(heatmapModels[i], paddingLeft - 8, y);
+      }
+
+      ctx.textAlign = 'center';
+      for (let j = 0; j < heatmapLanguages.length; j++) {
+        const x = paddingLeft + j * cellW + cellW / 2;
+        ctx.fillText(heatmapLanguages[j], x, height - 18);
+      }
+    }
+
+    drawHeatmap();
+    window.addEventListener('resize', drawHeatmap);
+
+    function applyFilters() {
+      const model = document.getElementById('modelFilter').value;
+      const lang = document.getElementById('languageFilter').value;
+      const testStatus = document.getElementById('testStatusFilter').value;
+      const coverageStatus = document.getElementById('coverageFilter').value;
+      const mutationStatus = document.getElementById('mutationFilter').value;
+      const sampleKeyword = (document.getElementById('sampleKeywordFilter').value || '').trim().toLowerCase();
+      const rows = document.querySelectorAll('#sampleTable tbody tr');
+      let visible = 0;
+      rows.forEach((row) => {
+        const rowModel = row.getAttribute('data-model');
+        const rowLang = row.getAttribute('data-language');
+        const rowSampleId = (row.getAttribute('data-sample-id') || '').toLowerCase();
+        const rowTestPass = row.getAttribute('data-test-pass');
+        const rowHasCoverage = row.getAttribute('data-has-coverage');
+        const rowHasMutationScore = row.getAttribute('data-has-mutation-score');
+        const rowHasMutationStats = row.getAttribute('data-has-mutation-stats');
+        const rowHasMutationError = row.getAttribute('data-has-mutation-error');
+
+        const modelOk = (model === 'all') || (rowModel === model);
+        const langOk = (lang === 'all') || (rowLang === lang);
+        const sampleOk = (!sampleKeyword) || rowSampleId.includes(sampleKeyword);
+
+        let testOk = true;
+        if (testStatus === 'pass') testOk = rowTestPass === 'true';
+        else if (testStatus === 'fail') testOk = rowTestPass === 'false';
+        else if (testStatus === 'none') testOk = rowTestPass === 'none';
+
+        let coverageOk = true;
+        if (coverageStatus === 'has') coverageOk = rowHasCoverage === 'true';
+        else if (coverageStatus === 'none') coverageOk = rowHasCoverage !== 'true';
+
+        let mutationOk = true;
+        if (mutationStatus === 'has_score') mutationOk = rowHasMutationScore === 'true';
+        else if (mutationStatus === 'has_stats') mutationOk = rowHasMutationStats === 'true';
+        else if (mutationStatus === 'stats_no_score') mutationOk = (rowHasMutationStats === 'true') && (rowHasMutationScore !== 'true');
+        else if (mutationStatus === 'none') mutationOk = rowHasMutationStats !== 'true';
+        else if (mutationStatus === 'error') mutationOk = rowHasMutationError === 'true';
+
+        const show = modelOk && langOk && sampleOk && testOk && coverageOk && mutationOk;
+        if (show) visible += 1;
+        row.style.display = show ? '' : 'none';
+      });
+      const stats = document.getElementById('filterStats');
+      if (stats) {
+        stats.textContent = `当前筛选：${visible} / ${rows.length} 条样本`;
+      }
+    }
+    document.getElementById('modelFilter').addEventListener('change', applyFilters);
+    document.getElementById('languageFilter').addEventListener('change', applyFilters);
+    document.getElementById('testStatusFilter').addEventListener('change', applyFilters);
+    document.getElementById('coverageFilter').addEventListener('change', applyFilters);
+    document.getElementById('mutationFilter').addEventListener('change', applyFilters);
+    document.getElementById('sampleKeywordFilter').addEventListener('input', applyFilters);
+    applyFilters();
+    document.querySelectorAll('.section-collapsible').forEach((details) => {
+      details.addEventListener('toggle', () => {
+        if (details.open) { window.dispatchEvent(new Event('resize')); }
+      });
+    });
+  </script>
+</body>
+</html>

@@ -690,16 +690,6 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 	m := map[failureKey]*failureAgg{}
 
 	for _, row := range rows {
-		if row.Truncated {
-			k := failureKey{stage: "generate", errType: "truncated"}
-			agg := getOrCreateFailureAgg(m, k)
-			agg.count++
-			if agg.exampleModel == "" {
-				agg.exampleModel = row.Model
-				agg.exampleSample = row.SampleID
-				agg.exampleMessage = "API response truncated due to max_tokens limit (finish_reason='length')"
-			}
-		}
 		if row.CompileError != "" {
 			k := failureKey{stage: "compile", errType: classifyError(row.CompileError)}
 			agg := getOrCreateFailureAgg(m, k)
@@ -986,50 +976,6 @@ tr:hover td { background: #FAFBFC; }
 .chart-container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
 .chart-container h3 { margin: 0 0 16px 0; font-size: 14px; color: var(--text); }
 .chart-box { height: 280px; }
-
-/* Leaderboard Styles */
-.leaderboard { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
-.lb-item { display: grid; grid-template-columns: 50px 1fr auto; gap: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); align-items: center; }
-.lb-item.gold { background: linear-gradient(135deg, #fff9e8 0%, #fff2c9 100%); border-color: #f59e0b; }
-.lb-item.silver { background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-color: #6b7280; }
-.lb-item.bronze { background: linear-gradient(135deg, #fff0e6 0%, #f5d9c4 100%); border-color: #c2410c; }
-.lb-rank { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: var(--border); color: var(--text-muted); }
-.lb-rank.gold { background: linear-gradient(135deg, #fbbf24, #d97706); color: white; box-shadow: 0 2px 8px rgba(217,119,6,0.35); }
-.lb-rank.silver { background: linear-gradient(135deg, #e5e7eb, #9ca3af); color: white; box-shadow: 0 2px 8px rgba(107,114,128,0.35); }
-.lb-rank.bronze { background: linear-gradient(135deg, #fdba74, #c2410c); color: white; box-shadow: 0 2px 8px rgba(194,65,12,0.35); }
-.lb-content { display: flex; flex-direction: column; gap: 8px; }
-.lb-title { font-weight: 700; font-size: 16px; margin: 0; color: var(--text); }
-.lb-metrics { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
-.metric { display: flex; gap: 8px; align-items: center; }
-.metric .name { color: var(--text-muted); font-size: 12px; }
-.metric .bar { width: 80px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
-.metric .bar > span { display: block; height: 100%; background: var(--primary); border-radius: 3px; }
-.metric .val { font-size: 12px; font-weight: 600; color: var(--text); }
-.lb-score { text-align: right; }
-.lb-score .score-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.lb-score .score-val { font-size: 28px; font-weight: 800; color: var(--primary); line-height: 1; }
-.lb-meta { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; font-size: 12px; color: var(--text-secondary); }
-
-/* Prompt Section */
-.prompt-section { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
-.prompt-section h2 { color: white; margin: 0 0 16px 0; font-size: 18px; }
-.prompt-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-.prompt-tag { background: rgba(255,255,255,0.1); padding: 4px 12px; border-radius: 20px; font-size: 12px; }
-.prompt-content { background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px; font-family: monospace; font-size: 12px; line-height: 1.6; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
-
-/* Sample Filter Section */
-.filter-section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
-.filter-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
-.filter-row label { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
-.filter-row select, .filter-row input { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; background: white; }
-.sample-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.sample-table th { background: var(--primary-soft); padding: 10px; text-align: left; font-weight: 600; }
-.sample-table td { padding: 10px; border-bottom: 1px solid var(--border); }
-.status-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 12px; font-size: 11px; }
-.status-pass { background: var(--success-soft); color: var(--success); }
-.status-fail { background: var(--danger-soft); color: var(--danger); }
-.status-na { background: var(--border); color: var(--text-muted); }
-
 @media (max-width: 768px) {
   .container { padding: 16px; }
   .header { padding: 24px; }
@@ -1051,27 +997,75 @@ tr:hover td { background: #FAFBFC; }
 </div>
 `, escapeHTML(payload.RunID), payload.GeneratedAtUTC.Format("2006-01-02 15:04:05"), payload.Summary.TotalSamples))
 
-	// Leaderboard Section
-	b.WriteString(buildLeaderboardHTML(payload.TopModels))
-
-	// KPI Cards (simplified)
-	b.WriteString(`<div class="section">
-  <div class="section-title">关键指标</div>
-  <div class="kpi-grid">`)
+	// KPI Cards
+	b.WriteString(`<div class="kpi-grid">`)
 	b.WriteString(kpiCard("编译通过率", payload.Summary.CompilePassRate, "success", fmt.Sprintf("%d/%d", payload.Summary.CompilePassCount, payload.Summary.TotalSamples)))
 	b.WriteString(kpiCard("测试通过率", payload.Summary.TestPassRate, getRateClass(payload.Summary.TestPassRate, 0.7), fmt.Sprintf("%d cases", payload.Summary.TestPassCount)))
 	b.WriteString(kpiCard("平均行覆盖率", payload.Summary.AvgLineCoverage, getRateClass(payload.Summary.AvgLineCoverage, 0.7), ""))
 	b.WriteString(kpiCard("平均变异分", payload.Summary.AvgMutationScore, getRateClass(payload.Summary.AvgMutationScore, 0.85), ""))
+	b.WriteString(kpiCard("平均断言密度", payload.Summary.AvgAssertionDensity, "primary", ""))
+	b.WriteString(kpiCard("有效杀虫率", effectiveKillRate(breakdown), getRateClass(effectiveKillRate(breakdown), 0.85), fmt.Sprintf("%d/%d", breakdown.Killed, breakdown.Killed+breakdown.Survived)))
 	if payload.TokenStats.SampleCount > 0 {
-		b.WriteString(kpiCard("平均Token", payload.TokenStats.AvgTotalTokens/1000, "primary", fmt.Sprintf("%.1fk", payload.TokenStats.AvgTotalTokens/1000)))
+		b.WriteString(kpiCard("平均Token使用", payload.TokenStats.AvgTotalTokens/1000, "primary", fmt.Sprintf("提示词:%.1fk | 补全:%.1fk", payload.TokenStats.AvgPromptTokens/1000, payload.TokenStats.AvgCompletionTokens/1000)))
 	}
-	b.WriteString(`</div>
-</div>`)
+	b.WriteString(`</div>`)
 
-	// Prompt Section
-	if len(payload.Prompts) > 0 {
-		b.WriteString(buildPromptHTML(payload.Prompts))
+	// Model Ranking Table
+	b.WriteString(`<div class="section">
+  <div class="section-title">模型排名</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>排名</th>
+          <th>模型</th>
+          <th>模型ID</th>
+          <th>编译</th>
+          <th>测试通过</th>
+          <th>行覆盖</th>
+          <th>分支覆盖</th>
+          <th>变异分</th>
+          <th>延迟(ms)</th>
+          <th>Token(千)</th>
+        </tr>
+      </thead>
+      <tbody>`)
+
+	for _, r := range payload.TopModels {
+		rankClass := "rank-other"
+		if r.Rank == 1 { rankClass = "rank-1" } else if r.Rank == 2 { rankClass = "rank-2" } else if r.Rank == 3 { rankClass = "rank-3" }
+
+		tokenInfo := "-"
+		if r.AvgTotalTokens > 0 { tokenInfo = fmt.Sprintf("%.1f", r.AvgTotalTokens/1000) }
+
+		b.WriteString(fmt.Sprintf(`
+        <tr>
+          <td><span class="rank %s">%d</span></td>
+          <td><strong>%s</strong></td>
+          <td><span class="badge badge-info">%s</span></td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>-</td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>%s</td>
+        </tr>`,
+			rankClass, r.Rank,
+			escapeHTML(r.Model),
+			escapeHTML(getModelIDShort(r.ModelID)),
+			progressBar(r.CompilePassRate, payload.Thresholds.CompilePassRate),
+			progressBar(r.AvgTestPassRate, payload.Thresholds.TestPassRate),
+			progressBar(r.AvgLineCoverage, payload.Thresholds.LineCoverage),
+			progressBar(r.AvgMutationScore, payload.Thresholds.MutationScore),
+			numCell(r.AvgLatencyMS),
+			tokenInfo))
 	}
+	b.WriteString(`
+      </tbody>
+    </table>
+  </div>
+</div>`)
 
 	// Charts
 	b.WriteString(`<div class="chart-grid">
@@ -1108,9 +1102,7 @@ tr:hover td { background: #FAFBFC; }
 
 		for _, m := range payload.ByModelScenario {
 			tokenInfo := "-"
-			if m.AvgTotalTokens > 0 {
-				tokenInfo = fmt.Sprintf("%.1f", m.AvgTotalTokens/1000)
-			}
+			if m.AvgTotalTokens > 0 { tokenInfo = fmt.Sprintf("%.1f", m.AvgTotalTokens/1000) }
 			scenarioLabel := getScenarioLabel(m.Scenario)
 
 			b.WriteString(fmt.Sprintf(`
@@ -1272,7 +1264,7 @@ new Chart(document.getElementById('modelBarChart'), {
       tooltip: {
         callbacks: {
           label: function(ctx) {
-            return ctx.dataset.label + ': ' + (ctx.raw * 100).toFixed(1) + '%%';
+            return ctx.dataset.label + ': ' + (ctx.raw * 100).toFixed(1) + '%';
           }
         }
       }
@@ -1312,7 +1304,7 @@ new Chart(document.getElementById('radarChart'), {
       tooltip: {
         callbacks: {
           label: function(ctx) {
-            return ctx.dataset.label + ': ' + (ctx.raw * 100).toFixed(1) + '%%';
+            return ctx.dataset.label + ': ' + (ctx.raw * 100).toFixed(1) + '%';
           }
         }
       }
@@ -1343,13 +1335,9 @@ new Chart(document.getElementById('radarChart'), {
 
 func kpiCard(label string, value float64, valueClass string, subValue string) string {
 	displayValue := fmt.Sprintf("%.1f%%", value*100)
-	if value > 100 {
-		displayValue = fmt.Sprintf("%.1f", value)
-	}
+	if value > 100 { displayValue = fmt.Sprintf("%.1f", value) }
 	subHTML := ""
-	if subValue != "" {
-		subHTML = fmt.Sprintf(`<div class="sub-value">%s</div>`, escapeHTML(subValue))
-	}
+	if subValue != "" { subHTML = fmt.Sprintf(`<div class="sub-value">%s</div>`, escapeHTML(subValue)) }
 	return fmt.Sprintf(`<div class="kpi-card"><div class="label">%s</div><div class="value %s">%s</div>%s</div>`, escapeHTML(label), valueClass, displayValue, subHTML)
 }
 
@@ -1358,57 +1346,39 @@ func kpiCardSimple(label, value, valueClass string) string {
 }
 
 func getRateClass(rate, threshold float64) string {
-	if rate >= threshold {
-		return "success"
-	}
-	if rate >= threshold*0.8 {
-		return "warning"
-	}
+	if rate >= threshold { return "success" }
+	if rate >= threshold*0.8 { return "warning" }
 	return "danger"
 }
 
 func progressBar(value, threshold float64) string {
-	if value == 0 {
-		return `<span class="badge badge-info">-</span>`
-	}
+	if value == 0 { return `<span class="badge badge-info">-</span>` }
 	fillClass := "success"
-	if value < threshold {
-		fillClass = "danger"
-	} else if value < threshold*1.05 {
-		fillClass = "warning"
-	}
+	if value < threshold { fillClass = "danger" } else if value < threshold*1.05 { fillClass = "warning" }
 	pct := int(value * 100)
 	return fmt.Sprintf(`<div class="progress-bar"><div class="bar"><div class="fill %s" style="width:%d%%"></div></div><span class="text">%d%%</span></div>`, fillClass, pct, pct)
 }
 
 func numCell(v float64) string {
-	if v == 0 {
-		return "-"
-	}
+	if v == 0 { return "-" }
 	return fmt.Sprintf("%.0f", v)
 }
 
 func getModelIDShort(modelID string) string {
-	if modelID == "" {
-		return "unknown"
-	}
-	if len(modelID) > 25 {
-		return modelID[:22] + "..."
-	}
+	if modelID == "" { return "unknown" }
+	if len(modelID) > 25 { return modelID[:22] + "..." }
 	return modelID
 }
 
 func getScenarioLabel(scenario string) string {
 	labels := map[string]string{
-		"boundary":           "边界值",
-		"simple_function":    "简单函数",
+		"boundary": "边界值",
+		"simple_function": "简单函数",
 		"complex_dependency": "复杂依赖",
-		"interface_mock":     "接口Mock",
-		"unknown":            "未知",
+		"interface_mock": "接口Mock",
+		"unknown": "未知",
 	}
-	if label, ok := labels[scenario]; ok {
-		return label
-	}
+	if label, ok := labels[scenario]; ok { return label }
 	return scenario
 }
 
@@ -1433,127 +1403,4 @@ func marshalJSONSimple(v interface{}) string {
 func escapeHTML(v string) string {
 	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
 	return replacer.Replace(v)
-}
-
-// buildLeaderboardHTML 生成新的 Leaderboard HTML
-func buildLeaderboardHTML(models []contracts.ModelRank) string {
-	if len(models) == 0 {
-		return ""
-	}
-
-	var b strings.Builder
-	b.WriteString(`<div class="section">
-  <div class="section-title">模型排名 Leaderboard</div>
-  <div class="leaderboard">`)
-
-	for _, m := range models {
-		// 确定排名样式
-		rankClass := ""
-		itemClass := ""
-		if m.Rank == 1 {
-			rankClass = "gold"
-			itemClass = "gold"
-		} else if m.Rank == 2 {
-			rankClass = "silver"
-			itemClass = "silver"
-		} else if m.Rank == 3 {
-			rankClass = "bronze"
-			itemClass = "bronze"
-		}
-
-		// 计算各指标的进度条宽度
-		compileWidth := int(m.CompilePassRate * 100)
-		testWidth := int(m.AvgTestPassRate * 100)
-		coverWidth := int(m.AvgLineCoverage * 100)
-		mutWidth := int(m.AvgMutationScore * 100)
-
-		// 综合得分百分比
-		compositePct := m.CompositeScore * 100
-
-		b.WriteString(fmt.Sprintf(`
-    <div class="lb-item %s">
-      <div class="lb-rank %s">%d</div>
-      <div class="lb-content">
-        <div class="lb-title">%s <span style="font-size:12px;color:#6b7280;font-weight:400;">(%s)</span></div>
-        <div class="lb-metrics">
-          <div class="metric">
-            <span class="name">编译</span>
-            <div class="bar"><span style="width:%d%%;background:#3b82f6;"></span></div>
-            <span class="val">%.1f%%</span>
-          </div>
-          <div class="metric">
-            <span class="name">测试</span>
-            <div class="bar"><span style="width:%d%%;background:#10b981;"></span></div>
-            <span class="val">%.1f%%</span>
-          </div>
-          <div class="metric">
-            <span class="name">覆盖</span>
-            <div class="bar"><span style="width:%d%%;background:#f59e0b;"></span></div>
-            <span class="val">%.1f%%</span>
-          </div>
-          <div class="metric">
-            <span class="name">变异</span>
-            <div class="bar"><span style="width:%d%%;background:#8b5cf6;"></span></div>
-            <span class="val">%.1f%%</span>
-          </div>
-        </div>
-        <div class="lb-meta">
-          <span>延迟: <strong>%.0fms</strong></span>
-          <span>Token: <strong>%.1fk</strong></span>
-        </div>
-      </div>
-      <div class="lb-score">
-        <div class="score-label">综合得分</div>
-        <div class="score-val">%.2f</div>
-      </div>
-    </div>`,
-			itemClass, rankClass, m.Rank,
-			escapeHTML(m.Model), escapeHTML(getModelIDShort(m.ModelID)),
-			compileWidth, m.CompilePassRate*100,
-			testWidth, m.AvgTestPassRate*100,
-			coverWidth, m.AvgLineCoverage*100,
-			mutWidth, m.AvgMutationScore*100,
-			m.AvgLatencyMS, m.AvgTotalTokens/1000,
-			compositePct))
-	}
-
-	b.WriteString(`
-  </div>
-</div>`)
-	return b.String()
-}
-
-// buildPromptHTML 生成 Prompt 展示区域
-func buildPromptHTML(prompts map[string]string) string {
-	var b strings.Builder
-	b.WriteString(`<div class="prompt-section">
-  <h2>Prompt 策略</h2>
-  <div class="prompt-tags">
-    <span class="prompt-tag">双语提示</span>
-    <span class="prompt-tag">跨模型一致</span>
-    <span class="prompt-tag">语义对齐</span>
-    <span class="prompt-tag">多语言支持</span>
-  </div>`)
-
-	// 显示第一个语言的 prompt 作为示例
-	for lang, prompt := range prompts {
-		b.WriteString(fmt.Sprintf(`
-  <div style="margin-top:16px;">
-    <div style="font-size:13px;color:#94a3b8;margin-bottom:8px;">示例: %s</div>
-    <div class="prompt-content">%s</div>
-  </div>`, strings.ToUpper(lang[:1])+lang[1:], escapeHTML(prompt[:min(len(prompt), 800)])))
-		break // 只显示第一个
-	}
-
-	b.WriteString(`
-</div>`)
-	return b.String()
-}
-
-// min 返回两个整数中的较小值
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

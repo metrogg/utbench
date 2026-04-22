@@ -39,10 +39,10 @@ func (c *apiClient) generateTest(
 	language string,
 	samplePath string,
 	sourceCode string,
-) (string, map[string]any, int, *int, *int, *int, *contracts.ErrorInfo) {
+) (string, map[string]any, int, *int, *int, *int, bool, *contracts.ErrorInfo) {
 	apiKey := strings.TrimSpace(os.Getenv(model.APIKeyEnv))
 	if apiKey == "" {
-		return "", nil, 0, nil, nil, nil, &contracts.ErrorInfo{
+		return "", nil, 0, nil, nil, nil, false, &contracts.ErrorInfo{
 			Kind:      "auth_config_error",
 			Message:   fmt.Sprintf("missing API key env var: %s (model=%s)", model.APIKeyEnv, model.Name),
 			Retryable: false,
@@ -53,14 +53,15 @@ func (c *apiClient) generateTest(
 	payload := buildPayload(model, prompt)
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", nil, 0, nil, nil, nil, &contracts.ErrorInfo{Kind: "payload_error", Message: err.Error(), Retryable: false}
+		return "", nil, 0, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "payload_error", Message: err.Error(), Retryable: false}
 	}
 
 	endpoint := resolveEndpoint(model)
 	var lastErr *contracts.ErrorInfo
+	var lastTruncated bool
 	for attempt := 1; attempt <= c.retries; attempt++ {
 		started := time.Now()
-		code, rawResp, p, cm, total, errInfo := c.doOnce(ctx, endpoint, apiKey, model.Provider, body)
+		code, rawResp, p, cm, total, truncated, errInfo := c.doOnce(ctx, endpoint, apiKey, model.Provider, body)
 		latency := int(time.Since(started).Milliseconds())
 		if errInfo == nil {
 			san := sanitizeModelOutput(code, language)
@@ -69,10 +70,11 @@ func (c *apiClient) generateTest(
 				lastErr = &contracts.ErrorInfo{Kind: "quality_error", Message: vErr.Error(), Retryable: false}
 				break
 			}
-			return extracted, rawResp, latency, p, cm, total, nil
+			return extracted, rawResp, latency, p, cm, total, truncated, nil
 		}
 
 		lastErr = errInfo
+		lastTruncated = truncated
 		if !errInfo.Retryable || attempt >= c.retries {
 			break
 		}
@@ -84,7 +86,7 @@ func (c *apiClient) generateTest(
 	if lastErr == nil {
 		lastErr = &contracts.ErrorInfo{Kind: "unknown_error", Message: "unknown generation error", Retryable: false}
 	}
-	return "", nil, 0, nil, nil, nil, lastErr
+	return "", nil, 0, nil, nil, nil, lastTruncated, lastErr
 }
 
 func (c *apiClient) doOnce(
@@ -93,10 +95,10 @@ func (c *apiClient) doOnce(
 	apiKey string,
 	provider string,
 	body []byte,
-) (string, map[string]any, *int, *int, *int, *contracts.ErrorInfo) {
+) (string, map[string]any, *int, *int, *int, bool, *contracts.ErrorInfo) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", nil, nil, nil, nil, &contracts.ErrorInfo{Kind: "request_build_error", Message: err.Error(), Retryable: false}
+		return "", nil, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "request_build_error", Message: err.Error(), Retryable: false}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
@@ -109,7 +111,7 @@ func (c *apiClient) doOnce(
 		if strings.Contains(strings.ToLower(msg), "timeout") {
 			kind = "timeout"
 		}
-		return "", nil, nil, nil, nil, &contracts.ErrorInfo{Kind: kind, Message: msg, Retryable: retryable}
+		return "", nil, nil, nil, nil, false, &contracts.ErrorInfo{Kind: kind, Message: msg, Retryable: retryable}
 	}
 	defer resp.Body.Close()
 
@@ -119,7 +121,7 @@ func (c *apiClient) doOnce(
 	if resp.StatusCode >= 400 {
 		retryable := resp.StatusCode == 408 || resp.StatusCode == 429 || resp.StatusCode >= 500
 		code := resp.StatusCode
-		return "", nil, nil, nil, nil, &contracts.ErrorInfo{
+		return "", nil, nil, nil, nil, false, &contracts.ErrorInfo{
 			Kind:       "http_error",
 			Message:    fmt.Sprintf("http %d: %s", resp.StatusCode, trimText(rawText, 500)),
 			Retryable:  retryable,
@@ -129,15 +131,16 @@ func (c *apiClient) doOnce(
 
 	var payload map[string]any
 	if err := json.Unmarshal(rawBytes, &payload); err != nil {
-		return "", nil, nil, nil, nil, &contracts.ErrorInfo{Kind: "response_parse_error", Message: err.Error(), Retryable: false}
+		return "", nil, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "response_parse_error", Message: err.Error(), Retryable: false}
 	}
 
 	text, err := extractResponseText(payload, provider)
 	if err != nil {
-		return "", payload, nil, nil, nil, &contracts.ErrorInfo{Kind: "response_extract_error", Message: err.Error(), Retryable: false}
+		return "", payload, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "response_extract_error", Message: err.Error(), Retryable: false}
 	}
 	promptTokens, completionTokens, totalTokens := extractUsage(payload)
-	return text, payload, promptTokens, completionTokens, totalTokens, nil
+	truncated := extractFinishReason(payload, provider)
+	return text, payload, promptTokens, completionTokens, totalTokens, truncated, nil
 }
 
 func resolveEndpoint(model modelConfig) string {
@@ -230,6 +233,30 @@ func extractUsage(response map[string]any) (*int, *int, *int) {
 	}
 	t := toIntPtr(usage["total_tokens"])
 	return p, c, t
+}
+
+func extractFinishReason(response map[string]any, provider string) bool {
+	if provider == "dashscope" {
+		if output, ok := response["output"].(map[string]any); ok {
+			if choices, ok := output["choices"].([]any); ok && len(choices) > 0 {
+				if item, ok := choices[0].(map[string]any); ok {
+					if fr, ok := item["finish_reason"].(string); ok {
+						return fr == "length"
+					}
+				}
+			}
+		}
+		return false
+	}
+
+	if choices, ok := response["choices"].([]any); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]any); ok {
+			if fr, ok := choice["finish_reason"].(string); ok {
+				return fr == "length"
+			}
+		}
+	}
+	return false
 }
 
 func toIntPtr(v any) *int {
@@ -917,14 +944,14 @@ func buildModuleLevelPrompt(language, samplePath, sourceCode string, meta *modul
 	moduleImport := meta.ModuleImport
 	packageName := meta.PackageName
 	if packageName == "" {
-	packageName = moduleImport
+		packageName = moduleImport
 	}
 	targetFile := meta.TargetFile
 	requirements := meta.Requirements
 
 	requirementsText := "none specified"
 	if len(requirements) > 0 {
-	requirementsText = strings.Join(requirements, ", ")
+		requirementsText = strings.Join(requirements, ", ")
 	}
 
 	return "You are an expert unit testing engineer.\n" +
