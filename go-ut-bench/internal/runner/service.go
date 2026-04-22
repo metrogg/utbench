@@ -128,22 +128,53 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	}
 
 	// 发送任务，处理checkpoint过滤
+	// 使用轮询方式分配任务，确保并发时每个worker处理不同模型的任务
 	skippedByCheckpoint := 0
 	go func() {
 		defer close(tasks)
-		for _, model := range modelConfigs {
-			for _, sample := range samples {
-				if spec.Mode == contracts.RunModeIncremental {
-					key := taskKey(model.Name, sample.Language, sample.ID)
-					if _, ok := completed[key]; ok {
-						skippedByCheckpoint++
-						continue
+		
+		// 为每个模型创建一个样本迭代器
+		type modelIterator struct {
+			model   modelConfig
+			samples []contracts.SampleRef
+			index   int
+		}
+		iterators := make([]modelIterator, len(modelConfigs))
+		for i, model := range modelConfigs {
+			iterators[i] = modelIterator{model: model, samples: samples, index: 0}
+		}
+		
+		// 轮询分配任务
+		activeModels := len(iterators)
+		for activeModels > 0 {
+			activeModels = 0
+			for i := range iterators {
+				it := &iterators[i]
+				// 跳过已完成的模型
+				for it.index < len(it.samples) {
+					sample := it.samples[it.index]
+					it.index++
+					
+					// 检查checkpoint
+					if spec.Mode == contracts.RunModeIncremental {
+						key := taskKey(it.model.Name, sample.Language, sample.ID)
+						if _, ok := completed[key]; ok {
+							skippedByCheckpoint++
+							continue
+						}
 					}
+					
+					// 发送任务
+					select {
+					case <-ctx.Done():
+						return
+					case tasks <- task{model: it.model, sample: sample}:
+					}
+					activeModels++
+					break // 每个模型每次只发送一个任务
 				}
-				select {
-				case <-ctx.Done():
-					return
-				case tasks <- task{model: model, sample: sample}:
+				if it.index < len(it.samples) {
+					activeModels++
 				}
 			}
 		}
