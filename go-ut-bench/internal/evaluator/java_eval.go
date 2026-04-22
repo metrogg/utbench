@@ -33,9 +33,15 @@ const javaPomTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 
     <dependencies>
         <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <version>4.13.2</version>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.vintage</groupId>
+            <artifactId>junit-vintage-engine</artifactId>
+            <version>5.10.2</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -85,7 +91,7 @@ const javaPomTemplate = `<?xml version="1.0" encoding="UTF-8"?>
             <plugin>
                 <groupId>org.pitest</groupId>
                 <artifactId>pitest-maven</artifactId>
-                <version>1.15.6</version>
+                <version>1.19.6</version>
                 <configuration>
                     <targetClasses>%s</targetClasses>
                     <targetTests>%s</targetTests>

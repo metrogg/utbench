@@ -100,7 +100,7 @@ func GetMinPassRateForTool(toolName string) float64 {
 	switch toolName {
 	case "mull", "cpp":
 		return 1.0
-	case "go-mutesting", "go":
+	case "gremlins", "go-mutesting", "go":
 		return 0.8
 	case "pitest", "java":
 		return 0.5

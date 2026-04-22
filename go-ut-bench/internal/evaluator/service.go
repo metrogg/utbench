@@ -425,7 +425,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			} else {
 				fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | done in %ds, score=%.2f\n", item.Model, item.Language, item.SampleID, mutationElapsed, mutationScore)
 			}
-			row.MutationTool = "go-mutesting"
+			row.MutationTool = "gremlins"
 		}
 
 	} else if strings.EqualFold(item.Language, "java") {

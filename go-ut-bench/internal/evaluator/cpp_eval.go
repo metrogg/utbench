@@ -57,8 +57,8 @@ project(utbench_mull)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_C_COMPILER clang-15)
-set(CMAKE_CXX_COMPILER clang++-15)
+set(CMAKE_C_COMPILER clang-18)
+set(CMAKE_CXX_COMPILER clang++-18)
 
 find_package(GTest REQUIRED)
 
@@ -78,8 +78,8 @@ target_compile_options(test_runner_mull PRIVATE
 )
 
 set_target_properties(test_runner_mull PROPERTIES
-    BUILD_RPATH "/usr/lib/llvm-15/lib;/usr/lib/x86_64-linux-gnu;/lib/x86_64-linux-gnu;/usr/lib64"
-    INSTALL_RPATH "/usr/lib/llvm-15/lib;/usr/lib/x86_64-linux-gnu;/lib/x86_64-linux-gnu;/usr/lib64"
+    BUILD_RPATH "/usr/lib/llvm-18/lib;/usr/lib/x86_64-linux-gnu;/lib/x86_64-linux-gnu;/usr/lib64"
+    INSTALL_RPATH "/usr/lib/llvm-18/lib;/usr/lib/x86_64-linux-gnu;/lib/x86_64-linux-gnu;/usr/lib64"
 )
 
 add_test(NAME AllTests COMMAND test_runner_mull)
@@ -426,13 +426,13 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 
 	mullRunner := findMullRunner()
 	if mullRunner == "" {
-		return 0, mutationStats{}, "Mull not installed. Install: sudo apt-get install -y llvm-15 clang-15 mull-15"
+		return 0, mutationStats{}, "Mull not installed. Install: curl -1sLf 'https://dl.cloudsmith.io/public/mull-project/mull-stable/setup.deb.sh' | bash && apt-get install -y mull-19"
 	}
 
 	// Find mull-ir-frontend plugin path
 	mullFrontend := findMullFrontend()
 	if mullFrontend == "" {
-		return 0, mutationStats{}, "mull-ir-frontend-15 not found"
+		return 0, mutationStats{}, "mull-ir-frontend-19 not found"
 	}
 
 	mullBuildDir := filepath.Join(workdir, "build_mull")
@@ -477,7 +477,7 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 
 	cmakeCmd := exec.Command("cmake", ".")
 	cmakeCmd.Dir = mullBuildDir
-	cmakeCmd.Env = append(os.Environ(), "CC=clang-15", "CXX=clang++-15")
+	cmakeCmd.Env = append(os.Environ(), "CC=clang-18", "CXX=clang++-18")
 	cmakeOut, cmakeErr := cmakeCmd.CombinedOutput()
 	if cmakeErr != nil {
 		return 0, mutationStats{}, trimErr("cmake failed: "+string(cmakeOut), 1000)
@@ -485,7 +485,7 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 
 	makeCmd := exec.Command("make", "-j2")
 	makeCmd.Dir = mullBuildDir
-	makeCmd.Env = append(os.Environ(), "CC=clang-15", "CXX=clang++-15")
+	makeCmd.Env = append(os.Environ(), "CC=clang-18", "CXX=clang++-18")
 	makeOut, makeErr := makeCmd.CombinedOutput()
 	if makeErr != nil {
 		return 0, mutationStats{}, trimErr("make failed: "+string(makeOut), 1000)
@@ -501,10 +501,10 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 
 	// 环境变量兜底：即使全局环境变量丢失，也能确保Mull找到库
 	mullEnv := append(os.Environ(),
-		"LD_LIBRARY_PATH=/usr/lib/llvm-15/lib:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64:"+os.Getenv("LD_LIBRARY_PATH"),
-		"LLVM_CONFIG_PATH=/usr/bin/llvm-config-15",
-		"CC=/usr/bin/clang-15",
-		"CXX=/usr/bin/clang++-15",
+		"LD_LIBRARY_PATH=/usr/lib/llvm-18/lib:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64:"+os.Getenv("LD_LIBRARY_PATH"),
+		"LLVM_CONFIG_PATH=/usr/bin/llvm-config-18",
+		"CC=/usr/bin/clang-18",
+		"CXX=/usr/bin/clang++-18",
 	)
 	mullOut, mullErr := runCommandWithProcessGroupKill(runCtx, mullRunner, []string{execPath}, mullBuildDir, mullEnv)
 
@@ -544,7 +544,7 @@ func formatMullError(prefix string, runErr error, runOut []byte) string {
 }
 
 func findMullRunner() string {
-	candidates := []string{"mull-runner-15", "mull-runner-14", "mull-runner"}
+	candidates := []string{"mull-runner-19", "mull-runner-18", "mull-runner"}
 	for _, c := range candidates {
 		if path, err := exec.LookPath(c); err == nil {
 			return path
@@ -556,10 +556,12 @@ func findMullRunner() string {
 func findMullFrontend() string {
 	// Try common paths for mull-ir-frontend
 	candidates := []string{
-		"/usr/lib/mull-ir-frontend-15",
-		"/usr/lib/llvm-15/lib/mull-ir-frontend-15.so",
-		"/usr/lib/x86_64-linux-gnu/mull-ir-frontend-15.so",
-		"/usr/local/lib/mull-ir-frontend-15.so",
+		"/usr/lib/mull-ir-frontend-19",
+		"/usr/lib/mull-ir-frontend-18",
+		"/usr/lib/llvm-18/lib/mull-ir-frontend-18.so",
+		"/usr/lib/llvm-19/lib/mull-ir-frontend-19.so",
+		"/usr/lib/x86_64-linux-gnu/mull-ir-frontend-18.so",
+		"/usr/local/lib/mull-ir-frontend-18.so",
 	}
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
