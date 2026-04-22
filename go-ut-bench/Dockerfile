@@ -8,9 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 
 # System dependencies (cached layer)
-# Use Tsinghua HTTP mirror for stable downloads
-RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list && \
-    sed -i 's|http://security.ubuntu.com|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list
+# Use official Ubuntu sources
 RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     build-essential \
     gcc \
@@ -51,7 +49,7 @@ ENV GOPROXY=https://goproxy.cn,direct
 # LLVM/Clang 15 paths (installed in system dependencies layer)
 ENV LLVM_DIR=/usr/lib/llvm-15
 ENV PATH="${LLVM_DIR}/bin:${PATH}"
-ENV LD_LIBRARY_PATH="${LLVM_DIR}/lib:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="${LLVM_DIR}/lib:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64"
 ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-15
 
 # Install Mull 15 (C++ mutation testing) from Cloudsmith
