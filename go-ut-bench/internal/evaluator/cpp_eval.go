@@ -34,15 +34,9 @@ target_compile_options(test_runner PRIVATE --coverage -fprofile-arcs -ftest-cove
 add_test(NAME AllTests COMMAND test_runner)
 `
 
-const cppMullConfigTemplate = `mutators:
-  - cxx_arithmetic
-  - cxx_comparison
-  - cxx_boundary
-  - cxx_bitwise
-  - cxx_logical
-  - cxx_remove_void_call
-
-excludePaths:
+// cppMullConfigTemplate 使用 Mull 默认配置（所有变异器）
+// 不指定 mutators，让 Mull 使用默认的全部变异器
+const cppMullConfigTemplate = `excludePaths:
   - ".*\\.h$"
   - ".*\\.hpp$"
   - "^/usr/.*"
@@ -401,8 +395,9 @@ func parseBranchPercent(line string) (float64, bool) {
 }
 
 func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeoutSeconds int, testPassRate *float64, testPassed, testTotal int) (float64, mutationStats, string) {
-	if timeoutSeconds <= 0 {
-		timeoutSeconds = 120
+	// 限制最大超时时间为300秒（与 Python 版本一致），防止Mull无限卡住
+	if timeoutSeconds <= 0 || timeoutSeconds > 300 {
+		timeoutSeconds = 300
 	}
 
 	minPassRate := GetMinPassRateForTool("mull")
@@ -435,78 +430,74 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 		return 0, mutationStats{}, "mull-ir-frontend-19 not found"
 	}
 
-	mullBuildDir := filepath.Join(workdir, "build_mull")
-	if err := os.MkdirAll(mullBuildDir, 0755); err != nil {
-		return 0, mutationStats{}, "failed to create mull build dir: " + err.Error()
-	}
-
 	testFileName := strings.TrimSuffix(sourceBase, filepath.Ext(sourceBase)) + "_test.cpp"
 
 	// Write mull.yml config
-	mullConfigPath := filepath.Join(mullBuildDir, "mull.yml")
+	mullConfigPath := filepath.Join(workdir, "mull.yml")
 	if err := os.WriteFile(mullConfigPath, []byte(cppMullConfigTemplate), 0644); err != nil {
 		return 0, mutationStats{}, "failed to write mull.yml: " + err.Error()
 	}
 
-	// Generate CMakeLists.txt with correct plugin path
-	cmakeContent := fmt.Sprintf(cppMullCMakeTemplate, testFileName, mullFrontend)
-
-	mullCmakePath := filepath.Join(mullBuildDir, "CMakeLists.txt")
-	if err := os.WriteFile(mullCmakePath, []byte(cmakeContent), 0644); err != nil {
-		return 0, mutationStats{}, "failed to write Mull CMakeLists: " + err.Error()
+	// 手动编译（与 Python 版本一致，不用 CMake）
+	// Python: common_flags = ["-std=c++17", "-O0", "-g", "-fno-inline", "-fno-omit-frame-pointer"]
+	// Mull 需要 -grecord-command-line 来获取编译标志
+	commonFlags := []string{"-std=c++17", "-O0", "-g", "-grecord-command-line", "-fno-inline", "-fno-omit-frame-pointer"}
+	if mullFrontend != "" {
+		commonFlags = append(commonFlags, "-fpass-plugin="+mullFrontend)
 	}
 
-	sourceCopy := filepath.Join(mullBuildDir, sourceBase)
-	testCopy := filepath.Join(mullBuildDir, testFileName)
+	// include dirs（与 Python 版本一致）
+	includeDirs := []string{workdir}
 
-	if err := copyFile(filepath.Join(workdir, sourceBase), sourceCopy); err != nil {
-		return 0, mutationStats{}, "failed to copy source: " + err.Error()
+	// 编译测试文件（测试文件通过 #include 包含了源文件，所以只编译测试文件即可）
+	// 如果同时编译源文件，会导致函数多重定义链接错误
+	testObj := "generated_test_mull.o"
+
+	compileArgs := append([]string{}, commonFlags...)
+	for _, inc := range includeDirs {
+		compileArgs = append(compileArgs, "-I", inc)
 	}
+	compileArgs = append(compileArgs, "-c", testFileName, "-o", testObj)
 
-	testContent, err := os.ReadFile(filepath.Join(workdir, testFileName))
+	compileCtx, cancelCompile := context.WithTimeout(ctx, 120*time.Second)
+	compileCmd := exec.CommandContext(compileCtx, "clang++-19", compileArgs...)
+	compileCmd.Dir = workdir
+	out, err := compileCmd.CombinedOutput()
+	cancelCompile()
 	if err != nil {
-		return 0, mutationStats{}, "failed to read test file: " + err.Error()
+		return 0, mutationStats{}, fmt.Sprintf("compile for Mull failed\n%s", trimErr(string(out), 4000))
 	}
 
-	// Don't remove source include - Mull needs to compile test file which includes source
-	// The source is included via #include, not as separate compilation unit
+	// 链接生成可执行文件（与 Python 版本一致，120 秒超时）
+	// 需要链接 gtest 和 gtest_main（gtest_main 提供默认的 main 函数）
+	linkArgs := append([]string{}, commonFlags...)
+	linkArgs = append(linkArgs, testObj, "-o", "run_tests_mull")
+	// 显式指定 gtest 库路径，确保能找到 gtest_main
+	linkArgs = append(linkArgs, "/usr/lib/libgtest.a", "/usr/lib/libgtest_main.a")
+	linkArgs = append(linkArgs, "-lpthread", "-ldl")
 
-	if err := os.WriteFile(testCopy, testContent, 0644); err != nil {
-		return 0, mutationStats{}, "failed to write test: " + err.Error()
+	linkCtx, cancelLink := context.WithTimeout(ctx, 120*time.Second)
+	linkCmd := exec.CommandContext(linkCtx, "clang++-19", linkArgs...)
+	linkCmd.Dir = workdir
+	linkOut, linkErr := linkCmd.CombinedOutput()
+	cancelLink()
+	if linkErr != nil {
+		return 0, mutationStats{}, fmt.Sprintf("link for Mull failed\n%s", trimErr(string(linkOut), 4000))
 	}
 
-	cmakeCmd := exec.Command("cmake", ".")
-	cmakeCmd.Dir = mullBuildDir
-	cmakeCmd.Env = append(os.Environ(), "CC=clang-18", "CXX=clang++-18")
-	cmakeOut, cmakeErr := cmakeCmd.CombinedOutput()
-	if cmakeErr != nil {
-		return 0, mutationStats{}, trimErr("cmake failed: "+string(cmakeOut), 1000)
+	binaryPath := filepath.Join(workdir, "run_tests_mull")
+	if _, err := os.Stat(binaryPath); err != nil {
+		return 0, mutationStats{}, "mull executable not found after build: " + binaryPath
 	}
 
-	makeCmd := exec.Command("make", "-j2")
-	makeCmd.Dir = mullBuildDir
-	makeCmd.Env = append(os.Environ(), "CC=clang-18", "CXX=clang++-18")
-	makeOut, makeErr := makeCmd.CombinedOutput()
-	if makeErr != nil {
-		return 0, mutationStats{}, trimErr("make failed: "+string(makeOut), 1000)
-	}
-
-	execPath := filepath.Join(mullBuildDir, "test_runner_mull")
-	if _, err := os.Stat(execPath); err != nil {
-		return 0, mutationStats{}, "mull executable not found after build"
-	}
-
+	// 运行 mull-runner（与 Python 版本一致）
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
-	// 环境变量兜底：即使全局环境变量丢失，也能确保Mull找到库
 	mullEnv := append(os.Environ(),
-		"LD_LIBRARY_PATH=/usr/lib/llvm-18/lib:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64:"+os.Getenv("LD_LIBRARY_PATH"),
-		"LLVM_CONFIG_PATH=/usr/bin/llvm-config-18",
-		"CC=/usr/bin/clang-18",
-		"CXX=/usr/bin/clang++-18",
+		"LD_LIBRARY_PATH=/usr/lib/llvm-19/lib:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64:"+os.Getenv("LD_LIBRARY_PATH"),
 	)
-	mullOut, mullErr := runCommandWithProcessGroupKill(runCtx, mullRunner, []string{execPath}, mullBuildDir, mullEnv)
+	mullOut, mullErr := runCommandWithProcessGroupKill(runCtx, mullRunner, []string{binaryPath}, workdir, mullEnv)
 
 	stats, parseErr := parseMullOutput(string(mullOut))
 	if parseErr != "" {
@@ -517,16 +508,8 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 		return 0, stats, formatMullError("mull produced zero mutants", mullErr, mullOut)
 	}
 
-	processed := stats.Killed + stats.Survived + stats.NoTests + stats.Timeout + stats.Skipped
-	if processed <= 0 {
-		return 0, stats, formatMullError("mull did not execute any mutants", mullErr, mullOut)
-	}
-
-	if stats.Killed+stats.Survived <= 0 {
-		return 0, stats, formatMullError("mull no killed/survived results", mullErr, mullOut)
-	}
-
-	score := round(float64(stats.Killed)/float64(stats.Killed+stats.Survived), 6)
+	// 分数计算：使用 killed / total（与 Python 版本一致）
+	score := round(float64(stats.Killed)/float64(stats.Total), 6)
 	return score, stats, ""
 }
 
@@ -554,14 +537,12 @@ func findMullRunner() string {
 }
 
 func findMullFrontend() string {
-	// Try common paths for mull-ir-frontend
+	// Try common paths for mull-ir-frontend (Mull 19 需要 LLVM 19)
 	candidates := []string{
 		"/usr/lib/mull-ir-frontend-19",
-		"/usr/lib/mull-ir-frontend-18",
-		"/usr/lib/llvm-18/lib/mull-ir-frontend-18.so",
 		"/usr/lib/llvm-19/lib/mull-ir-frontend-19.so",
-		"/usr/lib/x86_64-linux-gnu/mull-ir-frontend-18.so",
-		"/usr/local/lib/mull-ir-frontend-18.so",
+		"/usr/lib/x86_64-linux-gnu/mull-ir-frontend-19.so",
+		"/usr/local/lib/mull-ir-frontend-19.so",
 	}
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
@@ -571,6 +552,8 @@ func findMullFrontend() string {
 	return ""
 }
 
+// parseMullOutput 解析 Mull 输出，支持 8 个统计维度
+// 与 Python 版本保持一致：total, killed, survived, timeout, no_tests, not_checked, skipped, suspicious
 func parseMullOutput(output string) (mutationStats, string) {
 	stats := mutationStats{}
 
@@ -578,6 +561,7 @@ func parseMullOutput(output string) (mutationStats, string) {
 		return stats, "mull warmup run failed: baseline test has failing assertions"
 	}
 
+	// 情况1: 所有变异体都被杀死
 	if strings.Contains(output, "All mutations have been killed") {
 		re := regexp.MustCompile(`(\d+)/(\d+)\s*\.?\s*Finished`)
 		matches := re.FindAllStringSubmatch(output, -1)
@@ -590,17 +574,110 @@ func parseMullOutput(output string) (mutationStats, string) {
 		}
 	}
 
-	killedPattern := regexp.MustCompile(`Killed mutants\s*\((\d+)/(\d+)\)`)
-	if match := killedPattern.FindStringSubmatch(output); match != nil && len(match) > 2 {
-		stats.Killed = parseIntOrZero(match[1])
-		stats.Total = parseIntOrZero(match[2])
+	// 解析各个维度的统计信息（多种命名格式兼容，与 Python 版本一致）
+	// Killed mutants
+	killedPatterns := []string{
+		`Killed mutants\s*\((\d+)/(\d+)\)`,
+		`Killed\s*(?:mutants|mutations)?\s*[:=]\s*(\d+)`,
+	}
+	for _, pattern := range killedPatterns {
+		re := regexp.MustCompile(pattern)
+		if match := re.FindStringSubmatch(output); match != nil && len(match) > 1 {
+			stats.Killed = parseIntOrZero(match[1])
+			if len(match) > 2 && stats.Total == 0 {
+				stats.Total = parseIntOrZero(match[2])
+			}
+			break
+		}
 	}
 
-	survivedPattern := regexp.MustCompile(`Survived mutants\s*\((\d+)/(\d+)\)`)
-	if match := survivedPattern.FindStringSubmatch(output); match != nil && len(match) > 1 {
-		stats.Survived = parseIntOrZero(match[1])
+	// Survived mutants
+	survivedPatterns := []string{
+		`Survived mutants\s*\((\d+)/(\d+)\)`,
+		`Survived\s*(?:mutants|mutations)?\s*[:=]\s*(\d+)`,
+		`Surviving\s*(?:mutants|mutations)?\s*[:=]\s*(\d+)`,
+	}
+	for _, pattern := range survivedPatterns {
+		re := regexp.MustCompile(pattern)
+		if match := re.FindStringSubmatch(output); match != nil && len(match) > 1 {
+			stats.Survived = parseIntOrZero(match[1])
+			break
+		}
 	}
 
+	// Timeout mutants
+	timeoutPatterns := []string{
+		`(?:Timed out|Timeout)\s*(?:mutants|mutations)?\s*[:=]\s*(\d+)`,
+		`Timeout\s*[:=]\s*(\d+)`,
+	}
+	for _, pattern := range timeoutPatterns {
+		re := regexp.MustCompile(pattern)
+		if match := re.FindStringSubmatch(output); match != nil && len(match) > 1 {
+			stats.Timeout = parseIntOrZero(match[1])
+			break
+		}
+	}
+
+	// No tests / Not covered
+	noTestsPatterns := []string{
+		`(?:No tests|Not covered)\s*(?:mutants|mutations)?\s*[:=]\s*(\d+)`,
+		`NoCoverage\s*[:=]\s*(\d+)`,
+		`NotCovered\s*[:=]\s*(\d+)`,
+	}
+	for _, pattern := range noTestsPatterns {
+		re := regexp.MustCompile(pattern)
+		if match := re.FindStringSubmatch(output); match != nil && len(match) > 1 {
+			stats.NoTests = parseIntOrZero(match[1])
+			break
+		}
+	}
+
+	// Not checked
+	notCheckedPatterns := []string{
+		`Not checked\s*(?:mutants|mutations)?\s*[:=]\s*(\d+)`,
+		`NotChecked\s*[:=]\s*(\d+)`,
+	}
+	for _, pattern := range notCheckedPatterns {
+		re := regexp.MustCompile(pattern)
+		if match := re.FindStringSubmatch(output); match != nil && len(match) > 1 {
+			stats.NotChecked = parseIntOrZero(match[1])
+			break
+		}
+	}
+
+	// Skipped
+	skippedPattern := regexp.MustCompile(`Skipped\s*(?:mutants|mutations)?\s*[:=]\s*(\d+)`)
+	if match := skippedPattern.FindStringSubmatch(output); match != nil && len(match) > 1 {
+		stats.Skipped = parseIntOrZero(match[1])
+	}
+
+	// Suspicious
+	suspiciousPattern := regexp.MustCompile(`Suspicious\s*(?:mutants|mutations)?\s*[:=]\s*(\d+)`)
+	if match := suspiciousPattern.FindStringSubmatch(output); match != nil && len(match) > 1 {
+		stats.Suspicious = parseIntOrZero(match[1])
+	}
+
+	// 从 X/Y 格式提取总数（Mull 0.33.x 进度显示）
+	if stats.Total == 0 {
+		fractions := regexp.MustCompile(`(\d+)\s*/\s*(\d+)`)
+		matches := fractions.FindAllStringSubmatch(output, -1)
+		if len(matches) > 0 {
+			maxTotal := 0
+			for _, match := range matches {
+				if len(match) > 2 {
+					total := parseIntOrZero(match[2])
+					if total > maxTotal {
+						maxTotal = total
+					}
+				}
+			}
+			if maxTotal > 0 {
+				stats.Total = maxTotal
+			}
+		}
+	}
+
+	// 备用：从 Killed:/Survived: 计数
 	if stats.Total == 0 {
 		killedCount := strings.Count(output, "Killed:")
 		survivedCount := strings.Count(output, "Survived:")
@@ -608,6 +685,25 @@ func parseMullOutput(output string) (mutationStats, string) {
 			stats.Killed = killedCount
 			stats.Survived = survivedCount
 			stats.Total = killedCount + survivedCount
+		}
+	}
+
+	// 从 Mutation score 反推 killed
+	if stats.Killed == 0 && stats.Total > 0 {
+		scorePattern := regexp.MustCompile(`[Mm]utation\s*[Ss]core\s*[:=]\s*(\d+(?:\.\d+)?)\s*%`)
+		if match := scorePattern.FindStringSubmatch(output); match != nil && len(match) > 1 {
+			scorePct := parseFloatOrZero(match[1])
+			if scorePct > 0 {
+				stats.Killed = int(float64(stats.Total) * scorePct / 100.0)
+			}
+		}
+	}
+
+	// 如果没有解析到 Total，尝试从各个维度计算
+	if stats.Total == 0 {
+		derivedTotal := stats.Killed + stats.Survived + stats.Timeout + stats.NoTests + stats.NotChecked + stats.Skipped + stats.Suspicious
+		if derivedTotal > 0 {
+			stats.Total = derivedTotal
 		}
 	}
 
@@ -624,6 +720,15 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, 0644)
+}
+
+// parseFloatOrZero 解析字符串为 float64，失败返回 0
+func parseFloatOrZero(s string) float64 {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0
+	}
+	return f
 }
 
 func estimateCppAssertionDensity(testPath string) (int, int, float64) {

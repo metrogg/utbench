@@ -22,6 +22,7 @@ type RunSpec struct {
 	MutationPolicy  string       `json:"mutation_error_policy"`     // 变异测试错误策略："skip"或"fail"
 	TestTimeout     int          `json:"test_timeout_seconds"`       // 测试执行超时时间（秒）
 	MaxSamples      int          `json:"max_samples"`       // 最大样本数量限制（0表示不限制）
+	Workers         int          `json:"workers"`           // 并发worker数量（0表示使用默认值）
 	OutputRoot      string       `json:"output_root"`       // 输出根目录
 	CreatedAtUTC    time.Time    `json:"created_at_utc"`    // 运行创建时间（UTC）
 }

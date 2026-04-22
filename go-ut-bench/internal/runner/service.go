@@ -101,10 +101,13 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		len(modelConfigs), len(samples), totalTasks)
 	fmt.Fprintf(os.Stderr, "[Runner] Models: %s\n", strings.Join(getModelNames(modelConfigs), ", "))
 	fmt.Fprintf(os.Stderr, "[Runner] Languages: %s\n", getLanguagesFromSamples(samples))
-	fmt.Fprintf(os.Stderr, "[Runner] Workers: %d | Mode: %s\n\n", min(16, max(2, runtime.NumCPU())), spec.Mode)
+	workerCount := spec.Workers
+	if workerCount <= 0 {
+		workerCount = min(16, max(2, runtime.NumCPU()))
+	}
+	fmt.Fprintf(os.Stderr, "[Runner] Workers: %d | Mode: %s\n\n", workerCount, spec.Mode)
 
 	// 创建worker池
-	workerCount := min(16, max(2, runtime.NumCPU()))
 	tasks := make(chan task)
 	results := make(chan contracts.GeneratedCase)
 

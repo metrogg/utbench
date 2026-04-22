@@ -7,15 +7,28 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 
-# System dependencies - Ubuntu 24.04 provides LLVM 18 natively
+# Install base tools first (needed for adding LLVM repo)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    gnupg \
+    lsb-release \
+    software-properties-common \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add LLVM official repository for LLVM 19
+RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
+    add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" && \
+    apt-get update
+
+# System dependencies - Install LLVM 19 for Mull 19 compatibility
 RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     build-essential \
     gcc \
     g++ \
     cmake \
     git \
-    curl \
-    wget \
     unzip \
     python3 \
     python3-pip \
@@ -27,14 +40,11 @@ RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     libgtest-dev \
     gdb \
     sudo \
-    gnupg \
-    lsb-release \
-    software-properties-common \
-    clang-18 \
-    llvm-18 \
-    llvm-18-dev \
-    libclang-18-dev \
-    lld-18 \
+    clang-19 \
+    llvm-19 \
+    llvm-19-dev \
+    libclang-19-dev \
+    lld-19 \
     libstdc++6 \
     libgcc-s1 \
     && cd /usr/src/gtest && cmake . && make && cp lib/*.a /usr/lib/ \
@@ -47,11 +57,11 @@ RUN wget https://go.dev/dl/go1.24.2.linux-amd64.tar.gz && \
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 ENV GOPROXY=https://goproxy.cn,direct
 
-# LLVM/Clang 18 paths
-ENV LLVM_DIR=/usr/lib/llvm-18
+# LLVM/Clang 19 paths
+ENV LLVM_DIR=/usr/lib/llvm-19
 ENV PATH="${LLVM_DIR}/bin:${PATH}"
 ENV LD_LIBRARY_PATH="${LLVM_DIR}/lib:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64"
-ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-18
+ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-19
 
 # Install Mull 19 (C++ mutation testing) from Cloudsmith
 RUN curl -1sLf 'https://dl.cloudsmith.io/public/mull-project/mull-stable/setup.deb.sh' | bash && \

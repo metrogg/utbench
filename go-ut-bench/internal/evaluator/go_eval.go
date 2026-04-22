@@ -111,10 +111,7 @@ func collectGoCoverage(workdir, testFile, sourceBase string) (float64, float64, 
 	coverFile := filepath.Join(workdir, "cover.out")
 	cmd := exec.Command("go", "test", "-coverprofile="+filepath.Base(coverFile), filepath.Base(testFile), filepath.Base(sourceBase))
 	cmd.Dir = workdir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return 0, 0, trimErr(string(output), 2000)
-	}
+	cmd.Run()
 
 	raw, err := os.ReadFile(coverFile)
 	if err != nil {
@@ -244,7 +241,8 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
-	runOut, runErr := runCommandWithProcessGroupKill(runCtx, gremlinsPath, []string{"unleash", "--quiet"}, workdir, nil)
+	// gremlins 不支持 --quiet 参数，直接运行 unleash 命令
+	runOut, runErr := runCommandWithProcessGroupKill(runCtx, gremlinsPath, []string{"unleash"}, workdir, nil)
 
 	stats, parseErr := parseGremlinsOutput(string(runOut))
 	if parseErr != "" {

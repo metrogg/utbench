@@ -76,12 +76,18 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return Output{}, err
 	}
 
+	// 计算worker数量
+	workerCount := spec.Workers
+	if workerCount <= 0 {
+		workerCount = min(16, max(2, runtime.NumCPU()))
+	}
+
 	// 输出评测配置信息
 	total := len(manifest.Cases)
 	fmt.Fprintf(os.Stderr, "\n[Evaluator] Starting evaluation of %d samples\n", total)
 	fmt.Fprintf(os.Stderr, "[Evaluator] Languages: %s | Mutation: %v\n",
 		getLanguagesSummary(manifest.Cases), spec.MutationEnabled)
-	fmt.Fprintf(os.Stderr, "[Evaluator] Workers: %d\n\n", min(16, max(2, runtime.NumCPU())))
+	fmt.Fprintf(os.Stderr, "[Evaluator] Workers: %d\n\n", workerCount)
 
 	// 创建输出目录
 	runRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID)
@@ -89,9 +95,6 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 	if err := os.MkdirAll(evalRoot, 0o755); err != nil {
 		return Output{}, err
 	}
-
-	// 创建worker池处理评测任务
-	workerCount := min(16, max(2, runtime.NumCPU()))
 	tasks := make(chan evalTask, workerCount*2)
 	results := make(chan contracts.EvaluationResult, workerCount*2)
 
@@ -1144,6 +1147,12 @@ func trimErr(v string, max int) string {
 }
 
 func pythonExecutable() string {
+	if path, err := exec.LookPath("/opt/venv/bin/python"); err == nil {
+		return path
+	}
+	if path, err := exec.LookPath("/opt/venv/bin/python3"); err == nil {
+		return path
+	}
 	if _, err := exec.LookPath("python"); err == nil {
 		return "python"
 	}
