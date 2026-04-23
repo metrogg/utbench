@@ -33,7 +33,7 @@
 ### 3.1 整体架构
 
 终端输出（中文、简洁、实时）：
-- 阶段标题（如"开始生成测试..."）
+- 阶段标题（如"阶段 1/3: 生成测试"）
 - 进度行（含状态、耗时、Token等信息）
 - 统计面板（每5个样本刷新）
 - 状态提示（成功/失败/截断，不展开错误详情）
@@ -69,9 +69,9 @@
 接口设计:
 ```go
 type Logger struct {
-    terminalHandler slog.Handler
-    fileHandlers    map[string]slog.Handler
-    context         map[string]any
+    terminalHandler slog.Handler              // 终端输出：中文、简洁
+    fileHandlers    map[string]slog.Handler   // 文件输出：JSON、详细
+    context         map[string]any            // 固定上下文（如 run_id, model）
     level           Level
 }
 
@@ -82,7 +82,7 @@ func (l *Logger) Warn(msg string, attrs ...any)
 func (l *Logger) Error(msg string, attrs ...any)
 func (l *Logger) With(attrs ...any) *Logger
 func (l *Logger) WithContext(ctx context.Context) *Logger
-func (l *Logger) ToFile(category string) *Logger
+func (l *Logger) ToFile(category string) *Logger  // "runner", "evaluator", "api", "error"
 ```
 
 #### 3.2.2 进度报告器 (internal/obs/progress.go)
@@ -121,7 +121,9 @@ func (pr *ProgressReporter) PrintStageDone(name string, stats StageStats)
 ### 4.1 阶段 1: 生成测试
 
 ```
+========================================
 阶段 1/3: 生成测试
+========================================
 模型: deepseek, qwen | 语言: python, go | 样本数: 50 | 工作线程: 8
 
 [1/50]  deepseek | python | boundary_01    | 成功 | 1,234 tokens | 1.2s
@@ -130,11 +132,13 @@ func (pr *ProgressReporter) PrintStageDone(name string, stats StageStats)
 [4/50]  qwen     | go     | simple_02      | 截断 | 4,096/4,096 tokens (已达上限) | 0.8s
 [5/50]  deepseek | go     | boundary_03    | 失败 | -- tokens   | 0.5s
 
+========================================
 实时统计
    已处理: 5/50 (10%)
    成功: 4 | 失败: 1 | 截断: 1
    阶段已耗时: 0:00:45
    预计剩余: ~2分30秒
+========================================
 ```
 
 字段说明:
@@ -148,7 +152,9 @@ func (pr *ProgressReporter) PrintStageDone(name string, stats StageStats)
 评测流程：编译 -> 测试 -> 行覆盖 -> 变异
 
 ```
+========================================
 阶段 2/3: 评测测试
+========================================
 语言: python(25), go(25) | 变异测试: 已启用 | 工作线程: 8
 
 [1/50]  deepseek | python | boundary_01    
@@ -169,6 +175,7 @@ func (pr *ProgressReporter) PrintStageDone(name string, stats StageStats)
 [6/50]  deepseek | python | complex_01     
         编译通过 -> 测试通过(2/2) -> 行覆盖: 78% -> 变异: mutmut | 超时(30s) | 30.0s
 
+========================================
 实时统计
    已处理: 6/50 (12%)
    编译通过: 5/6 (83%)
@@ -177,6 +184,7 @@ func (pr *ProgressReporter) PrintStageDone(name string, stats StageStats)
    平均变异分数: 58.3%
    阶段已耗时: 0:03:20
    预计剩余: ~8分15秒
+========================================
 ```
 
 变异测试显示规范:
@@ -196,10 +204,13 @@ func (pr *ProgressReporter) PrintStageDone(name string, stats StageStats)
 ### 4.3 阶段 3: 生成报告
 
 ```
+========================================
 阶段 3/3: 生成报告
+========================================
 
 报告生成完成 | 0:00:02
 
+========================================
 全部完成！
    运行ID: 20240115-103015
    总耗时: 12分30秒
@@ -212,6 +223,7 @@ func (pr *ProgressReporter) PrintStageDone(name string, stats StageStats)
    测试通过率: 80% (40/50)
    平均行覆盖: 78.5%
    平均变异分数: 65.2%
+========================================
 ```
 
 ---
@@ -351,4 +363,4 @@ artifacts/runs/<run_id>/logs/
 5. 终端不展开错误详情，文件日志保留完整错误信息
 6. 文件日志按分类写入不同文件，格式为 JSON Lines
 7. 支持 --no-progress 参数禁用终端进度条
-8. 终端使用简洁符号（成功/失败/截断），文件保留完整英文日志
+8. 终端使用简洁状态（成功/失败/截断），文件保留完整英文日志
