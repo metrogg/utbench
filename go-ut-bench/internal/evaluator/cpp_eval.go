@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -216,11 +217,15 @@ func parseCppTestCounts(output string) (*int, *int) {
 	if match := passedPattern2.FindStringSubmatch(output); match != nil && len(match) > 1 {
 		total := parseIntOrZero(match[1])
 		if total > 0 {
-			failedPattern2 := regexp.MustCompile(`(\d+)\s+FAILED`)
-			failedMatch := failedPattern2.FindStringSubmatch(output)
 			failedCount := 0
-			if failedMatch != nil && len(failedMatch) > 1 {
-				failedCount = parseIntOrZero(failedMatch[1])
+			failedPattern2 := regexp.MustCompile(`\[  FAILED  \]\s*(\d+)\s*tests?`)
+			if match2 := failedPattern2.FindStringSubmatch(output); match2 != nil && len(match2) > 1 {
+				failedCount = parseIntOrZero(match2[1])
+			} else {
+				failedPattern3 := regexp.MustCompile(`(\d+)\s+FAILED`)
+				if match3 := failedPattern3.FindStringSubmatch(output); match3 != nil && len(match3) > 1 {
+					failedCount = parseIntOrZero(match3[1])
+				}
 			}
 			passedCount := total - failedCount
 			if passedCount < 0 {
@@ -407,10 +412,13 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 		passed = testPassed
 		total = testTotal
 	} else if testPassRate != nil {
-		total = 1
-		passed = int(*testPassRate * float64(total))
+		total = 100
+		passed = int(math.Round(*testPassRate * float64(total)))
 		if passed == 0 && *testPassRate > 0 {
 			passed = 1
+		}
+		if passed > total {
+			passed = total
 		}
 	}
 

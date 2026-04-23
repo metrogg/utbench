@@ -27,7 +27,7 @@ type apiClient struct {
 
 func newAPIClient() *apiClient {
 	return &apiClient{
-		client:  &http.Client{Timeout: 120 * time.Second},
+		client:  &http.Client{Timeout: 300 * time.Second},
 		retries: 3,
 		backoff: 2 * time.Second,
 	}
@@ -59,34 +59,80 @@ func (c *apiClient) generateTest(
 	endpoint := resolveEndpoint(model)
 	var lastErr *contracts.ErrorInfo
 	var lastTruncated bool
+	var allResponses []map[string]any
+	var accumulatedCode strings.Builder
+	var totalPromptTokens, totalCompletionTokens, totalTokens int
+	var tokenCountsSet bool
+	maxContinuationAttempts := 3
+
 	for attempt := 1; attempt <= c.retries; attempt++ {
 		started := time.Now()
 		code, rawResp, p, cm, total, truncated, errInfo := c.doOnce(ctx, endpoint, apiKey, model.Provider, body)
 		latency := int(time.Since(started).Milliseconds())
-		if errInfo == nil {
-			san := sanitizeModelOutput(code, language)
+
+		if errInfo != nil {
+			lastErr = errInfo
+			lastTruncated = truncated
+			if !errInfo.Retryable || attempt >= c.retries {
+				break
+			}
+			sleep := float64(c.backoff) * math.Pow(2, float64(attempt-1))
+			sleep += float64(time.Duration(rand.Int63n(int64(200 * time.Millisecond))))
+			time.Sleep(time.Duration(sleep))
+			continue
+		}
+
+		allResponses = append(allResponses, rawResp)
+		accumulatedCode.WriteString(code)
+
+		if !tokenCountsSet && p != nil && cm != nil && total != nil {
+			totalPromptTokens = *p
+			totalCompletionTokens = *cm
+			totalTokens = *total
+			tokenCountsSet = true
+		} else if tokenCountsSet && cm != nil {
+			totalCompletionTokens += *cm
+			totalTokens += *cm
+		}
+
+		if !truncated {
+			san := sanitizeModelOutput(accumulatedCode.String(), language)
 			extracted := extractCode(san, language)
 			if vErr := validateGeneratedTest(extracted, language); vErr != nil {
 				lastErr = &contracts.ErrorInfo{Kind: "quality_error", Message: vErr.Error(), Retryable: false}
 				break
 			}
-			return extracted, rawResp, latency, p, cm, total, truncated, nil
+			finalTruncated := false
+			return extracted, mergeResponses(allResponses), latency, &totalPromptTokens, &totalCompletionTokens, &totalTokens, finalTruncated, nil
 		}
 
-		lastErr = errInfo
-		lastTruncated = truncated
-		if !errInfo.Retryable || attempt >= c.retries {
+		if maxContinuationAttempts <= 0 {
+			lastTruncated = true
 			break
 		}
-		sleep := float64(c.backoff) * math.Pow(2, float64(attempt-1))
-		sleep += float64(time.Duration(rand.Int63n(int64(200 * time.Millisecond))))
-		time.Sleep(time.Duration(sleep))
+		maxContinuationAttempts--
+
+		continuationPayload := buildContinuationPayload(model, prompt, accumulatedCode.String())
+		body, err = json.Marshal(continuationPayload)
+		if err != nil {
+			return accumulatedCode.String(), mergeResponses(allResponses), latency, &totalPromptTokens, &totalCompletionTokens, &totalTokens, true, &contracts.ErrorInfo{
+				Kind:      "continuation_payload_error",
+				Message:   err.Error(),
+				Retryable: false,
+			}
+		}
+	}
+
+	if lastErr == nil && accumulatedCode.Len() > 0 {
+		san := sanitizeModelOutput(accumulatedCode.String(), language)
+		extracted := extractCode(san, language)
+		return extracted, mergeResponses(allResponses), 0, &totalPromptTokens, &totalCompletionTokens, &totalTokens, lastTruncated, nil
 	}
 
 	if lastErr == nil {
 		lastErr = &contracts.ErrorInfo{Kind: "unknown_error", Message: "unknown generation error", Retryable: false}
 	}
-	return "", nil, 0, nil, nil, nil, lastTruncated, lastErr
+	return accumulatedCode.String(), mergeResponses(allResponses), 0, &totalPromptTokens, &totalCompletionTokens, &totalTokens, lastTruncated, lastErr
 }
 
 func (c *apiClient) doOnce(
@@ -183,6 +229,135 @@ func buildPayload(model modelConfig, prompt string) map[string]any {
 		payload[k] = v
 	}
 	return payload
+}
+
+func buildContinuationPayload(model modelConfig, originalPrompt string, generatedSoFar string) map[string]any {
+	continuationPrompt := "Continue generating the unit test code from where you left off. " +
+		"Output only the remaining code without any explanations or markdown fences. " +
+		"Do not repeat what was already generated."
+
+	params := map[string]any{}
+	for k, v := range model.Params {
+		params[k] = v
+	}
+
+	switch model.Provider {
+	case "dashscope":
+		if !strings.Contains(model.Endpoint, "compatible-mode") {
+			return map[string]any{
+				"model": model.Model,
+				"input": map[string]any{
+					"messages": []map[string]any{
+						{"role": "user", "content": originalPrompt},
+						{"role": "assistant", "content": generatedSoFar},
+						{"role": "user", "content": continuationPrompt},
+					},
+				},
+				"parameters": params,
+			}
+		}
+		return map[string]any{
+			"model": model.Model,
+			"messages": []map[string]any{
+				{"role": "system", "content": "You generate high-quality unit tests."},
+				{"role": "user", "content": originalPrompt},
+				{"role": "assistant", "content": generatedSoFar},
+				{"role": "user", "content": continuationPrompt},
+			},
+			"stream": false,
+		}
+	case "volcengine":
+		return map[string]any{
+			"model": model.Model,
+			"messages": []map[string]any{
+				{"role": "system", "content": "You generate high-quality unit tests."},
+				{"role": "user", "content": originalPrompt},
+				{"role": "assistant", "content": generatedSoFar},
+				{"role": "user", "content": continuationPrompt},
+			},
+			"stream": false,
+		}
+	default:
+		return map[string]any{
+			"model": model.Model,
+			"messages": []map[string]any{
+				{"role": "system", "content": "You generate high-quality unit tests."},
+				{"role": "user", "content": originalPrompt},
+				{"role": "assistant", "content": generatedSoFar},
+				{"role": "user", "content": continuationPrompt},
+			},
+			"stream": false,
+		}
+	}
+}
+
+func mergeResponses(responses []map[string]any) map[string]any {
+	if len(responses) == 0 {
+		return map[string]any{"merged": true, "count": 0}
+	}
+	if len(responses) == 1 {
+		responses[0]["merged"] = true
+		responses[0]["continuation_count"] = 1
+		return responses[0]
+	}
+
+	mergedText := ""
+	var totalPromptTokens, totalCompletionTokens, totalTokens int64
+	continuationCount := len(responses)
+
+	for _, resp := range responses {
+		if text, err := extractResponseTextFromAny(resp); err == nil {
+			mergedText += text
+		}
+		if usage, ok := resp["usage"].(map[string]any); ok {
+			if p, ok := usage["prompt_tokens"].(float64); ok {
+				totalPromptTokens += int64(p)
+			}
+			if c, ok := usage["completion_tokens"].(float64); ok {
+				totalCompletionTokens += int64(c)
+			}
+			if t, ok := usage["total_tokens"].(float64); ok {
+				totalTokens += int64(t)
+			}
+		}
+	}
+
+	return map[string]any{
+		"merged":             true,
+		"continuation_count": continuationCount,
+		"merged_text":        mergedText,
+		"prompt_tokens":      totalPromptTokens,
+		"completion_tokens":  totalCompletionTokens,
+		"total_tokens":       totalTokens,
+		"first_response":     responses[0],
+	}
+}
+
+func extractResponseTextFromAny(response map[string]any) (string, error) {
+	if choices, ok := response["choices"].([]any); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]any); ok {
+			if msg, ok := choice["message"].(map[string]any); ok {
+				if content, ok := msg["content"].(string); ok {
+					return content, nil
+				}
+			}
+		}
+	}
+	if output, ok := response["output"].(map[string]any); ok {
+		if text, ok := output["text"].(string); ok && text != "" {
+			return text, nil
+		}
+		if choices, ok := output["choices"].([]any); ok && len(choices) > 0 {
+			if item, ok := choices[0].(map[string]any); ok {
+				if msg, ok := item["message"].(map[string]any); ok {
+					if content, ok := msg["content"].(string); ok {
+						return content, nil
+					}
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("unable to extract text from response")
 }
 
 func extractResponseText(response map[string]any, provider string) (string, error) {

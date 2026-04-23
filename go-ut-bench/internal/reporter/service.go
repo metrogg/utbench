@@ -120,6 +120,7 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 	failures := buildFailureRows(set.Results)
 	breakdown := buildMutationBreakdown(set.Results)
 	modelInfos := buildModelInfos(dims.ByModel, modelDetails)
+	truncationStats := buildTruncationStats(set.Results)
 
 	payload := contracts.ReportPayload{
 		SchemaVersion:    contracts.SchemaVersion,
@@ -147,6 +148,7 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 			"java":   getPromptTemplate(),
 			"cpp":    getPromptTemplate(),
 		},
+		TruncationStats: truncationStats,
 	}
 
 	jsonPath := filepath.Join(reportRoot, "report_summary.json")
@@ -685,6 +687,111 @@ func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 		})
 	}
 	return out
+}
+
+func buildTruncationStats(rows []contracts.EvaluationResult) contracts.TruncationStats {
+	totalTruncated := 0
+	modelStats := map[string]*truncationAgg{}
+	langStats := map[string]*truncationAgg{}
+	scenarioStats := map[string]*truncationAgg{}
+
+	for _, row := range rows {
+		if row.Truncated {
+			totalTruncated++
+		}
+
+		modelKey := row.Model
+		if _, ok := modelStats[modelKey]; !ok {
+			modelStats[modelKey] = &truncationAgg{key: modelKey}
+		}
+		modelStats[modelKey].total++
+		if row.Truncated {
+			modelStats[modelKey].truncated++
+		}
+		if row.CompletionTokens != nil {
+			modelStats[modelKey].completionTokensSum += float64(*row.CompletionTokens)
+			modelStats[modelKey].completionTokensCount++
+		}
+
+		langKey := row.Language
+		if _, ok := langStats[langKey]; !ok {
+			langStats[langKey] = &truncationAgg{key: langKey}
+		}
+		langStats[langKey].total++
+		if row.Truncated {
+			langStats[langKey].truncated++
+		}
+
+		scenario := extractScenario(row.SampleID)
+		scenarioKey := fmt.Sprintf("%s|%s", row.Language, scenario)
+		if _, ok := scenarioStats[scenarioKey]; !ok {
+			scenarioStats[scenarioKey] = &truncationAgg{key: scenarioKey, scenario: scenario, language: row.Language}
+		}
+		scenarioStats[scenarioKey].total++
+		if row.Truncated {
+			scenarioStats[scenarioKey].truncated++
+		}
+	}
+
+	var byModel []contracts.ModelTruncationDim
+	for _, agg := range modelStats {
+		byModel = append(byModel, contracts.ModelTruncationDim{
+			Model:               agg.key,
+			TotalSamples:        agg.total,
+			TruncatedCount:      agg.truncated,
+			TruncationRate:      rate(agg.truncated, agg.total),
+			AvgCompletionTokens: avg(agg.completionTokensSum, agg.completionTokensCount),
+		})
+	}
+	sort.Slice(byModel, func(i, j int) bool { return byModel[i].TruncationRate > byModel[j].TruncationRate })
+
+	var byLanguage []contracts.LangTruncationDim
+	for _, agg := range langStats {
+		byLanguage = append(byLanguage, contracts.LangTruncationDim{
+			Language:       agg.key,
+			TotalSamples:   agg.total,
+			TruncatedCount: agg.truncated,
+			TruncationRate: rate(agg.truncated, agg.total),
+		})
+	}
+	sort.Slice(byLanguage, func(i, j int) bool { return byLanguage[i].TruncationRate > byLanguage[j].TruncationRate })
+
+	var byScenario []contracts.ScenarioTruncationDim
+	for _, agg := range scenarioStats {
+		byScenario = append(byScenario, contracts.ScenarioTruncationDim{
+			Scenario:       agg.scenario,
+			Language:       agg.language,
+			TotalSamples:   agg.total,
+			TruncatedCount: agg.truncated,
+			TruncationRate: rate(agg.truncated, agg.total),
+		})
+	}
+	sort.Slice(byScenario, func(i, j int) bool { return byScenario[i].TruncationRate > byScenario[j].TruncationRate })
+
+	return contracts.TruncationStats{
+		TotalTruncated: totalTruncated,
+		TruncationRate: rate(totalTruncated, len(rows)),
+		ByModel:        byModel,
+		ByLanguage:     byLanguage,
+		ByScenario:     byScenario,
+		ContinuationStats: contracts.ContinuationStats{
+			Enabled:               true,
+			TotalContinuations:    0,
+			SuccessfulRecoveries:  0,
+			RecoveryRate:          0,
+			AvgContinuationRounds: 0,
+		},
+	}
+}
+
+type truncationAgg struct {
+	key                   string
+	scenario              string
+	language              string
+	total                 int
+	truncated             int
+	completionTokensSum   float64
+	completionTokensCount int
 }
 
 func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow {
@@ -1400,6 +1507,48 @@ details.accordion-item[open] > summary::after {
 .accordion-body { 
   padding: 12px; 
 }
+.metric-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.metric-card {
+  flex: 1;
+  background: linear-gradient(180deg, #fdf8ee, #f7efe2);
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+  border: 1px solid rgba(0,0,0,0.04);
+}
+.metric-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: #1f3b4d;
+}
+.metric-value.success { color: #16a34a; }
+.metric-value.warning { color: #d97706; }
+.metric-value.danger { color: #dc2626; }
+.metric-label {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+}
+.metric-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+.hint-box {
+  background: #f8fafc;
+  border-left: 3px solid #3b82f6;
+  padding: 12px 16px;
+  border-radius: 0 8px 8px 0;
+  font-size: 13px;
+  color: #334155;
+}
+.hint-box strong {
+  color: #1e40af;
+}
 @media (max-width: 900px) {
   .hero-top { flex-direction: column; }
   .hero-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1450,6 +1599,7 @@ details.accordion-item[open] > summary::after {
   <a href="#leaderboard">模型排名</a>
   <a href="#by-language">按语言统计</a>
   <a href="#by-scenario">按场景统计</a>
+  <a href="#truncation-analysis">截断分析</a>
   <a href="#error-analysis">错误分析</a>
   <a href="#details">图表分析</a>
   <a href="#raw-data">原始数据</a>
@@ -1468,6 +1618,9 @@ details.accordion-item[open] > summary::after {
 	if len(payload.ByScenario) > 0 {
 		b.WriteString(buildByScenarioSection(payload.ByScenario))
 	}
+
+	// Truncation Analysis Section - 截断分析（新增）
+	b.WriteString(buildTruncationAnalysisSection(payload.TruncationStats))
 
 	// Error Analysis Section - 错误分析（新增）
 	if len(payload.Failures) > 0 {
@@ -1957,6 +2110,236 @@ func getStageClass(stage string) string {
 	default:
 		return "info"
 	}
+}
+
+// buildTruncationAnalysisSection 生成截断分析区域 HTML
+func buildTruncationAnalysisSection(stats contracts.TruncationStats) string {
+	var b strings.Builder
+	b.WriteString(`<div class="section" id="truncation-analysis">
+  <h2>截断分析 Truncation Analysis</h2>
+  <div class="grid-2">`)
+
+	// 总体截断统计
+	truncationRate := round(stats.TruncationRate*100, 2)
+	statusClass := "success"
+	statusText := "良好"
+	if truncationRate > 30 {
+		statusClass = "danger"
+		statusText = "严重"
+	} else if truncationRate > 10 {
+		statusClass = "warning"
+		statusText = "需关注"
+	}
+
+	b.WriteString(fmt.Sprintf(`
+    <div class="panel">
+      <h3>总体截断情况</h3>
+      <div class="metric-row">
+        <div class="metric-card">
+          <div class="metric-value %s">%.2f%%</div>
+          <div class="metric-label">截断率</div>
+          <div class="metric-hint">%s</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">%d</div>
+          <div class="metric-label">截断样本数</div>
+        </div>
+      </div>
+      <div class="hint-box">
+        <strong>状态：%s</strong><br>
+        %s
+      </div>
+    </div>`,
+		statusClass, truncationRate, getTruncationAdvice(truncationRate), statusText, getTruncationExplanation(truncationRate)))
+
+	// 续写功能状态
+	continuationStatus := "未启用"
+	if stats.ContinuationStats.Enabled {
+		continuationStatus = "已启用"
+	}
+	b.WriteString(fmt.Sprintf(`
+    <div class="panel">
+      <h3>自动续写功能</h3>
+      <div class="metric-row">
+        <div class="metric-card">
+          <div class="metric-value">%s</div>
+          <div class="metric-label">续写状态</div>
+        </div>
+      </div>
+      <div class="hint-box">
+        <strong>功能说明：</strong><br>
+        当模型输出被截断时，系统会自动发送续写请求，尝试恢复完整的测试代码。
+        这可以显著降低截断对最终测试结果的影响。
+      </div>
+    </div>`, continuationStatus))
+
+	b.WriteString(`  </div>`)
+
+	// 按模型统计
+	if len(stats.ByModel) > 0 {
+		b.WriteString(`
+  <div class="panel" style="margin-top: 16px;">
+    <h3>按模型截断统计</h3>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>模型</th>
+            <th>总样本</th>
+            <th>截断数</th>
+            <th>截断率</th>
+            <th>平均生成Token</th>
+          </tr>
+        </thead>
+        <tbody>`)
+		for _, m := range stats.ByModel {
+			rateClass := ""
+			if m.TruncationRate > 0.3 {
+				rateClass = "style=\"color: #dc2626; font-weight: 600;\""
+			} else if m.TruncationRate > 0.1 {
+				rateClass = "style=\"color: #d97706; font-weight: 600;\""
+			}
+			b.WriteString(fmt.Sprintf(`
+          <tr>
+            <td>%s</td>
+            <td>%d</td>
+            <td>%d</td>
+            <td %s>%.2f%%</td>
+            <td>%.0f</td>
+          </tr>`,
+				escapeHTML(m.Model), m.TotalSamples, m.TruncatedCount, rateClass, m.TruncationRate*100, m.AvgCompletionTokens))
+		}
+		b.WriteString(`
+        </tbody>
+      </table>
+    </div>
+  </div>`)
+	}
+
+	// 按语言统计
+	if len(stats.ByLanguage) > 0 {
+		b.WriteString(`
+  <div class="panel" style="margin-top: 16px;">
+    <h3>按语言截断统计</h3>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>语言</th>
+            <th>总样本</th>
+            <th>截断数</th>
+            <th>截断率</th>
+          </tr>
+        </thead>
+        <tbody>`)
+		for _, l := range stats.ByLanguage {
+			rateClass := ""
+			if l.TruncationRate > 0.3 {
+				rateClass = "style=\"color: #dc2626; font-weight: 600;\""
+			} else if l.TruncationRate > 0.1 {
+				rateClass = "style=\"color: #d97706; font-weight: 600;\""
+			}
+			b.WriteString(fmt.Sprintf(`
+          <tr>
+            <td>%s</td>
+            <td>%d</td>
+            <td>%d</td>
+            <td %s>%.2f%%</td>
+          </tr>`,
+				strings.ToUpper(l.Language), l.TotalSamples, l.TruncatedCount, rateClass, l.TruncationRate*100))
+		}
+		b.WriteString(`
+        </tbody>
+      </table>
+    </div>
+  </div>`)
+	}
+
+	// 调优建议
+	b.WriteString(`
+  <div class="panel" style="margin-top: 16px;">
+    <h3>调优建议</h3>
+    <div class="accordion">`)
+
+	b.WriteString(fmt.Sprintf(`
+      <details class="accordion-item">
+        <summary>1. 调整 max_tokens 参数</summary>
+        <div class="accordion-body">
+          <p>当前截断率为 %.2f%%，建议根据以下情况调整 max_tokens：</p>
+          <ul>
+            <li><strong>截断率 > 30%%：</strong>强烈建议增加 max_tokens 至 8192 或更高</li>
+            <li><strong>截断率 10%%-30%%：</strong>建议增加 max_tokens 至 6144-8192</li>
+            <li><strong>截断率 < 10%%：</strong>当前设置合理，可保持现状</li>
+          </ul>
+          <p>修改位置：<code>configs/models.yaml</code> 中的 <code>parameters.max_tokens</code></p>
+        </div>
+      </details>`, truncationRate))
+
+	b.WriteString(`
+      <details class="accordion-item">
+        <summary>2. 启用自动续写功能</summary>
+        <div class="accordion-body">
+          <p>系统已内置自动续写功能，当检测到截断时会自动发送续写请求。</p>
+          <p>续写策略：</p>
+          <ul>
+            <li>保留已生成的代码作为上下文</li>
+            <li>请求模型继续生成剩余部分</li>
+            <li>自动拼接并去重</li>
+            <li>最多尝试 3 次续写</li>
+          </ul>
+        </div>
+      </details>
+      <details class="accordion-item">
+        <summary>3. 优化提示词策略</summary>
+        <div class="accordion-body">
+          <p>如果截断问题持续存在，可以考虑：</p>
+          <ul>
+            <li>简化提示词，减少上下文长度</li>
+            <li>要求模型生成更简洁的测试代码</li>
+            <li>分步骤生成：先生成测试框架，再补充具体用例</li>
+            <li>使用更高效的模型或更大的上下文窗口</li>
+          </ul>
+        </div>
+      </details>
+      <details class="accordion-item">
+        <summary>4. 模型选择建议</summary>
+        <div class="accordion-body">
+          <p>不同模型的上下文窗口和输出能力不同：</p>
+          <ul>
+            <li><strong>DeepSeek：</strong>支持 64K 上下文，适合长代码生成</li>
+            <li><strong>Qwen：</strong>支持 32K 上下文，中文理解能力强</li>
+            <li><strong>Doubao：</strong>支持 128K 上下文，适合复杂场景</li>
+          </ul>
+          <p>根据任务复杂度选择合适的模型可以有效减少截断问题。</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>`)
+
+	return b.String()
+}
+
+func getTruncationAdvice(rate float64) string {
+	if rate > 30 {
+		return "截断率过高，建议立即增加 max_tokens 参数或优化提示词策略"
+	} else if rate > 10 {
+		return "截断率中等，建议适当增加 max_tokens 参数"
+	} else if rate > 0 {
+		return "截断率较低，当前配置基本合理"
+	}
+	return "无截断问题，配置良好"
+}
+
+func getTruncationExplanation(rate float64) string {
+	if rate > 30 {
+		return "大量样本因达到 max_tokens 限制而被截断，可能导致测试代码不完整，严重影响测试质量。"
+	} else if rate > 10 {
+		return "部分样本被截断，虽然自动续写功能可以缓解，但仍建议优化配置以获得更好的效果。"
+	} else if rate > 0 {
+		return "少量样本被截断，自动续写功能可以有效处理这种情况。"
+	}
+	return "所有样本都完整生成，无需担心截断问题。"
 }
 
 // buildChartsSection 生成图表区域 HTML

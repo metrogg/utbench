@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -459,10 +460,13 @@ func collectJavaMutation(ctx context.Context, workdir, className string, timeout
 		passed = testPassed
 		total = testTotal
 	} else if testPassRate != nil {
-		total = 1
-		passed = int(*testPassRate * float64(total))
+		total = 100
+		passed = int(math.Round(*testPassRate * float64(total)))
 		if passed == 0 && *testPassRate > 0 {
 			passed = 1
+		}
+		if passed > total {
+			passed = total
 		}
 	}
 

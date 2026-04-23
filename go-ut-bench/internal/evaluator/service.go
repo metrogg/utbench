@@ -494,7 +494,15 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
 			mutationStart := time.Now()
 			fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | starting...\n", item.Model, item.Language, item.SampleID)
-			mutationScore, mutationStats, mutationErr := collectJavaMutation(ctx, workdir, className, spec.MutationTimeout, row.TestPassRate, 0, 0)
+			testPassed := 0
+			if row.TestPassCount != nil {
+				testPassed = *row.TestPassCount
+			}
+			testTotal := 0
+			if row.TestTotalCount != nil {
+				testTotal = *row.TestTotalCount
+			}
+			mutationScore, mutationStats, mutationErr := collectJavaMutation(ctx, workdir, className, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
 			mutationElapsed := int(time.Since(mutationStart).Seconds())
 			row.MutationScore = &mutationScore
 			row.MutationTotal = &mutationStats.Total
@@ -572,7 +580,15 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
 			mutationStart := time.Now()
 			fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | starting...\n", item.Model, item.Language, item.SampleID)
-			mutationScore, mutationStats, mutationErr := collectCppMutation(ctx, workdir, sourceBase, spec.MutationTimeout, row.TestPassRate, 0, 0)
+			testPassed := 0
+			if row.TestPassCount != nil {
+				testPassed = *row.TestPassCount
+			}
+			testTotal := 0
+			if row.TestTotalCount != nil {
+				testTotal = *row.TestTotalCount
+			}
+			mutationScore, mutationStats, mutationErr := collectCppMutation(ctx, workdir, sourceBase, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
 			mutationElapsed := int(time.Since(mutationStart).Seconds())
 			row.MutationScore = &mutationScore
 			row.MutationTotal = &mutationStats.Total

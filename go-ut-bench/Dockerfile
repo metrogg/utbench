@@ -63,9 +63,16 @@ ENV PATH="${LLVM_DIR}/bin:${PATH}"
 ENV LD_LIBRARY_PATH="${LLVM_DIR}/lib:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib64"
 ENV LLVM_CONFIG_PATH=/usr/bin/llvm-config-19
 
+# 配置系统动态库搜索路径（解决 Mull "Could not find dynamic library" warning）
+RUN echo "/usr/lib/llvm-19/lib" > /etc/ld.so.conf.d/llvm-19.conf && \
+    echo "/usr/lib/x86_64-linux-gnu" >> /etc/ld.so.conf.d/llvm-19.conf && \
+    echo "/lib/x86_64-linux-gnu" >> /etc/ld.so.conf.d/llvm-19.conf && \
+    ldconfig
+
 # Install Mull 19 (C++ mutation testing) from Cloudsmith
 RUN curl -1sLf 'https://dl.cloudsmith.io/public/mull-project/mull-stable/setup.deb.sh' | bash && \
     apt-get update && apt-get install -y mull-19 && \
+    ldconfig && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python testing tools - use venv for mutmut to avoid conflicts

@@ -97,6 +97,51 @@ type ReportSummary struct {
 	AvgAssertionDensity float64 `json:"avg_assertion_density"` // 平均断言密度
 }
 
+// TruncationStats 截断统计信息
+type TruncationStats struct {
+	TotalTruncated    int                     `json:"total_truncated"`    // 总截断样本数
+	TruncationRate    float64                 `json:"truncation_rate"`    // 截断率（百分比）
+	ByModel           []ModelTruncationDim    `json:"by_model"`           // 按模型统计截断
+	ByLanguage        []LangTruncationDim     `json:"by_language"`        // 按语言统计截断
+	ByScenario        []ScenarioTruncationDim `json:"by_scenario"`        // 按场景统计截断
+	ContinuationStats ContinuationStats       `json:"continuation_stats"` // 续写统计
+}
+
+// ModelTruncationDim 按模型的截断统计
+type ModelTruncationDim struct {
+	Model               string  `json:"model"`                 // 模型名称
+	TotalSamples        int     `json:"total_samples"`         // 总样本数
+	TruncatedCount      int     `json:"truncated_count"`       // 截断样本数
+	TruncationRate      float64 `json:"truncation_rate"`       // 截断率
+	AvgCompletionTokens float64 `json:"avg_completion_tokens"` // 平均生成token数（截断样本）
+}
+
+// LangTruncationDim 按语言的截断统计
+type LangTruncationDim struct {
+	Language       string  `json:"language"`        // 语言
+	TotalSamples   int     `json:"total_samples"`   // 总样本数
+	TruncatedCount int     `json:"truncated_count"` // 截断样本数
+	TruncationRate float64 `json:"truncation_rate"` // 截断率
+}
+
+// ScenarioTruncationDim 按场景的截断统计
+type ScenarioTruncationDim struct {
+	Scenario       string  `json:"scenario"`        // 场景
+	Language       string  `json:"language"`        // 语言
+	TotalSamples   int     `json:"total_samples"`   // 总样本数
+	TruncatedCount int     `json:"truncated_count"` // 截断样本数
+	TruncationRate float64 `json:"truncation_rate"` // 截断率
+}
+
+// ContinuationStats 续写功能统计
+type ContinuationStats struct {
+	Enabled               bool    `json:"enabled"`                 // 是否启用续写
+	TotalContinuations    int     `json:"total_continuations"`     // 总续写次数
+	SuccessfulRecoveries  int     `json:"successful_recoveries"`   // 成功恢复的样本数
+	RecoveryRate          float64 `json:"recovery_rate"`           // 恢复成功率
+	AvgContinuationRounds float64 `json:"avg_continuation_rounds"` // 平均续写轮数
+}
+
 // ReportPayload 报告的完整数据结构
 // 包含汇总信息、多维度分析和失败案例详情，用于生成可视化报告
 type ReportPayload struct {
@@ -114,6 +159,7 @@ type ReportPayload struct {
 	Failures         []FailureRow       `json:"failures"`          // 失败案例详情
 	Thresholds       Thresholds         `json:"thresholds"`        // 评估阈值配置
 	Prompts          map[string]string  `json:"prompts"`           // 按语言的提示词模板（key为语言，如"python"）
+	TruncationStats  TruncationStats    `json:"truncation_stats"`  // 截断统计信息
 }
 
 // Dimensions 多维度分析数据
