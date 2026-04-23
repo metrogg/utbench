@@ -1,0 +1,41 @@
+CREATE TABLE IF NOT EXISTS runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT NOT NULL UNIQUE,
+  schema_version TEXT NOT NULL,
+  evaluated_at_utc TEXT NOT NULL,
+  created_at_utc TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sample_results (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  language TEXT NOT NULL,
+  sample_id TEXT NOT NULL,
+  compile_pass INTEGER NOT NULL,
+  test_pass INTEGER,
+  test_pass_count INTEGER,
+  test_total_count INTEGER,
+  test_pass_rate REAL,
+  line_coverage REAL,
+  branch_coverage REAL,
+  mutation_score REAL,
+  mutation_total INTEGER,
+  mutation_killed INTEGER,
+  mutation_survived INTEGER,
+  mutation_no_tests INTEGER,
+  mutation_timeouts INTEGER,
+  mutation_skipped INTEGER,
+  mutation_suspicious INTEGER,
+  assertion_count INTEGER,
+  test_case_count INTEGER,
+  assertion_density REAL,
+  runtime_ms INTEGER,
+  compile_error TEXT,
+  test_error TEXT,
+  coverage_error TEXT,
+  mutation_error TEXT,
+  generated_test_path TEXT,
+  source_path TEXT,
+  UNIQUE(run_id, model, language, sample_id)
+);

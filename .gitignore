@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+.pytest_cache/
+.mypy_cache/
+
+results/
+!results/.gitkeep
+
+justtest/
+
+.venv/
+venv/
+
+.DS_Store
+
+# Build/Docker logs
+*.log
+docker_build*
+
+# Pre-built binaries
+*.tar
+*.exe
+
+# Environment files
+.env

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"HOME=$HOME\")",
+      "Bash(find . -maxdepth 2 -name Dockerfile* -o -name *.dockerfile)",
+      "Bash(go build:*)",
+      "Bash(docker build:*)"
+    ]
+  }
+}

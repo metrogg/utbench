@@ -1,0 +1,140 @@
+package evaluator
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestParsePytestCounts(t *testing.T) {
+	out := "1 failed, 14 passed in 0.09s"
+	passed, total := parsePytestCounts(out)
+	if passed == nil || total == nil {
+		t.Fatalf("expected counts parsed")
+	}
+	if *passed != 14 || *total != 15 {
+		t.Fatalf("unexpected parsed counts: passed=%d total=%d", *passed, *total)
+	}
+}
+
+func TestParsePytestCountsPassedOnly(t *testing.T) {
+	out := "13 passed in 0.05s"
+	passed, total := parsePytestCounts(out)
+	if passed == nil || total == nil {
+		t.Fatalf("expected counts parsed")
+	}
+	if *passed != 13 || *total != 13 {
+		t.Fatalf("unexpected parsed counts: passed=%d total=%d", *passed, *total)
+	}
+}
+
+func TestParseGoTestCounts(t *testing.T) {
+	out := "=== RUN   TestA\n--- PASS: TestA (0.00s)\n=== RUN   TestB\n--- FAIL: TestB (0.00s)\nFAIL\n"
+	passed, total := parseGoTestCounts(out)
+	if passed == nil || total == nil {
+		t.Fatalf("expected counts parsed")
+	}
+	if *passed != 1 || *total != 2 {
+		t.Fatalf("unexpected parsed counts: passed=%d total=%d", *passed, *total)
+	}
+}
+
+func TestExtractAllClassNamesFromSourceIncludesInterfacesAndEnums(t *testing.T) {
+	source := `
+interface DataSource {
+    String read();
+}
+
+class DataProcessor {
+}
+
+enum Mode {
+    FAST, SLOW
+}
+`
+
+	names := extractAllClassNamesFromSource(source)
+	if len(names) != 3 {
+		t.Fatalf("expected 3 types, got %d: %v", len(names), names)
+	}
+	set := map[string]bool{}
+	for _, name := range names {
+		set[name] = true
+	}
+	for _, expected := range []string{"DataSource", "DataProcessor", "Mode"} {
+		if !set[expected] {
+			t.Fatalf("missing type %s in %v", expected, names)
+		}
+	}
+}
+
+func TestSplitJavaSourceByClassesPreservesHeader(t *testing.T) {
+	source := `
+import java.util.*;
+
+interface DataSource {
+    String read();
+}
+
+class DataProcessor {
+}
+`
+
+	parts := splitJavaSourceByClasses(source)
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(parts))
+	}
+
+	if !containsAll(parts["DataSource"], []string{"import java.util.*;", "interface DataSource"}) {
+		t.Fatalf("DataSource part missing expected content: %q", parts["DataSource"])
+	}
+	if !containsAll(parts["DataProcessor"], []string{"import java.util.*;", "class DataProcessor"}) {
+		t.Fatalf("DataProcessor part missing expected content: %q", parts["DataProcessor"])
+	}
+}
+
+func TestGoCompileCheckWithTestFile(t *testing.T) {
+	workdir := t.TempDir()
+	goMod := `module utbench_eval
+
+go 1.22
+`
+	if err := os.WriteFile(filepath.Join(workdir, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source := `package main
+
+func Add(a, b int) int { return a + b }
+`
+	if err := os.WriteFile(filepath.Join(workdir, "sample.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testCode := `package main
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+	if Add(1, 2) != 3 {
+		t.Fatalf("unexpected")
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(workdir, "sample_test.go"), []byte(testCode), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ok, compileErr := goCompileCheck(workdir, "sample_test.go")
+	if !ok {
+		t.Fatalf("expected compile check pass, got error: %s", compileErr)
+	}
+}
+
+func containsAll(s string, subs []string) bool {
+	for _, sub := range subs {
+		if !strings.Contains(s, sub) {
+			return false
+		}
+	}
+	return true
+}

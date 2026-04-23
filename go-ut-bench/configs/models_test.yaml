@@ -1,0 +1,11 @@
+models:
+  test-model:
+    enabled: true
+    provider: openai
+    config:
+      api_endpoint: "https://example.com/v1"
+      model: "test-model"
+      api_key_env: "TEST_API_KEY"
+      parameters:
+        temperature: 0.7
+        max_tokens: 4096

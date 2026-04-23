@@ -1,0 +1,1406 @@
+package reporter
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"go-ut-bench/internal/contracts"
+	"go-ut-bench/internal/obs"
+	"gopkg.in/yaml.v3"
+)
+
+type Service struct {
+	logger *obs.Logger
+}
+
+type Output struct {
+	Report         contracts.ReportPayload
+	ReportJSONPath string
+	ReportHTMLPath string
+}
+
+type mutationBreakdown struct {
+	Total      int    `json:"total"`
+	Killed     int    `json:"killed"`
+	Survived   int    `json:"survived"`
+	NoTests    int    `json:"no_tests"`
+	Timeouts   int    `json:"timeouts"`
+	Skipped    int    `json:"skipped"`
+	Suspicious int    `json:"suspicious"`
+	Tool       string `json:"tool,omitempty"`
+}
+
+type ModelDetail struct {
+	Name     string
+	ModelID  string
+	Provider string
+}
+
+// getPromptTemplate 返回通用的中英双语提示词模板
+func getPromptTemplate() string {
+	return `You are an expert unit testing engineer.
+你是一名资深单元测试工程师。
+Generate high-quality unit tests based on the following specification.
+请基于以下规范生成高质量单元测试。
+
+## Role & Objective（角色与目标）
+- Goal: produce executable tests that match source behavior exactly.
+- 目标：生成可执行且与源码行为严格一致的测试。
+
+## Language & Framework（语言与框架）
+- Language（语言）: {language}
+- Test Framework（测试框架）: {framework}
+
+## Step-by-Step Workflow（分步流程）
+1) Identify callable symbols and input/output contracts from source.
+2) Build a test matrix: normal, boundary, and exception paths.
+3) Derive expected values only from implementation semantics.
+4) Write deterministic, runnable tests with clear assertions.
+5) Self-check syntax/imports/assertions before final output.
+
+## Test Requirements（测试要求）
+- Cover normal paths, boundary conditions, and error/exception behavior.
+- 覆盖正常路径、边界条件和异常行为。
+- Keep tests deterministic and runnable.
+- 保持测试可重复、可执行（避免随机性）。
+- Use clear assertions with meaningful expected values.
+- 使用清晰断言和有意义的期望值。
+- Coverage targets（覆盖率目标，供参考）: {coverage_targets}
+- Mock requirements（Mock 要求）: {mock_requirement}
+
+## Semantic Alignment Hard Rules（语义对齐硬约束）
+- Derive expected values strictly from the given source code behavior.
+- 期望值必须严格依据给定源码行为推导，不要按题型常识脑补。
+- Respect exact comparison semantics in code (<, <=, >, >=, ==).
+- 必须严格遵守源码比较符号语义（尤其阈值边界等于时）。
+- Include explicit boundary-equality assertions when threshold/limit checks exist.
+- 当存在阈值/边界判断时，必须包含"等于边界"的断言样例。
+- If implementation looks counter-intuitive, still assert implementation behavior.
+- 若实现与常识不一致，也必须以源码实现为准。
+- If docstring/comment conflicts with implementation, trust implementation.
+- 若注释/文档示例与实现冲突，以实现为准。
+
+## Output Format（输出格式）
+- Return raw test code only (no Markdown fences).
+- 仅输出原始测试代码，不要 Markdown 代码块。
+- Do not include explanations.
+- 不要输出解释文字。
+
+## Source Code Under Test（被测源码）
+{source_code}`
+}
+
+func NewService(logger *obs.Logger) *Service {
+	return &Service{logger: logger}
+}
+
+func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluationPath string) (Output, error) {
+	set, err := contracts.ReadEvaluationResultSet(evaluationPath)
+	if err != nil {
+		return Output{}, err
+	}
+
+	reportRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID, "report")
+	if err := os.MkdirAll(reportRoot, 0o755); err != nil {
+		return Output{}, err
+	}
+
+	modelDetails := loadModelDetails(spec.ConfigPath)
+	summary := buildSummary(set.Results)
+	dims := buildDimensions(set.Results, modelDetails)
+	tokenStats := buildTokenStats(set.Results)
+	topModels := buildTopModels(dims.ByModel)
+	failures := buildFailureRows(set.Results)
+	breakdown := buildMutationBreakdown(set.Results)
+	modelInfos := buildModelInfos(dims.ByModel, modelDetails)
+
+	payload := contracts.ReportPayload{
+		SchemaVersion:    contracts.SchemaVersion,
+		RunID:            spec.RunID,
+		GeneratedAtUTC:   time.Now().UTC(),
+		SourceEvaluation: evaluationPath,
+		Summary:          summary,
+		Dimensions:       dims,
+		TopModels:        topModels,
+		ModelInfos:       modelInfos,
+		ByScenario:       dims.ByScenario,
+		ByModelScenario:  dims.ByModelScenario,
+		TokenStats:       tokenStats,
+		Failures:         failures,
+		Thresholds: contracts.Thresholds{
+			CompilePassRate: 1.0,
+			TestPassRate:    0.7,
+			LineCoverage:    0.7,
+			BranchCoverage:  0.6,
+			MutationScore:   0.85,
+		},
+		Prompts: map[string]string{
+			"python": getPromptTemplate(),
+			"go":     getPromptTemplate(),
+			"java":   getPromptTemplate(),
+			"cpp":    getPromptTemplate(),
+		},
+	}
+
+	jsonPath := filepath.Join(reportRoot, "report_summary.json")
+	htmlPath := filepath.Join(reportRoot, "report.html")
+	summaryJSON := map[string]any{
+		"schema_version":     payload.SchemaVersion,
+		"run_id":             payload.RunID,
+		"generated_at_utc":   payload.GeneratedAtUTC,
+		"source_evaluation":  payload.SourceEvaluation,
+		"summary":            payload.Summary,
+		"dimensions":         payload.Dimensions,
+		"top_models":         payload.TopModels,
+		"model_infos":        payload.ModelInfos,
+		"by_scenario":        payload.ByScenario,
+		"by_model_scenario":  payload.ByModelScenario,
+		"token_stats":        payload.TokenStats,
+		"failures":           payload.Failures,
+		"mutation_breakdown": breakdown,
+		"thresholds":         payload.Thresholds,
+	}
+	if err := contracts.WriteJSON(jsonPath, summaryJSON); err != nil {
+		return Output{}, err
+	}
+	if err := os.WriteFile(htmlPath, []byte(buildHTML(payload, breakdown, set.Results)), 0o644); err != nil {
+		return Output{}, err
+	}
+
+	s.logger.Info("report generated", "run_id", spec.RunID, "summary", jsonPath, "html", htmlPath)
+	return Output{Report: payload, ReportJSONPath: jsonPath, ReportHTMLPath: htmlPath}, nil
+}
+
+func loadModelDetails(configPath string) map[string]ModelDetail {
+	details := map[string]ModelDetail{}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return details
+	}
+	var cfg struct {
+		Models map[string]struct {
+			Enabled  bool   `yaml:"enabled"`
+			Provider string `yaml:"provider"`
+			Config   struct {
+				Model string `yaml:"model"`
+			} `yaml:"config"`
+		} `yaml:"models"`
+	}
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		return details
+	}
+	for name, item := range cfg.Models {
+		details[name] = ModelDetail{
+			Name:     name,
+			ModelID:  item.Config.Model,
+			Provider: item.Provider,
+		}
+	}
+	return details
+}
+
+func buildModelInfos(models []contracts.ModelDim, details map[string]ModelDetail) []contracts.ModelInfo {
+	var infos []contracts.ModelInfo
+	for _, m := range models {
+		detail, ok := details[m.Model]
+		modelID := m.Model
+		provider := ""
+		if ok {
+			modelID = detail.ModelID
+			provider = detail.Provider
+		}
+		infos = append(infos, contracts.ModelInfo{
+			Name:       m.Model,
+			ModelID:    modelID,
+			Provider:   provider,
+			TotalCases: m.TotalSamples,
+		})
+	}
+	return infos
+}
+
+func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
+	total := len(rows)
+	compilePass := 0
+	testPassTotal := 0
+	testTotal := 0
+	fallbackPass := 0
+	fallbackTotal := 0
+	lineSum := 0.0
+	lineCnt := 0
+	mutationSum := 0.0
+	mutationCnt := 0
+	assertDensitySum := 0.0
+	assertDensityCnt := 0
+
+	for _, row := range rows {
+		if row.CompilePass {
+			compilePass++
+		}
+		if row.TestPassCount != nil && row.TestTotalCount != nil {
+			testPassTotal += *row.TestPassCount
+			testTotal += *row.TestTotalCount
+		} else if row.TestPass != nil {
+			fallbackTotal++
+			if *row.TestPass {
+				fallbackPass++
+			}
+		}
+		if row.LineCoverage != nil {
+			lineSum += *row.LineCoverage
+			lineCnt++
+		}
+		if row.MutationScore != nil {
+			mutationSum += *row.MutationScore
+			mutationCnt++
+		}
+		if row.AssertionDensity != nil {
+			assertDensitySum += *row.AssertionDensity
+			assertDensityCnt++
+		}
+	}
+
+	if fallbackTotal > 0 {
+		testPassTotal += fallbackPass
+		testTotal += fallbackTotal
+	}
+
+	return contracts.ReportSummary{
+		TotalSamples:        total,
+		CompilePassCount:    compilePass,
+		CompilePassRate:     rate(compilePass, total),
+		TestPassCount:       testPassTotal,
+		TestPassRate:        rate(testPassTotal, testTotal),
+		AvgLineCoverage:     avg(lineSum, lineCnt),
+		AvgMutationScore:    avg(mutationSum, mutationCnt),
+		AvgAssertionDensity: avg(assertDensitySum, assertDensityCnt),
+	}
+}
+
+func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]ModelDetail) contracts.Dimensions {
+	modelMap := map[string]*modelAgg{}
+	langMap := map[string]*modelAgg{}
+	scenarioMap := map[string]*scenarioAgg{}
+	modelScenarioMap := map[string]*modelScenarioAgg{}
+
+	for _, row := range rows {
+		agg := getOrCreateModelAgg(modelMap, row.Model)
+		mergeModelAgg(agg, row)
+
+		langAgg := getOrCreateModelAgg(langMap, row.Language)
+		mergeModelAgg(langAgg, row)
+
+		scenario := extractScenario(row.SampleID)
+		scenarioKey := fmt.Sprintf("%s|%s", row.Language, scenario)
+		scenAgg := getOrCreateScenarioAgg(scenarioMap, scenarioKey)
+		mergeScenarioAgg(scenAgg, row, scenario, row.Language)
+
+		modelScenKey := fmt.Sprintf("%s|%s|%s", row.Model, row.Language, scenario)
+		modelScenAgg := getOrCreateModelScenarioAgg(modelScenarioMap, modelScenKey)
+		mergeModelScenarioAgg(modelScenAgg, row, row.Model, scenario, row.Language)
+	}
+
+	var byModel []contracts.ModelDim
+	for _, agg := range modelMap {
+		detail, ok := modelDetails[agg.key]
+		modelID := agg.key
+		provider := ""
+		if ok {
+			modelID = detail.ModelID
+			provider = detail.Provider
+		}
+		byModel = append(byModel, contracts.ModelDim{
+			Model:               agg.key,
+			ModelID:             modelID,
+			Provider:            provider,
+			TotalSamples:        agg.count,
+			CompilePassRate:     rate(agg.compilePass, agg.count),
+			AvgTestPassRate:     rate(agg.testPassTotal, agg.testTotal),
+			AvgLineCoverage:     avg(agg.lineSum, agg.lineCnt),
+			AvgBranchCoverage:   avg(agg.branchSum, agg.branchCnt),
+			AvgMutationScore:    avg(agg.mutationSum, agg.mutationCnt),
+			AvgLatencyMS:        avgFloat(agg.latencySum, agg.latencyCnt),
+			AvgPromptTokens:     avgFloat(agg.promptTokensSum, agg.tokenCnt),
+			AvgCompletionTokens: avgFloat(agg.completionTokensSum, agg.tokenCnt),
+			AvgTotalTokens:      avgFloat(agg.totalTokensSum, agg.tokenCnt),
+		})
+	}
+	sort.Slice(byModel, func(i, j int) bool { return byModel[i].Model < byModel[j].Model })
+
+	var byLanguage []contracts.LanguageDim
+	for _, agg := range langMap {
+		byLanguage = append(byLanguage, contracts.LanguageDim{
+			Language:          agg.key,
+			TotalSamples:      agg.count,
+			CompilePassRate:   rate(agg.compilePass, agg.count),
+			AvgTestPassRate:   rate(agg.testPassTotal, agg.testTotal),
+			AvgLineCoverage:   avg(agg.lineSum, agg.lineCnt),
+			AvgBranchCoverage: avg(agg.branchSum, agg.branchCnt),
+			AvgMutationScore:  avg(agg.mutationSum, agg.mutationCnt),
+		})
+	}
+	sort.Slice(byLanguage, func(i, j int) bool { return byLanguage[i].Language < byLanguage[j].Language })
+
+	var byScenario []contracts.ScenarioDim
+	for _, agg := range scenarioMap {
+		byScenario = append(byScenario, contracts.ScenarioDim{
+			Scenario:          agg.scenario,
+			Language:          agg.language,
+			TotalSamples:      agg.count,
+			CompilePassRate:   rate(agg.compilePass, agg.count),
+			AvgTestPassRate:   rate(agg.testPassTotal, agg.testTotal),
+			AvgLineCoverage:   avg(agg.lineSum, agg.lineCnt),
+			AvgBranchCoverage: avg(agg.branchSum, agg.branchCnt),
+			AvgMutationScore:  avg(agg.mutationSum, agg.mutationCnt),
+			AvgLatencyMS:      avgFloat(agg.latencySum, agg.latencyCnt),
+			AvgTokens:         avgFloat(agg.totalTokensSum, agg.tokenCnt),
+		})
+	}
+	sort.Slice(byScenario, func(i, j int) bool {
+		if byScenario[i].Language != byScenario[j].Language {
+			return byScenario[i].Language < byScenario[j].Language
+		}
+		return byScenario[i].Scenario < byScenario[j].Scenario
+	})
+
+	var byModelScenario []contracts.ModelScenarioDim
+	for _, agg := range modelScenarioMap {
+		byModelScenario = append(byModelScenario, contracts.ModelScenarioDim{
+			Model:               agg.model,
+			Scenario:            agg.scenario,
+			Language:            agg.language,
+			TotalSamples:        agg.count,
+			CompilePassRate:     rate(agg.compilePass, agg.count),
+			AvgTestPassRate:     rate(agg.testPassTotal, agg.testTotal),
+			AvgLineCoverage:     avg(agg.lineSum, agg.lineCnt),
+			AvgBranchCoverage:   avg(agg.branchSum, agg.branchCnt),
+			AvgMutationScore:    avg(agg.mutationSum, agg.mutationCnt),
+			AvgLatencyMS:        avgFloat(agg.latencySum, agg.latencyCnt),
+			AvgPromptTokens:     avgFloat(agg.promptTokensSum, agg.tokenCnt),
+			AvgCompletionTokens: avgFloat(agg.completionTokensSum, agg.tokenCnt),
+			AvgTotalTokens:      avgFloat(agg.totalTokensSum, agg.tokenCnt),
+		})
+	}
+	sort.Slice(byModelScenario, func(i, j int) bool {
+		if byModelScenario[i].Model != byModelScenario[j].Model {
+			return byModelScenario[i].Model < byModelScenario[j].Model
+		}
+		if byModelScenario[i].Language != byModelScenario[j].Language {
+			return byModelScenario[i].Language < byModelScenario[j].Language
+		}
+		return byModelScenario[i].Scenario < byModelScenario[j].Scenario
+	})
+
+	return contracts.Dimensions{
+		ByModel:         byModel,
+		ByLanguage:      byLanguage,
+		ByScenario:      byScenario,
+		ByModelScenario: byModelScenario,
+	}
+}
+
+// 聚合器类型定义
+type modelAgg struct {
+	key                 string
+	count               int
+	compilePass         int
+	testPassTotal       int
+	testTotal           int
+	lineSum             float64
+	lineCnt             int
+	branchSum           float64
+	branchCnt           int
+	mutationSum         float64
+	mutationCnt         int
+	latencySum          float64
+	latencyCnt          int
+	tokenCnt            int
+	promptTokensSum     float64
+	completionTokensSum float64
+	totalTokensSum      float64
+}
+
+type scenarioAgg struct {
+	key                 string
+	scenario            string
+	language            string
+	count               int
+	compilePass         int
+	testPassTotal       int
+	testTotal           int
+	lineSum             float64
+	lineCnt             int
+	branchSum           float64
+	branchCnt           int
+	mutationSum         float64
+	mutationCnt         int
+	latencySum          float64
+	latencyCnt          int
+	tokenCnt            int
+	promptTokensSum     float64
+	completionTokensSum float64
+	totalTokensSum      float64
+}
+
+type modelScenarioAgg struct {
+	key                 string
+	model               string
+	scenario            string
+	language            string
+	count               int
+	compilePass         int
+	testPassTotal       int
+	testTotal           int
+	lineSum             float64
+	lineCnt             int
+	branchSum           float64
+	branchCnt           int
+	mutationSum         float64
+	mutationCnt         int
+	latencySum          float64
+	latencyCnt          int
+	tokenCnt            int
+	promptTokensSum     float64
+	completionTokensSum float64
+	totalTokensSum      float64
+}
+
+func extractScenario(sampleID string) string {
+	parts := strings.Split(sampleID, "_")
+	if len(parts) >= 1 {
+		return parts[0]
+	}
+	return "unknown"
+}
+
+func getOrCreateModelAgg(m map[string]*modelAgg, key string) *modelAgg {
+	if a, ok := m[key]; ok {
+		return a
+	}
+	a := &modelAgg{key: key}
+	m[key] = a
+	return a
+}
+
+func getOrCreateScenarioAgg(m map[string]*scenarioAgg, key string) *scenarioAgg {
+	if a, ok := m[key]; ok {
+		return a
+	}
+	a := &scenarioAgg{key: key}
+	m[key] = a
+	return a
+}
+
+func getOrCreateModelScenarioAgg(m map[string]*modelScenarioAgg, key string) *modelScenarioAgg {
+	if a, ok := m[key]; ok {
+		return a
+	}
+	a := &modelScenarioAgg{key: key}
+	m[key] = a
+	return a
+}
+
+func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
+	a.count++
+	if row.CompilePass {
+		a.compilePass++
+	}
+	if row.TestPassCount != nil && row.TestTotalCount != nil {
+		a.testPassTotal += *row.TestPassCount
+		a.testTotal += *row.TestTotalCount
+	} else if row.TestPass != nil {
+		a.testTotal++
+		if *row.TestPass {
+			a.testPassTotal++
+		}
+	}
+	if row.LineCoverage != nil {
+		a.lineSum += *row.LineCoverage
+		a.lineCnt++
+	}
+	if row.BranchCoverage != nil {
+		a.branchSum += *row.BranchCoverage
+		a.branchCnt++
+	}
+	if row.MutationScore != nil {
+		a.mutationSum += *row.MutationScore
+		a.mutationCnt++
+	}
+	if row.RuntimeMS != nil {
+		a.latencySum += float64(*row.RuntimeMS)
+		a.latencyCnt++
+	}
+	if row.PromptTokens != nil {
+		a.promptTokensSum += float64(*row.PromptTokens)
+		a.completionTokensSum += float64(*row.CompletionTokens)
+		a.totalTokensSum += float64(*row.TotalTokens)
+		a.tokenCnt++
+	}
+}
+
+func mergeScenarioAgg(a *scenarioAgg, row contracts.EvaluationResult, scenario, language string) {
+	a.scenario = scenario
+	a.language = language
+	a.count++
+	if row.CompilePass {
+		a.compilePass++
+	}
+	if row.TestPassCount != nil && row.TestTotalCount != nil {
+		a.testPassTotal += *row.TestPassCount
+		a.testTotal += *row.TestTotalCount
+	} else if row.TestPass != nil {
+		a.testTotal++
+		if *row.TestPass {
+			a.testPassTotal++
+		}
+	}
+	if row.LineCoverage != nil {
+		a.lineSum += *row.LineCoverage
+		a.lineCnt++
+	}
+	if row.BranchCoverage != nil {
+		a.branchSum += *row.BranchCoverage
+		a.branchCnt++
+	}
+	if row.MutationScore != nil {
+		a.mutationSum += *row.MutationScore
+		a.mutationCnt++
+	}
+	if row.RuntimeMS != nil {
+		a.latencySum += float64(*row.RuntimeMS)
+		a.latencyCnt++
+	}
+	if row.TotalTokens != nil {
+		a.promptTokensSum += float64(*row.PromptTokens)
+		a.completionTokensSum += float64(*row.CompletionTokens)
+		a.totalTokensSum += float64(*row.TotalTokens)
+		a.tokenCnt++
+	}
+}
+
+func mergeModelScenarioAgg(a *modelScenarioAgg, row contracts.EvaluationResult, model, scenario, language string) {
+	a.model = model
+	a.scenario = scenario
+	a.language = language
+	a.count++
+	if row.CompilePass {
+		a.compilePass++
+	}
+	if row.TestPassCount != nil && row.TestTotalCount != nil {
+		a.testPassTotal += *row.TestPassCount
+		a.testTotal += *row.TestTotalCount
+	} else if row.TestPass != nil {
+		a.testTotal++
+		if *row.TestPass {
+			a.testPassTotal++
+		}
+	}
+	if row.LineCoverage != nil {
+		a.lineSum += *row.LineCoverage
+		a.lineCnt++
+	}
+	if row.BranchCoverage != nil {
+		a.branchSum += *row.BranchCoverage
+		a.branchCnt++
+	}
+	if row.MutationScore != nil {
+		a.mutationSum += *row.MutationScore
+		a.mutationCnt++
+	}
+	if row.RuntimeMS != nil {
+		a.latencySum += float64(*row.RuntimeMS)
+		a.latencyCnt++
+	}
+	if row.TotalTokens != nil {
+		a.promptTokensSum += float64(*row.PromptTokens)
+		a.completionTokensSum += float64(*row.CompletionTokens)
+		a.totalTokensSum += float64(*row.TotalTokens)
+		a.tokenCnt++
+	}
+}
+
+func buildTokenStats(rows []contracts.EvaluationResult) contracts.TokenStats {
+	stats := contracts.TokenStats{}
+	for _, row := range rows {
+		if row.PromptTokens != nil {
+			stats.TotalPromptTokens += *row.PromptTokens
+			stats.TotalCompletionTokens += *row.CompletionTokens
+			stats.TotalTokens += *row.TotalTokens
+			stats.SampleCount++
+		}
+	}
+	if stats.SampleCount > 0 {
+		stats.AvgPromptTokens = float64(stats.TotalPromptTokens) / float64(stats.SampleCount)
+		stats.AvgCompletionTokens = float64(stats.TotalCompletionTokens) / float64(stats.SampleCount)
+		stats.AvgTotalTokens = float64(stats.TotalTokens) / float64(stats.SampleCount)
+	}
+	return stats
+}
+
+func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
+	var sorted []contracts.ModelDim
+	for _, m := range models {
+		// 计算综合得分：编译30% + 测试30% + 覆盖20% + 变异20%
+		composite := m.CompilePassRate*0.3 + m.AvgTestPassRate*0.3 + m.AvgLineCoverage*0.2 + m.AvgMutationScore*0.2
+		m.CompositeScore = round(composite, 6)
+		sorted = append(sorted, m)
+	}
+	// 按综合得分降序排序
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].CompositeScore != sorted[j].CompositeScore {
+			return sorted[i].CompositeScore > sorted[j].CompositeScore
+		}
+		if sorted[i].AvgTestPassRate != sorted[j].AvgTestPassRate {
+			return sorted[i].AvgTestPassRate > sorted[j].AvgTestPassRate
+		}
+		if sorted[i].AvgLineCoverage != sorted[j].AvgLineCoverage {
+			return sorted[i].AvgLineCoverage > sorted[j].AvgLineCoverage
+		}
+		return sorted[i].AvgMutationScore > sorted[j].AvgMutationScore
+	})
+
+	var out []contracts.ModelRank
+	for i, m := range sorted {
+		out = append(out, contracts.ModelRank{
+			Rank:                i + 1,
+			Model:               m.Model,
+			ModelID:             m.ModelID,
+			Provider:            m.Provider,
+			CompilePassRate:     m.CompilePassRate,
+			AvgTestPassRate:     m.AvgTestPassRate,
+			AvgLineCoverage:     m.AvgLineCoverage,
+			AvgMutationScore:    m.AvgMutationScore,
+			CompositeScore:      m.CompositeScore,
+			AvgLatencyMS:        m.AvgLatencyMS,
+			AvgPromptTokens:     m.AvgPromptTokens,
+			AvgCompletionTokens: m.AvgCompletionTokens,
+			AvgTotalTokens:      m.AvgTotalTokens,
+		})
+	}
+	return out
+}
+
+func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow {
+	m := map[failureKey]*failureAgg{}
+
+	for _, row := range rows {
+		if row.CompileError != "" {
+			k := failureKey{stage: "compile", errType: classifyError(row.CompileError)}
+			agg := getOrCreateFailureAgg(m, k)
+			agg.count++
+			if agg.exampleModel == "" {
+				agg.exampleModel = row.Model
+				agg.exampleSample = row.SampleID
+				agg.exampleMessage = shortErrText(row.CompileError)
+			}
+		}
+		if row.TestError != "" {
+			k := failureKey{stage: "test", errType: classifyError(row.TestError)}
+			agg := getOrCreateFailureAgg(m, k)
+			agg.count++
+			if agg.exampleModel == "" {
+				agg.exampleModel = row.Model
+				agg.exampleSample = row.SampleID
+				agg.exampleMessage = shortErrText(row.TestError)
+			}
+		}
+		if row.CoverageError != "" {
+			k := failureKey{stage: "coverage", errType: "coverage_error"}
+			agg := getOrCreateFailureAgg(m, k)
+			agg.count++
+			if agg.exampleModel == "" {
+				agg.exampleModel = row.Model
+				agg.exampleSample = row.SampleID
+				agg.exampleMessage = shortErrText(row.CoverageError)
+			}
+		}
+		if row.MutationError != "" {
+			k := failureKey{stage: "mutation", errType: "mutation_error"}
+			agg := getOrCreateFailureAgg(m, k)
+			agg.count++
+			if agg.exampleModel == "" {
+				agg.exampleModel = row.Model
+				agg.exampleSample = row.SampleID
+				agg.exampleMessage = shortErrText(row.MutationError)
+			}
+		}
+	}
+
+	var out []contracts.FailureRow
+	for k, agg := range m {
+		out = append(out, contracts.FailureRow{
+			Stage:          k.stage,
+			ErrorType:      k.errType,
+			Count:          agg.count,
+			ExampleModel:   agg.exampleModel,
+			ExampleSample:  agg.exampleSample,
+			ExampleMessage: agg.exampleMessage,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Count > out[j].Count })
+	return out
+}
+
+type failureKey struct {
+	stage, errType string
+}
+
+type failureAgg struct {
+	key            failureKey
+	count          int
+	exampleModel   string
+	exampleSample  string
+	exampleMessage string
+}
+
+func getOrCreateFailureAgg(m map[failureKey]*failureAgg, k failureKey) *failureAgg {
+	if a, ok := m[k]; ok {
+		return a
+	}
+	a := &failureAgg{key: k}
+	m[k] = a
+	return a
+}
+
+func classifyError(msg string) string {
+	msg = strings.ToLower(msg)
+	switch {
+	case strings.Contains(msg, "modulenotfound") || strings.Contains(msg, "importerror") || strings.Contains(msg, "no module"):
+		return "module_not_found"
+	case strings.Contains(msg, "nameerror") || strings.Contains(msg, "name '"):
+		return "name_error"
+	case strings.Contains(msg, "assertionerror") || strings.Contains(msg, "assert"):
+		return "assertion_failure"
+	case strings.Contains(msg, "syntaxerror"):
+		return "syntax_error"
+	case strings.Contains(msg, "indentation"):
+		return "indentation_error"
+	case strings.Contains(msg, "timeout"):
+		return "timeout"
+	case strings.Contains(msg, "permission"):
+		return "permission_error"
+	default:
+		return "other"
+	}
+}
+
+func shortErrText(v string) string {
+	v = strings.TrimSpace(v)
+	v = strings.ReplaceAll(v, "\n", " ")
+	if len(v) > 500 {
+		return v[:500] + "..."
+	}
+	return v
+}
+
+func buildMutationBreakdown(rows []contracts.EvaluationResult) mutationBreakdown {
+	out := mutationBreakdown{}
+	for _, row := range rows {
+		if row.MutationTotal != nil {
+			out.Total += *row.MutationTotal
+		}
+		if row.MutationKilled != nil {
+			out.Killed += *row.MutationKilled
+		}
+		if row.MutationSurvived != nil {
+			out.Survived += *row.MutationSurvived
+		}
+		if row.MutationNoTests != nil {
+			out.NoTests += *row.MutationNoTests
+		}
+		if row.MutationTimeouts != nil {
+			out.Timeouts += *row.MutationTimeouts
+		}
+		if row.MutationSkipped != nil {
+			out.Skipped += *row.MutationSkipped
+		}
+		if row.MutationSuspicious != nil {
+			out.Suspicious += *row.MutationSuspicious
+		}
+		if row.MutationTool != "" && out.Tool == "" {
+			out.Tool = row.MutationTool
+		}
+	}
+	return out
+}
+
+func rate(num, den int) float64 {
+	if den <= 0 {
+		return 0
+	}
+	return round(float64(num)/float64(den), 6)
+}
+
+func avg(sum float64, count int) float64 {
+	if count <= 0 {
+		return 0
+	}
+	return round(sum/float64(count), 6)
+}
+
+func avgFloat(sum float64, count int) float64 {
+	if count <= 0 {
+		return 0
+	}
+	return round(sum/float64(count), 2)
+}
+
+func round(v float64, digits int) float64 {
+	p := 1.0
+	for i := 0; i < digits; i++ {
+		p *= 10
+	}
+	if v >= 0 {
+		return float64(int(v*p+0.5)) / p
+	}
+	return float64(int(v*p-0.5)) / p
+}
+
+func effectiveKillRate(b mutationBreakdown) float64 {
+	total := b.Killed + b.Survived
+	if total == 0 {
+		return 0
+	}
+	return round(float64(b.Killed)/float64(total), 6)
+}
+
+func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, rows []contracts.EvaluationResult) string {
+	var b strings.Builder
+
+	b.WriteString(`<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UT-Bench Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --primary: #1E40AF;
+  --primary-light: #3B82F6;
+  --primary-soft: #EFF6FF;
+  --accent: #F59E0B;
+  --accent-soft: #FFFBEB;
+  --success: #059669;
+  --success-soft: #ECFDF5;
+  --danger: #DC2626;
+  --danger-soft: #FEF2F2;
+  --warning: #D97706;
+  --bg: #F8FAFC;
+  --card: #FFFFFF;
+  --text: #1E3A8A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+  --border: #E2E8F0;
+  --shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+}
+* { box-sizing: border-box; }
+body { 
+  margin: 0; 
+  background: var(--bg); 
+  color: var(--text); 
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+.header { 
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+  color: white;
+  padding: 32px;
+  border-radius: 16px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-lg);
+}
+.header h1 { margin: 0 0 12px 0; font-size: 32px; font-weight: 700; }
+.header .subtitle { font-size: 16px; opacity: 0.9; margin-bottom: 16px; }
+.header .meta { font-size: 13px; opacity: 0.8; }
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.kpi-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+.kpi-card .label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.kpi-card .value { font-size: 28px; font-weight: 700; color: var(--primary); }
+.kpi-card .value.success { color: var(--success); }
+.kpi-card .value.danger { color: var(--danger); }
+.kpi-card .value.warning { color: var(--warning); }
+.kpi-card .sub-value { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.section { 
+  background: var(--card); 
+  border-radius: 12px; 
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
+}
+.section-title { font-size: 18px; font-weight: 600; margin: 0 0 20px 0; color: var(--text); }
+.table-container { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--primary-soft); color: var(--primary); font-weight: 600; text-align: left; padding: 12px; white-space: nowrap; }
+td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #FAFBFC; }
+.progress-bar { display: flex; align-items: center; gap: 10px; }
+.progress-bar .bar { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; min-width: 60px; }
+.progress-bar .fill { height: 100%; border-radius: 4px; }
+.progress-bar .fill.primary { background: var(--primary); }
+.progress-bar .fill.success { background: var(--success); }
+.progress-bar .fill.warning { background: var(--accent); }
+.progress-bar .fill.danger { background: var(--danger); }
+.progress-bar .text { font-size: 12px; font-weight: 600; min-width: 45px; text-align: right; }
+.badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.badge-success { background: var(--success-soft); color: var(--success); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+.badge-warning { background: var(--accent-soft); color: var(--warning); }
+.badge-info { background: var(--primary-soft); color: var(--primary); }
+.rank { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; font-weight: 700; font-size: 13px; }
+.rank-1 { background: linear-gradient(135deg, #FFD700, #FFA500); color: #7C4A00; }
+.rank-2 { background: linear-gradient(135deg, #C0C0C0, #A0A0A0); color: #4A4A4A; }
+.rank-3 { background: linear-gradient(135deg, #CD7F32, #B87333); color: white; }
+.rank-other { background: var(--border); color: var(--text-muted); }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; margin-bottom: 24px; }
+.chart-container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+.chart-container h3 { margin: 0 0 16px 0; font-size: 14px; color: var(--text); }
+.chart-box { height: 280px; }
+@media (max-width: 768px) {
+  .container { padding: 16px; }
+  .header { padding: 24px; }
+  .header h1 { font-size: 24px; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .chart-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+`)
+
+	b.WriteString(fmt.Sprintf(`
+<div class="header">
+  <h1>UT-Bench 多模型单测生成评测报告</h1>
+  <div class="subtitle">Multi-Model Unit Test Generation Evaluation Report</div>
+  <div class="meta">Run ID: %s | Generated: %s | Total Samples: %d</div>
+</div>
+`, escapeHTML(payload.RunID), payload.GeneratedAtUTC.Format("2006-01-02 15:04:05"), payload.Summary.TotalSamples))
+
+	// KPI Cards
+	b.WriteString(`<div class="kpi-grid">`)
+	b.WriteString(kpiCard("编译通过率", payload.Summary.CompilePassRate, "success", fmt.Sprintf("%d/%d", payload.Summary.CompilePassCount, payload.Summary.TotalSamples)))
+	b.WriteString(kpiCard("测试通过率", payload.Summary.TestPassRate, getRateClass(payload.Summary.TestPassRate, 0.7), fmt.Sprintf("%d cases", payload.Summary.TestPassCount)))
+	b.WriteString(kpiCard("平均行覆盖率", payload.Summary.AvgLineCoverage, getRateClass(payload.Summary.AvgLineCoverage, 0.7), ""))
+	b.WriteString(kpiCard("平均变异分", payload.Summary.AvgMutationScore, getRateClass(payload.Summary.AvgMutationScore, 0.85), ""))
+	b.WriteString(kpiCard("平均断言密度", payload.Summary.AvgAssertionDensity, "primary", ""))
+	b.WriteString(kpiCard("有效杀虫率", effectiveKillRate(breakdown), getRateClass(effectiveKillRate(breakdown), 0.85), fmt.Sprintf("%d/%d", breakdown.Killed, breakdown.Killed+breakdown.Survived)))
+	if payload.TokenStats.SampleCount > 0 {
+		b.WriteString(kpiCard("平均Token使用", payload.TokenStats.AvgTotalTokens/1000, "primary", fmt.Sprintf("提示词:%.1fk | 补全:%.1fk", payload.TokenStats.AvgPromptTokens/1000, payload.TokenStats.AvgCompletionTokens/1000)))
+	}
+	b.WriteString(`</div>`)
+
+	// Model Ranking Table
+	b.WriteString(`<div class="section">
+  <div class="section-title">模型排名</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>排名</th>
+          <th>模型</th>
+          <th>模型ID</th>
+          <th>编译</th>
+          <th>测试通过</th>
+          <th>行覆盖</th>
+          <th>分支覆盖</th>
+          <th>变异分</th>
+          <th>延迟(ms)</th>
+          <th>Token(千)</th>
+        </tr>
+      </thead>
+      <tbody>`)
+
+	for _, r := range payload.TopModels {
+		rankClass := "rank-other"
+		if r.Rank == 1 { rankClass = "rank-1" } else if r.Rank == 2 { rankClass = "rank-2" } else if r.Rank == 3 { rankClass = "rank-3" }
+
+		tokenInfo := "-"
+		if r.AvgTotalTokens > 0 { tokenInfo = fmt.Sprintf("%.1f", r.AvgTotalTokens/1000) }
+
+		b.WriteString(fmt.Sprintf(`
+        <tr>
+          <td><span class="rank %s">%d</span></td>
+          <td><strong>%s</strong></td>
+          <td><span class="badge badge-info">%s</span></td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>-</td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>%s</td>
+        </tr>`,
+			rankClass, r.Rank,
+			escapeHTML(r.Model),
+			escapeHTML(getModelIDShort(r.ModelID)),
+			progressBar(r.CompilePassRate, payload.Thresholds.CompilePassRate),
+			progressBar(r.AvgTestPassRate, payload.Thresholds.TestPassRate),
+			progressBar(r.AvgLineCoverage, payload.Thresholds.LineCoverage),
+			progressBar(r.AvgMutationScore, payload.Thresholds.MutationScore),
+			numCell(r.AvgLatencyMS),
+			tokenInfo))
+	}
+	b.WriteString(`
+      </tbody>
+    </table>
+  </div>
+</div>`)
+
+	// Charts
+	b.WriteString(`<div class="chart-grid">
+  <div class="chart-container">
+    <h3>模型指标对比</h3>
+    <div class="chart-box"><canvas id="modelBarChart"></canvas></div>
+  </div>
+  <div class="chart-container">
+    <h3>多维雷达图</h3>
+    <div class="chart-box"><canvas id="radarChart"></canvas></div>
+  </div>
+</div>`)
+
+	// Model x Scenario Detail
+	if len(payload.ByModelScenario) > 0 {
+		b.WriteString(`<div class="section">
+  <div class="section-title">模型 × 场景 详细分析</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>模型</th>
+          <th>场景</th>
+          <th>语言</th>
+          <th>样本数</th>
+          <th>编译</th>
+          <th>测试</th>
+          <th>覆盖率</th>
+          <th>变异</th>
+          <th>Token(千)</th>
+        </tr>
+      </thead>
+      <tbody>`)
+
+		for _, m := range payload.ByModelScenario {
+			tokenInfo := "-"
+			if m.AvgTotalTokens > 0 { tokenInfo = fmt.Sprintf("%.1f", m.AvgTotalTokens/1000) }
+			scenarioLabel := getScenarioLabel(m.Scenario)
+
+			b.WriteString(fmt.Sprintf(`
+        <tr>
+          <td><strong>%s</strong></td>
+          <td>%s</td>
+          <td><span class="badge badge-info">%s</span></td>
+          <td>%d</td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>%s</td>
+        </tr>`,
+				escapeHTML(m.Model),
+				scenarioLabel,
+				strings.ToUpper(m.Language[:1])+m.Language[1:],
+				m.TotalSamples,
+				progressBar(m.CompilePassRate, payload.Thresholds.CompilePassRate),
+				progressBar(m.AvgTestPassRate, payload.Thresholds.TestPassRate),
+				progressBar(m.AvgLineCoverage, payload.Thresholds.LineCoverage),
+				progressBar(m.AvgMutationScore, payload.Thresholds.MutationScore),
+				tokenInfo))
+		}
+		b.WriteString(`
+      </tbody>
+    </table>
+  </div>
+</div>`)
+	}
+
+	// By Language
+	if len(payload.Dimensions.ByLanguage) > 0 {
+		b.WriteString(`<div class="section">
+  <div class="section-title">按语言统计</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>语言</th>
+          <th>样本数</th>
+          <th>编译</th>
+          <th>测试通过</th>
+          <th>行覆盖</th>
+          <th>分支覆盖</th>
+          <th>变异分</th>
+        </tr>
+      </thead>
+      <tbody>`)
+
+		for _, l := range payload.Dimensions.ByLanguage {
+			b.WriteString(fmt.Sprintf(`
+        <tr>
+          <td><strong>%s</strong></td>
+          <td>%d</td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>%s</td>
+          <td>%s</td>
+        </tr>`,
+				strings.ToUpper(l.Language[:1])+l.Language[1:],
+				l.TotalSamples,
+				progressBar(l.CompilePassRate, payload.Thresholds.CompilePassRate),
+				progressBar(l.AvgTestPassRate, payload.Thresholds.TestPassRate),
+				progressBar(l.AvgLineCoverage, payload.Thresholds.LineCoverage),
+				progressBar(l.AvgBranchCoverage, payload.Thresholds.BranchCoverage),
+				progressBar(l.AvgMutationScore, payload.Thresholds.MutationScore)))
+		}
+		b.WriteString(`
+      </tbody>
+    </table>
+  </div>
+</div>`)
+	}
+
+	// Failures
+	if len(payload.Failures) > 0 {
+		b.WriteString(`<div class="section">
+  <div class="section-title">失败分析</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>阶段</th>
+          <th>错误类型</th>
+          <th>数量</th>
+          <th>示例模型</th>
+          <th>示例样本</th>
+          <th>错误信息</th>
+        </tr>
+      </thead>
+      <tbody>`)
+
+		for _, f := range payload.Failures {
+			b.WriteString(fmt.Sprintf(`
+        <tr>
+          <td><span class="badge badge-warning">%s</span></td>
+          <td><span class="badge badge-danger">%s</span></td>
+          <td>%d</td>
+          <td>%s</td>
+          <td>%s</td>
+          <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">%s</td>
+        </tr>`,
+				escapeHTML(f.Stage),
+				escapeHTML(f.ErrorType),
+				f.Count,
+				escapeHTML(f.ExampleModel),
+				escapeHTML(f.ExampleSample),
+				escapeHTML(f.ExampleMessage)))
+		}
+		b.WriteString(`
+      </tbody>
+    </table>
+  </div>
+</div>`)
+	}
+
+	// Mutation Details
+	b.WriteString(`<div class="section">
+  <div class="section-title">变异测试详情</div>
+  <div class="kpi-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));">`)
+	b.WriteString(kpiCardSimple("总变异体", fmt.Sprintf("%d", breakdown.Total), "primary"))
+	b.WriteString(kpiCardSimple("已杀灭", fmt.Sprintf("%d", breakdown.Killed), "success"))
+	b.WriteString(kpiCardSimple("存活", fmt.Sprintf("%d", breakdown.Survived), "danger"))
+	b.WriteString(kpiCardSimple("无测试", fmt.Sprintf("%d", breakdown.NoTests), "warning"))
+	b.WriteString(kpiCardSimple("超时", fmt.Sprintf("%d", breakdown.Timeouts), "warning"))
+	b.WriteString(kpiCardSimple("工具", breakdown.Tool, "info"))
+	b.WriteString(`</div>
+</div>`)
+
+	// Chart Scripts
+	modelNames, compileRates, testRates, lineCovs, mutScores := extractChartDataSimple(payload.TopModels)
+
+	b.WriteString(fmt.Sprintf(`
+<script>
+const modelNames = %s;
+const compileRates = %s;
+const testPassRates = %s;
+const lineCoverages = %s;
+const mutationScores = %s;
+
+new Chart(document.getElementById('modelBarChart'), {
+  type: 'bar',
+  data: {
+    labels: modelNames,
+    datasets: [
+      { label: '编译', data: compileRates, backgroundColor: '#1E40AF' },
+      { label: '测试通过', data: testPassRates, backgroundColor: '#3B82F6' },
+      { label: '行覆盖', data: lineCoverages, backgroundColor: '#059669' },
+      { label: '变异', data: mutationScores, backgroundColor: '#F59E0B' }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'top' },
+      tooltip: {
+        callbacks: {
+          label: function(ctx) {
+            return ctx.dataset.label + ': ' + (ctx.raw * 100).toFixed(1) + '%';
+          }
+        }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        max: 1,
+        ticks: {
+          callback: function(value) {
+            return (value * 100).toFixed(0) + '%%';
+          }
+        }
+      }
+    }
+  }
+});
+
+new Chart(document.getElementById('radarChart'), {
+  type: 'radar',
+  data: {
+    labels: ['编译', '测试通过', '行覆盖', '变异'],
+    datasets: modelNames.map((name, i) => ({
+      label: name,
+      data: [compileRates[i], testPassRates[i], lineCoverages[i], mutationScores[i]],
+      fill: true,
+      backgroundColor: ['rgba(30, 64, 175, 0.2)', 'rgba(5, 150, 105, 0.2)', 'rgba(245, 158, 11, 0.2)', 'rgba(220, 38, 38, 0.2)'][i %% 4],
+      borderColor: ['#1E40AF', '#059669', '#F59E0B', '#DC2626'][i %% 4],
+      pointBackgroundColor: ['#1E40AF', '#059669', '#F59E0B', '#DC2626'][i %% 4],
+    }))
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'top' },
+      tooltip: {
+        callbacks: {
+          label: function(ctx) {
+            return ctx.dataset.label + ': ' + (ctx.raw * 100).toFixed(1) + '%';
+          }
+        }
+      }
+    },
+    scales: {
+      r: {
+        beginAtZero: true,
+        max: 1,
+        ticks: {
+          callback: function(value) {
+            return (value * 100).toFixed(0) + '%%';
+          }
+        }
+      }
+    }
+  }
+});
+</script>
+`, modelNames, compileRates, testRates, lineCovs, mutScores))
+
+	b.WriteString(`
+</div>
+</body>
+</html>`)
+
+	return b.String()
+}
+
+func kpiCard(label string, value float64, valueClass string, subValue string) string {
+	displayValue := fmt.Sprintf("%.1f%%", value*100)
+	if value > 100 { displayValue = fmt.Sprintf("%.1f", value) }
+	subHTML := ""
+	if subValue != "" { subHTML = fmt.Sprintf(`<div class="sub-value">%s</div>`, escapeHTML(subValue)) }
+	return fmt.Sprintf(`<div class="kpi-card"><div class="label">%s</div><div class="value %s">%s</div>%s</div>`, escapeHTML(label), valueClass, displayValue, subHTML)
+}
+
+func kpiCardSimple(label, value, valueClass string) string {
+	return fmt.Sprintf(`<div class="kpi-card"><div class="label">%s</div><div class="value %s">%s</div></div>`, escapeHTML(label), valueClass, escapeHTML(value))
+}
+
+func getRateClass(rate, threshold float64) string {
+	if rate >= threshold { return "success" }
+	if rate >= threshold*0.8 { return "warning" }
+	return "danger"
+}
+
+func progressBar(value, threshold float64) string {
+	if value == 0 { return `<span class="badge badge-info">-</span>` }
+	fillClass := "success"
+	if value < threshold { fillClass = "danger" } else if value < threshold*1.05 { fillClass = "warning" }
+	pct := int(value * 100)
+	return fmt.Sprintf(`<div class="progress-bar"><div class="bar"><div class="fill %s" style="width:%d%%"></div></div><span class="text">%d%%</span></div>`, fillClass, pct, pct)
+}
+
+func numCell(v float64) string {
+	if v == 0 { return "-" }
+	return fmt.Sprintf("%.0f", v)
+}
+
+func getModelIDShort(modelID string) string {
+	if modelID == "" { return "unknown" }
+	if len(modelID) > 25 { return modelID[:22] + "..." }
+	return modelID
+}
+
+func getScenarioLabel(scenario string) string {
+	labels := map[string]string{
+		"boundary": "边界值",
+		"simple_function": "简单函数",
+		"complex_dependency": "复杂依赖",
+		"interface_mock": "接口Mock",
+		"unknown": "未知",
+	}
+	if label, ok := labels[scenario]; ok { return label }
+	return scenario
+}
+
+func extractChartDataSimple(models []contracts.ModelRank) (names, compileRates, testRates, lineCovs, mutScores string) {
+	var ns []string
+	var crs, trs, lcs, mss []float64
+	for _, m := range models {
+		ns = append(ns, m.Model)
+		crs = append(crs, m.CompilePassRate)
+		trs = append(trs, m.AvgTestPassRate)
+		lcs = append(lcs, m.AvgLineCoverage)
+		mss = append(mss, m.AvgMutationScore)
+	}
+	return marshalJSONSimple(ns), marshalJSONSimple(crs), marshalJSONSimple(trs), marshalJSONSimple(lcs), marshalJSONSimple(mss)
+}
+
+func marshalJSONSimple(v interface{}) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+func escapeHTML(v string) string {
+	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
+	return replacer.Replace(v)
+}
