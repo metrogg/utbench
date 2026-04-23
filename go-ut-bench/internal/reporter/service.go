@@ -2150,7 +2150,7 @@ func buildTruncationAnalysisSection(stats contracts.TruncationStats) string {
         %s
       </div>
     </div>`,
-		statusClass, truncationRate, getTruncationAdvice(truncationRate), statusText, getTruncationExplanation(truncationRate)))
+		statusClass, truncationRate, getTruncationAdvice(truncationRate), stats.TotalTruncated, statusText, getTruncationExplanation(truncationRate)))
 
 	// 续写功能状态
 	continuationStatus := "未启用"

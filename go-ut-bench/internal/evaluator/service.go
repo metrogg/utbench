@@ -84,10 +84,9 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 
 	// 输出评测配置信息
 	total := len(manifest.Cases)
-	fmt.Fprintf(os.Stderr, "\n[Evaluator] Starting evaluation of %d samples\n", total)
-	fmt.Fprintf(os.Stderr, "[Evaluator] Languages: %s | Mutation: %v\n",
-		getLanguagesSummary(manifest.Cases), spec.MutationEnabled)
-	fmt.Fprintf(os.Stderr, "[Evaluator] Workers: %d\n\n", workerCount)
+	progress := obs.NewProgressReporter(total, "evaluate")
+	progress.PrintStageStart("评测测试", fmt.Sprintf("样本: %d | 变异: %v | Workers: %d",
+		total, spec.MutationEnabled, workerCount))
 
 	// 创建输出目录
 	runRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID)
@@ -139,17 +138,56 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 	completed := 0
 	for row := range results {
 		completed++
+		rows = append(rows, row)
+
+		taskResult := obs.TaskResult{
+			Model:         row.Model,
+			Language:      row.Language,
+			SampleID:      row.SampleID,
+			Success:       row.CompilePass,
+			CompilePass:   row.CompilePass,
+			TestPass:      row.TestPass != nil && *row.TestPass,
+			LineCoverage:  getCoverageValue(row.LineCoverage),
+			MutationScore: getCoverageValue(row.MutationScore),
+		}
+		if row.MutationTool != "" {
+			taskResult.MutationTool = row.MutationTool
+			if row.MutationTotal != nil {
+				taskResult.MutationTotal = *row.MutationTotal
+			}
+			if row.MutationKilled != nil {
+				taskResult.MutationKilled = *row.MutationKilled
+			}
+			if row.MutationSurvived != nil {
+				taskResult.MutationSurvived = *row.MutationSurvived
+			}
+		}
+		if !row.CompilePass {
+			taskResult.Error = row.CompileError
+		} else if row.TestPass != nil && !*row.TestPass {
+			taskResult.Error = row.TestError
+		}
+		progress.OnTaskDone(taskResult)
+
 		status := "PASS"
 		if !row.CompilePass {
 			status = "FAIL(compile)"
 		} else if row.TestPass != nil && !*row.TestPass {
 			status = "FAIL(test)"
 		}
-		fmt.Fprintf(os.Stderr, "[%d/%d] %s | %s | %s | %s | %dms\n",
-			completed, total, row.Model, row.Language, row.SampleID, status,
-			getRuntimeMS(row.RuntimeMS))
-		rows = append(rows, row)
+		progress.PrintTaskLine(completed, total, row.Model, row.Language, row.SampleID, status, fmt.Sprintf("%dms", getRuntimeMS(row.RuntimeMS)))
+
+		if completed%5 == 0 {
+			progress.PrintStats()
+		}
 	}
+
+	progress.PrintStats()
+	progress.PrintStageDone("评测测试", obs.StageStats{
+		Total:    total,
+		Success:  completed,
+		Duration: time.Since(progress.GetStartTime()),
+	})
 
 	// 检查是否被取消
 	if err := ctx.Err(); err != nil {
@@ -321,18 +359,23 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 				mutationTargets = []string{sourceBase}
 			}
 			mutationStart := time.Now()
-			fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | starting...\n", item.Model, item.Language, item.SampleID)
 			mutationScore, mutationStats, mutationErr := collectPythonMutation(ctx, workdir, testName, mutationTargets, spec.MutationTimeout, testErr)
-			mutationElapsed := int(time.Since(mutationStart).Seconds())
+			mutationElapsed := time.Since(mutationStart)
+			s.logger.ToFile("evaluator").Trace("mutation_result",
+				"model", item.Model,
+				"language", item.Language,
+				"sample_id", item.SampleID,
+				"tool", "mutmut",
+				"score", mutationScore,
+				"total", mutationStats.Total,
+				"killed", mutationStats.Killed,
+				"survived", mutationStats.Survived,
+				"elapsed_seconds", int(mutationElapsed.Seconds()),
+				"error", mutationErr,
+			)
 			if mutationErr != "" {
-				fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | ERROR after %ds\n", item.Model, item.Language, item.SampleID, mutationElapsed)
-				if strings.EqualFold(spec.MutationPolicy, "warn") {
-					row.MutationError = mutationErr
-				} else {
-					row.MutationError = mutationErr
-				}
+				row.MutationError = mutationErr
 			} else {
-				fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | done in %ds, score=%.2f\n", item.Model, item.Language, item.SampleID, mutationElapsed, mutationScore)
 				row.MutationScore = &mutationScore
 			}
 			if mutationStats.Total > 0 {
@@ -411,9 +454,20 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 
 		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
 			mutationStart := time.Now()
-			fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | starting...\n", item.Model, item.Language, item.SampleID)
 			mutationScore, mutationStats, mutationErr := collectGoMutation(ctx, workdir, testName, sourceBase, spec.MutationTimeout, row.TestPassRate, 0, 0)
-			mutationElapsed := int(time.Since(mutationStart).Seconds())
+			mutationElapsed := time.Since(mutationStart)
+			s.logger.ToFile("evaluator").Trace("mutation_result",
+				"model", item.Model,
+				"language", item.Language,
+				"sample_id", item.SampleID,
+				"tool", "gremlins",
+				"score", mutationScore,
+				"total", mutationStats.Total,
+				"killed", mutationStats.Killed,
+				"survived", mutationStats.Survived,
+				"elapsed_seconds", int(mutationElapsed.Seconds()),
+				"error", mutationErr,
+			)
 			row.MutationScore = &mutationScore
 			row.MutationTotal = &mutationStats.Total
 			row.MutationKilled = &mutationStats.Killed
@@ -423,10 +477,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			row.MutationSkipped = &mutationStats.Skipped
 			row.MutationSuspicious = &mutationStats.Suspicious
 			if mutationErr != "" {
-				fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | ERROR after %ds\n", item.Model, item.Language, item.SampleID, mutationElapsed)
 				row.MutationError = mutationErr
-			} else {
-				fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | done in %ds, score=%.2f\n", item.Model, item.Language, item.SampleID, mutationElapsed, mutationScore)
 			}
 			row.MutationTool = "gremlins"
 		}
@@ -493,7 +544,6 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 
 		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
 			mutationStart := time.Now()
-			fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | starting...\n", item.Model, item.Language, item.SampleID)
 			testPassed := 0
 			if row.TestPassCount != nil {
 				testPassed = *row.TestPassCount
@@ -503,7 +553,19 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 				testTotal = *row.TestTotalCount
 			}
 			mutationScore, mutationStats, mutationErr := collectJavaMutation(ctx, workdir, className, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
-			mutationElapsed := int(time.Since(mutationStart).Seconds())
+			mutationElapsed := time.Since(mutationStart)
+			s.logger.ToFile("evaluator").Trace("mutation_result",
+				"model", item.Model,
+				"language", item.Language,
+				"sample_id", item.SampleID,
+				"tool", "pitest",
+				"score", mutationScore,
+				"total", mutationStats.Total,
+				"killed", mutationStats.Killed,
+				"survived", mutationStats.Survived,
+				"elapsed_seconds", int(mutationElapsed.Seconds()),
+				"error", mutationErr,
+			)
 			row.MutationScore = &mutationScore
 			row.MutationTotal = &mutationStats.Total
 			row.MutationKilled = &mutationStats.Killed
@@ -513,10 +575,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			row.MutationSkipped = &mutationStats.Skipped
 			row.MutationSuspicious = &mutationStats.Suspicious
 			if mutationErr != "" {
-				fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | ERROR after %ds\n", item.Model, item.Language, item.SampleID, mutationElapsed)
 				row.MutationError = mutationErr
-			} else {
-				fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | done in %ds, score=%.2f\n", item.Model, item.Language, item.SampleID, mutationElapsed, mutationScore)
 			}
 			row.MutationTool = "pitest"
 		}
@@ -579,7 +638,6 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 
 		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
 			mutationStart := time.Now()
-			fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | starting...\n", item.Model, item.Language, item.SampleID)
 			testPassed := 0
 			if row.TestPassCount != nil {
 				testPassed = *row.TestPassCount
@@ -589,7 +647,19 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 				testTotal = *row.TestTotalCount
 			}
 			mutationScore, mutationStats, mutationErr := collectCppMutation(ctx, workdir, sourceBase, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
-			mutationElapsed := int(time.Since(mutationStart).Seconds())
+			mutationElapsed := time.Since(mutationStart)
+			s.logger.ToFile("evaluator").Trace("mutation_result",
+				"model", item.Model,
+				"language", item.Language,
+				"sample_id", item.SampleID,
+				"tool", "mull",
+				"score", mutationScore,
+				"total", mutationStats.Total,
+				"killed", mutationStats.Killed,
+				"survived", mutationStats.Survived,
+				"elapsed_seconds", int(mutationElapsed.Seconds()),
+				"error", mutationErr,
+			)
 			row.MutationScore = &mutationScore
 			row.MutationTotal = &mutationStats.Total
 			row.MutationKilled = &mutationStats.Killed
@@ -599,10 +669,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			row.MutationSkipped = &mutationStats.Skipped
 			row.MutationSuspicious = &mutationStats.Suspicious
 			if mutationErr != "" {
-				fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | ERROR after %ds\n", item.Model, item.Language, item.SampleID, mutationElapsed)
 				row.MutationError = mutationErr
-			} else {
-				fmt.Fprintf(os.Stderr, "  [mutation] %s | %s | %s | done in %ds, score=%.2f\n", item.Model, item.Language, item.SampleID, mutationElapsed, mutationScore)
 			}
 			row.MutationTool = "mull"
 		}
@@ -1219,4 +1286,11 @@ func getRuntimeMS(ms *int) int {
 		return 0
 	}
 	return *ms
+}
+
+func getCoverageValue(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }

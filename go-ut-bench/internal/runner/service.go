@@ -97,15 +97,13 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 
 	// 输出配置信息
 	totalTasks := len(modelConfigs) * len(samples)
-	fmt.Fprintf(os.Stderr, "\n[Runner] Starting test generation for %d models × %d samples = %d tasks\n",
-		len(modelConfigs), len(samples), totalTasks)
-	fmt.Fprintf(os.Stderr, "[Runner] Models: %s\n", strings.Join(getModelNames(modelConfigs), ", "))
-	fmt.Fprintf(os.Stderr, "[Runner] Languages: %s\n", getLanguagesFromSamples(samples))
 	workerCount := spec.Workers
 	if workerCount <= 0 {
 		workerCount = min(16, max(2, runtime.NumCPU()))
 	}
-	fmt.Fprintf(os.Stderr, "[Runner] Workers: %d | Mode: %s\n\n", workerCount, spec.Mode)
+	progress := obs.NewProgressReporter(totalTasks, "generate")
+	progress.PrintStageStart("生成测试", fmt.Sprintf("模型: %s | 样本: %d | Workers: %d",
+		strings.Join(getModelNames(modelConfigs), ", "), len(samples), workerCount))
 
 	// 创建worker池
 	tasks := make(chan task)
@@ -132,7 +130,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	skippedByCheckpoint := 0
 	go func() {
 		defer close(tasks)
-		
+
 		// 为每个模型创建一个样本迭代器
 		type modelIterator struct {
 			model   modelConfig
@@ -143,7 +141,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		for i, model := range modelConfigs {
 			iterators[i] = modelIterator{model: model, samples: samples, index: 0}
 		}
-		
+
 		// 轮询分配任务
 		activeModels := len(iterators)
 		for activeModels > 0 {
@@ -154,7 +152,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 				for it.index < len(it.samples) {
 					sample := it.samples[it.index]
 					it.index++
-					
+
 					// 检查checkpoint
 					if spec.Mode == contracts.RunModeIncremental {
 						key := taskKey(it.model.Name, sample.Language, sample.ID)
@@ -163,7 +161,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 							continue
 						}
 					}
-					
+
 					// 发送任务
 					select {
 					case <-ctx.Done():
@@ -191,6 +189,25 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	for item := range results {
 		completedCount++
 		cases = append(cases, item)
+
+		var tokens int
+		if item.TotalTokens != nil {
+			tokens = *item.TotalTokens
+		}
+		taskResult := obs.TaskResult{
+			Model:     item.Model,
+			Language:  item.Language,
+			SampleID:  item.SampleID,
+			Success:   item.Success,
+			Truncated: item.Truncated,
+			LatencyMS: item.LatencyMS,
+			Tokens:    tokens,
+		}
+		if !item.Success && item.Error != nil {
+			taskResult.Error = item.Error.Message
+		}
+		progress.OnTaskDone(taskResult)
+
 		status := "OK"
 		if item.Truncated {
 			status = "TRUNC"
@@ -204,9 +221,16 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 				status = "FAIL(truncated)"
 			}
 		}
-		fmt.Fprintf(os.Stderr, "[%d/%d] %s | %s | %s | %s | %dms\n",
-			completedCount, totalTasks-skippedByCheckpoint, item.Model, item.Language, item.SampleID, status,
-			item.LatencyMS)
+
+		extra := ""
+		if tokens > 0 {
+			extra = fmt.Sprintf("| %d tokens", tokens)
+		}
+		progress.PrintTaskLine(completedCount, totalTasks-skippedByCheckpoint, item.Model, item.Language, item.SampleID, status, extra)
+
+		if completedCount%5 == 0 {
+			progress.PrintStats()
+		}
 
 		if spec.Mode == contracts.RunModeIncremental && item.Success {
 			key := taskKey(item.Model, item.Language, item.SampleID)
@@ -223,6 +247,13 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	if skippedByCheckpoint > 0 {
 		fmt.Fprintf(os.Stderr, "\n[Runner] Skipped %d tasks (already completed in checkpoint)\n", skippedByCheckpoint)
 	}
+
+	progress.PrintStats()
+	progress.PrintStageDone("生成测试", obs.StageStats{
+		Total:    totalTasks - skippedByCheckpoint,
+		Success:  completedCount - skippedByCheckpoint,
+		Duration: time.Since(progress.GetStartTime()),
+	})
 
 	sort.Slice(cases, func(i, j int) bool {
 		if cases[i].Model == cases[j].Model {
@@ -364,6 +395,20 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		completionTokens = cTok
 		totalTokens = tTok
 		latencyMS = latency
+
+		s.logger.LogAPIRequest(model, sample.Language, sample.ID, 0, latencyMS)
+		s.logger.LogAPIResponse(model, sample.Language, sample.ID, genErr == nil, truncated, errorMsgSafe(genErr))
+		s.logger.ToFile("runner").Trace("generate_response",
+			"model", model,
+			"language", sample.Language,
+			"sample_id", sample.ID,
+			"prompt_tokens", pTok,
+			"completion_tokens", cTok,
+			"total_tokens", tTok,
+			"latency_ms", latencyMS,
+			"truncated", truncated,
+			"success", genErr == nil,
+		)
 	}
 
 	if err := os.WriteFile(testPath, []byte(content), 0o644); err != nil {
@@ -586,4 +631,11 @@ func trimErrorMsg(msg string, max int) string {
 		return msg
 	}
 	return msg[:max] + "..."
+}
+
+func errorMsgSafe(err *contracts.ErrorInfo) string {
+	if err == nil {
+		return ""
+	}
+	return trimErrorMsg(err.Message, 100)
 }
