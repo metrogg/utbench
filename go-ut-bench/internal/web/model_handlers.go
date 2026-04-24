@@ -153,7 +153,7 @@ func testModelConnection(parent context.Context, entry modelEntry) modelTestResu
 		return result
 	}
 	apiKey := strings.TrimSpace(os.Getenv(entry.APIKeyEnv))
-	if apiKey == "" {
+	if !hasUsableAPIKey(apiKey) {
 		result.Status = "missing_key"
 		result.Message = "missing API key env var: " + entry.APIKeyEnv
 		return result
@@ -173,7 +173,7 @@ func testModelConnection(parent context.Context, entry modelEntry) modelTestResu
 		return result
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	setModelTestAuthHeaders(req, entry.Provider, apiKey)
 
 	started := time.Now()
 	resp, err := (&http.Client{Timeout: 25 * time.Second}).Do(req)
@@ -214,6 +214,15 @@ func resolveModelTestEndpoint(entry modelEntry) string {
 		}
 		return base + "/services/aigc/text-generation/generation"
 	}
+	if isAnthropicModel(entry.Provider) {
+		if strings.HasSuffix(base, "/messages") {
+			return base
+		}
+		if strings.HasSuffix(base, "/v1") {
+			return base + "/messages"
+		}
+		return base + "/v1/messages"
+	}
 	return base + "/chat/completions"
 }
 
@@ -224,6 +233,15 @@ func buildModelTestPayload(entry modelEntry) map[string]any {
 			"model":      entry.ModelID,
 			"input":      map[string]any{"messages": []map[string]any{{"role": "user", "content": "ping"}}},
 			"parameters": params,
+		}
+	}
+	if isAnthropicModel(entry.Provider) {
+		return map[string]any{
+			"model":      entry.ModelID,
+			"max_tokens": 8,
+			"messages": []map[string]any{
+				{"role": "user", "content": "ping"},
+			},
 		}
 	}
 	return map[string]any{
@@ -252,10 +270,29 @@ func validateModelTestResponse(raw []byte, provider string) error {
 			}
 		}
 	}
+	if isAnthropicModel(provider) {
+		if blocks, ok := payload["content"].([]any); ok && len(blocks) > 0 {
+			return nil
+		}
+	}
 	if choices, ok := payload["choices"].([]any); ok && len(choices) > 0 {
 		return nil
 	}
 	return fmt.Errorf("response does not contain choices/output")
+}
+
+func setModelTestAuthHeaders(req *http.Request, provider string, apiKey string) {
+	if isAnthropicModel(provider) {
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+}
+
+func isAnthropicModel(provider string) bool {
+	p := strings.ToLower(strings.TrimSpace(provider))
+	return p == "anthropic" || p == "claude"
 }
 
 func trimModelTestText(v string, max int) string {
@@ -303,12 +340,13 @@ func (s *Server) createModel(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusConflict, "model already exists: "+in.Name)
 		return
 	}
+	normalizeModelEntry(&in)
 	upsertModelNode(models, in)
 	if err := writeModelsRoot(s.configPath, root); err != nil {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := persistAPIKey(&in); err != nil {
+	if err := s.persistAPIKey(&in); err != nil {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -334,12 +372,13 @@ func (s *Server) updateModel(w http.ResponseWriter, r *http.Request, name string
 		errJSON(w, http.StatusNotFound, "model not found: "+name)
 		return
 	}
+	normalizeModelEntry(&in)
 	upsertModelNode(models, in)
 	if err := writeModelsRoot(s.configPath, root); err != nil {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := persistAPIKey(&in); err != nil {
+	if err := s.persistAPIKey(&in); err != nil {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -420,7 +459,7 @@ func extractEntries(root map[string]any) []modelEntry {
 			}
 		}
 		if entry.APIKeyEnv != "" {
-			entry.APIKeySet = os.Getenv(entry.APIKeyEnv) != ""
+			entry.APIKeySet = hasUsableAPIKey(os.Getenv(entry.APIKeyEnv))
 		}
 		out = append(out, entry)
 	}
@@ -442,9 +481,7 @@ func upsertModelNode(models map[string]any, in modelEntry) {
 	}
 	cfg["model"] = in.ModelID
 	cfg["api_endpoint"] = in.APIEndpoint
-	if in.APIKeyEnv == "" {
-		in.APIKeyEnv = strings.ToUpper(strings.ReplaceAll(in.Name, "-", "_")) + "_API_KEY"
-	}
+	normalizeModelEntry(&in)
 	cfg["api_key_env"] = in.APIKeyEnv
 	if in.Parameters != nil {
 		cfg["parameters"] = in.Parameters
@@ -455,11 +492,83 @@ func upsertModelNode(models map[string]any, in modelEntry) {
 	models[in.Name] = existing
 }
 
-// persistAPIKey 若请求体带 api_key 字段，则写入进程环境变量，供后续运行使用。
-// 注意：不写回磁盘 .env 以避免密钥永久落盘；如用户希望持久化，应自行修改 .env。
-func persistAPIKey(in *modelEntry) error {
+func normalizeModelEntry(in *modelEntry) {
+	if strings.TrimSpace(in.APIKeyEnv) == "" {
+		in.APIKeyEnv = strings.ToUpper(strings.ReplaceAll(in.Name, "-", "_")) + "_API_KEY"
+	}
+	in.APIKeyEnv = strings.TrimSpace(in.APIKeyEnv)
+}
+
+// persistAPIKey 若请求体带 api_key 字段，则写入进程环境变量，并同步到
+// Web 配置的 .env 文件。Docker 执行会通过 --env-file 读取该文件。
+func (s *Server) persistAPIKey(in *modelEntry) error {
 	if in.APIKey == "" || in.APIKeyEnv == "" {
 		return nil
 	}
-	return os.Setenv(in.APIKeyEnv, in.APIKey)
+	if err := os.Setenv(in.APIKeyEnv, in.APIKey); err != nil {
+		return err
+	}
+	if s.dockerCfg.EnvFile == "" {
+		return nil
+	}
+	return upsertEnvFileValue(s.dockerCfg.EnvFile, in.APIKeyEnv, in.APIKey)
+}
+
+func hasUsableAPIKey(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	lower := strings.ToLower(value)
+	return !strings.Contains(lower, "your_") && !strings.Contains(lower, "placeholder")
+}
+
+func upsertEnvFileValue(path string, key string, value string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	lines := []string{}
+	if len(raw) > 0 {
+		lines = strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+	}
+
+	keyPrefix := key + "="
+	exportPrefix := "export " + key + "="
+	replacement := keyPrefix + encodeEnvValue(value)
+	updated := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(trimmed, keyPrefix), strings.HasPrefix(trimmed, exportPrefix):
+			lines[i] = replacement
+			updated = true
+		}
+	}
+	if !updated {
+		for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+			lines = lines[:len(lines)-1]
+		}
+		lines = append(lines, replacement)
+	}
+	out := strings.Join(lines, "\n")
+	if !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	return os.WriteFile(path, []byte(out), 0o600)
+}
+
+func encodeEnvValue(value string) string {
+	if value == "" {
+		return `""`
+	}
+	if strings.ContainsAny(value, " \t#\"'") {
+		escaped := strings.ReplaceAll(value, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+		return `"` + escaped + `"`
+	}
+	return value
 }

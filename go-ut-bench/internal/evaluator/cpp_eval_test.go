@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -128,6 +129,56 @@ TEST(MultiplyTest, Basic) {
 	if stats.Killed+stats.Survived > 0 {
 		t.Logf("✅ 有效变异体: %d (已杀死: %d, 存活: %d)",
 			stats.Killed+stats.Survived, stats.Killed, stats.Survived)
+	}
+}
+
+func TestPrepareCppWorkspaceForcesSourceIncludeInsteadOfSynthesizingHeader(t *testing.T) {
+	workdir := t.TempDir()
+	sourcePath := filepath.Join(workdir, "boundary_000.cpp")
+	source := `#include <string>
+class BigInt {
+public:
+    BigInt() {}
+    std::string toString() const { return "0"; }
+};
+`
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	testPath := filepath.Join(workdir, "boundary_000.test.cpp")
+	testSource := `#include <gtest/gtest.h>
+#include "BigInt.h"
+
+TEST(BigIntTest, DefaultConstructor) {
+    BigInt a;
+    EXPECT_EQ(a.toString(), "0");
+}
+`
+	if err := os.WriteFile(testPath, []byte(testSource), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+
+	prepWorkdir, testName, _, _, prepErr := prepareCppWorkspace(testPath, sourcePath)
+	if prepErr != "" {
+		t.Fatalf("prepareCppWorkspace failed: %s", prepErr)
+	}
+	defer os.RemoveAll(prepWorkdir)
+
+	if _, err := os.Stat(filepath.Join(prepWorkdir, "BigInt.h")); !os.IsNotExist(err) {
+		t.Fatalf("BigInt.h should not be synthesized, stat err=%v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(prepWorkdir, testName))
+	if err != nil {
+		t.Fatalf("read prepared test: %v", err)
+	}
+	prepared := string(raw)
+	if !strings.Contains(prepared, `#include "boundary_000.cpp"`) {
+		t.Fatalf("prepared test should include source cpp, got:\n%s", prepared)
+	}
+	if strings.Contains(prepared, `#include "BigInt.h"`) {
+		t.Fatalf("prepared test should remove generated local header include, got:\n%s", prepared)
 	}
 }
 

@@ -88,6 +88,7 @@ func (s *Server) registerRoutes() {
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
 }
@@ -428,11 +429,12 @@ func (s *Server) handleRunRerun(w http.ResponseWriter, r *http.Request, runID st
 	spec.DatasetRoot = s.mgr.datasetRoot
 
 	opts := orchestrator.Options{DBPath: s.mgr.dbPath}
-	entry := s.mgr.Submit(spec, opts, false)
-	writeJSON(w, http.StatusCreated, map[string]string{
+	entry := s.mgr.Submit(spec, opts, true)
+	writeJSON(w, http.StatusCreated, map[string]any{
 		"run_id":        entry.RunID,
 		"source_run_id": runID,
 		"status":        string(entry.Status),
+		"use_docker":    true,
 	})
 }
 

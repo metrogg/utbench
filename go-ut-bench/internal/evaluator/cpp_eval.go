@@ -1,7 +1,6 @@
 package evaluator
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -112,42 +111,7 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 		return "", "", "", "", fmt.Sprintf("failed to write source: %s", err)
 	}
 
-	headerPattern := regexp.MustCompile(`#include\s+"([^"]+)"`)
-	headerMatches := headerPattern.FindAllStringSubmatch(string(testSource), -1)
-	for _, match := range headerMatches {
-		if len(match) < 2 {
-			continue
-		}
-		headerName := match[1]
-		headerPath := filepath.Join(workdir, headerName)
-		if _, err := os.Stat(headerPath); os.IsNotExist(err) {
-			if strings.HasSuffix(headerName, ".h") || strings.HasSuffix(headerName, ".hpp") {
-				declHeader := generateDeclarationsHeader(string(sourceData), strings.TrimSuffix(headerName, filepath.Ext(headerName)))
-				if err := os.WriteFile(headerPath, []byte(declHeader), 0644); err != nil {
-					_ = os.RemoveAll(workdir)
-					return "", "", "", "", fmt.Sprintf("failed to write header %s: %s", headerName, err)
-				}
-			}
-		}
-	}
-
-	hasSourceInclude := bytes.Contains(testSource, []byte("#include \""+sourceBase+"\"")) ||
-		bytes.Contains(testSource, []byte("#include <"+sourceBase+">")) ||
-		bytes.Contains(testSource, []byte("#include \"source.cpp\"")) ||
-		bytes.Contains(testSource, []byte("#include <source.cpp>"))
-
-	modifiedTestSource := testSource
-	if !hasSourceInclude {
-		sourceInclude := []byte("#include \"" + sourceBase + "\"\n")
-		modifiedTestSource = append(sourceInclude, testSource...)
-	} else {
-		modifiedTestSource = bytes.ReplaceAll(modifiedTestSource,
-			[]byte("#include \"source.cpp\""),
-			[]byte("#include \""+sourceBase+"\""))
-		modifiedTestSource = bytes.ReplaceAll(modifiedTestSource,
-			[]byte("#include <source.cpp>"),
-			[]byte("#include \""+sourceBase+"\""))
-	}
+	modifiedTestSource := forceSourceInclude(testSource, sourceBase)
 
 	if err := os.WriteFile(filepath.Join(workdir, testFileName), modifiedTestSource, 0644); err != nil {
 		_ = os.RemoveAll(workdir)
@@ -1140,4 +1104,20 @@ func removeSourceInclude(testContent []byte, sourceBase string) []byte {
 	code = anglePattern.ReplaceAllString(code, "")
 
 	return []byte(code)
+}
+
+func forceSourceInclude(testContent []byte, sourceBase string) []byte {
+	code := string(removeSourceInclude(testContent, sourceBase))
+	code = removeLocalHeaderIncludes(code)
+	code = strings.TrimLeft(code, "\r\n")
+	return []byte("#include \"" + sourceBase + "\"\n" + code)
+}
+
+func removeLocalHeaderIncludes(code string) string {
+	quotedHeaderPattern := regexp.MustCompile(`(?m)^\s*#include\s*"[^"]+\.(?:h|hpp|hh|hxx)"\s*\n?`)
+	code = quotedHeaderPattern.ReplaceAllString(code, "")
+
+	angleLocalHeaderPattern := regexp.MustCompile(`(?m)^\s*#include\s*<[A-Z][^>/]*\.(?:h|hpp|hh|hxx)>\s*\n?`)
+	code = angleLocalHeaderPattern.ReplaceAllString(code, "")
+	return code
 }

@@ -132,3 +132,42 @@ func TestExtractFinishReason_OpenAIFormat(t *testing.T) {
 		})
 	}
 }
+
+func TestAnthropicProtocolHelpers(t *testing.T) {
+	model := modelConfig{
+		Provider: "anthropic",
+		Endpoint: "https://api.anthropic.com/v1",
+		Model:    "claude-sonnet-4-6",
+		Params:   map[string]any{"max_tokens": 128, "temperature": 0.2},
+	}
+	if got := resolveEndpoint(model); got != "https://api.anthropic.com/v1/messages" {
+		t.Fatalf("unexpected anthropic endpoint: %s", got)
+	}
+
+	payload := buildPayload(model, "hello")
+	if _, ok := payload["system"].(string); !ok {
+		t.Fatalf("anthropic payload missing system")
+	}
+	if payload["max_tokens"] != 128 {
+		t.Fatalf("anthropic max_tokens not preserved: %#v", payload["max_tokens"])
+	}
+	if _, ok := payload["stream"]; ok {
+		t.Fatalf("anthropic payload should not include stream")
+	}
+}
+
+func TestExtractResponseText_Anthropic(t *testing.T) {
+	resp := map[string]any{
+		"content": []any{
+			map[string]any{"type": "text", "text": "hello"},
+			map[string]any{"type": "text", "text": "world"},
+		},
+	}
+	got, err := extractResponseText(resp, "anthropic")
+	if err != nil {
+		t.Fatalf("extractResponseText returned error: %v", err)
+	}
+	if got != "hello\nworld" {
+		t.Fatalf("unexpected anthropic text: %q", got)
+	}
+}

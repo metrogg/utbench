@@ -52,6 +52,13 @@ table.data-table thead th{text-align:left;padding:10px 14px;color:var(--fg-muted
 table.data-table tbody td{padding:11px 14px;border-bottom:1px solid var(--border-subtle);color:var(--fg);transition:background .1s}
 table.data-table tbody tr:hover td{background:rgba(14,165,233,.03)}
 table.data-table tbody tr{cursor:pointer;transition:all .1s}
+.model-table{table-layout:auto;min-width:100%}
+.model-table th,.model-table td{vertical-align:middle}
+.model-table .mono-clip{display:block;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+.model-table .key-cell{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.model-table .conn-cell{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.model-table .conn-cell .tag-pill,.model-table .key-cell .tag-pill{white-space:nowrap;padding-left:8px;padding-right:8px}
+.model-table .action-cell{white-space:nowrap}
 .tab-btn{padding:9px 18px;font-size:13px;color:var(--fg-muted);border-bottom:2px solid transparent;cursor:pointer;transition:all .15s;font-weight:500;letter-spacing:.02em}
 .tab-btn:hover{color:var(--fg)}
 .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
@@ -365,7 +372,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
         </div>
       </div>
       <!-- MODELS -->
-      <div x-show="page === 'models'" class="max-w-5xl animate-fadeUp">
+      <div x-show="page === 'models'" class="max-w-none animate-fadeUp">
         <div class="flex items-center gap-3 mb-4">
           <div class="text-[12px]" style="color:var(--fg-muted)">
             共 <span x-text="models.length" class="font-medium" style="color:var(--fg)"></span> 个模型
@@ -378,21 +385,21 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           <button @click="openAddModel()" class="btn-primary text-[12px]">+ 添加模型</button>
         </div>
 
-        <div class="form-section p-0 overflow-hidden">
+        <div class="form-section p-0 overflow-x-auto">
           <div x-show="models.length === 0 && !modelsLoading" class="px-5 py-12 text-center text-[13px]" style="color:var(--fg-muted)">
             暂无模型。<button @click="openAddModel()" style="color:var(--accent)" class="hover:underline ml-1">添加模型</button>
           </div>
-          <table x-show="models.length > 0" class="data-table">
+          <table x-show="models.length > 0" class="data-table model-table">
             <thead>
               <tr>
-                <th style="width:60px">启用</th>
+                <th>启用</th>
                 <th>名称</th>
                 <th>提供商</th>
                 <th>模型 ID</th>
                 <th>API 端点</th>
                 <th>API Key</th>
-                <th style="width:170px">连接</th>
-                <th style="width:120px" class="text-right">操作</th>
+                <th>连接</th>
+                <th class="text-right">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -405,13 +412,13 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                             :style="m.enabled ? 'transform:translateX(18px)' : 'transform:translateX(3px)'"></span>
                     </button>
                   </td>
-                  <td class="font-medium text-[13px]" x-text="m.name"></td>
+                  <td class="font-medium text-[13px]"><span class="mono-clip" :title="m.name" x-text="m.name"></span></td>
                   <td class="text-[12px]" style="color:var(--fg-muted)" x-text="m.provider"></td>
-                  <td class="font-mono text-[12px]" x-text="m.model_id"></td>
-                  <td class="font-mono text-[11px] truncate max-w-xs" style="color:var(--fg-muted)" :title="m.api_endpoint" x-text="m.api_endpoint"></td>
+                  <td class="font-mono text-[12px]"><span class="mono-clip" :title="m.model_id" x-text="m.model_id"></span></td>
+                  <td class="font-mono text-[11px]" style="color:var(--fg-muted)"><span class="mono-clip" :title="m.api_endpoint" x-text="m.api_endpoint"></span></td>
                   <td class="text-[12px]">
-                    <div class="flex items-center gap-2">
-                      <span class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="m.api_key_env"></span>
+                    <div class="key-cell">
+                      <span class="font-mono text-[11px] mono-clip" style="color:var(--fg-muted)" :title="m.api_key_env" x-text="m.api_key_env"></span>
                       <span class="tag-pill text-[10px]"
                             :style="m.api_key_set ? 'background:var(--success-bg);color:var(--green)' : 'background:var(--error-bg);color:var(--red)'">
                         <span x-text="m.api_key_set ? '已设置' : '未设置'"></span>
@@ -419,7 +426,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                     </div>
                   </td>
                   <td>
-                    <div class="flex items-center gap-2">
+                    <div class="conn-cell">
                       <button @click="testModel(m.name)" :disabled="isModelTesting(m.name)" class="btn-ghost text-[11px] py-1 px-2.5">
                         <span x-text="isModelTesting(m.name) ? '测试中...' : '测试'"></span>
                       </button>
@@ -433,7 +440,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                       </template>
                     </div>
                   </td>
-                  <td class="text-right">
+                  <td class="text-right action-cell">
                     <button @click="openEditModel(m)" class="text-[12px] mr-2" style="color:var(--accent)">编辑</button>
                     <button @click="deleteModel(m.name)" class="text-[12px]" style="color:var(--red)">删除</button>
                   </td>
@@ -444,13 +451,13 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
         </div>
 
         <div class="mt-4 text-[11px]" style="color:var(--fg-subtle)">
-          提示：API Key 存入当前进程的环境变量（立即生效），不会写入 YAML；若要永久持久化请在 <span class="font-mono">.env</span> 中配置对应变量名。
+          提示：API Key 会写入当前进程环境变量，并同步到 <span class="font-mono">.env</span>；YAML 只保存环境变量名。
         </div>
       </div>
 
       <!-- MODEL FORM MODAL -->
       <div x-show="modelFormOpen" x-transition.opacity class="fixed inset-0 z-50 flex items-center justify-center" style="background:var(--overlay-bg)">
-        <div @click.outside="closeModelForm()" class="form-section max-w-xl w-full m-4" style="max-height:90vh;overflow-y:auto">
+        <div @click.outside="closeModelForm()" class="form-section w-[min(920px,calc(100vw-32px))] m-4" style="max-height:90vh;overflow-y:auto">
           <div class="flex items-center justify-between mb-4">
             <div class="text-[14px] font-medium" x-text="modelFormMode === 'create' ? '添加模型' : '编辑模型：' + modelForm.name"></div>
             <button @click="closeModelForm()" class="btn-ghost text-[12px]">关闭</button>
@@ -461,7 +468,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
               <label class="text-[11px] font-medium" style="color:var(--fg-muted)">名称（唯一标识）<span style="color:var(--red)">*</span></label>
               <input x-model="modelForm.name" :disabled="modelFormMode === 'edit'" type="text" class="input-base w-full" placeholder="例如：qwen-max">
             </div>
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label class="text-[11px] font-medium" style="color:var(--fg-muted)">提供商 <span style="color:var(--red)">*</span></label>
                 <input x-model="modelForm.provider" type="text" class="input-base w-full" placeholder="例如：dashscope / openai / deepseek">
@@ -475,19 +482,22 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
               <label class="text-[11px] font-medium" style="color:var(--fg-muted)">API 端点 <span style="color:var(--red)">*</span></label>
               <input x-model="modelForm.api_endpoint" type="text" class="input-base w-full font-mono text-[12px]" placeholder="https://api.example.com/v1">
             </div>
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label class="text-[11px] font-medium" style="color:var(--fg-muted)">API Key 环境变量名</label>
                 <input x-model="modelForm.api_key_env" type="text" class="input-base w-full font-mono text-[12px]" placeholder="留空自动生成">
               </div>
               <div>
                 <label class="text-[11px] font-medium" style="color:var(--fg-muted)">API Key
-                  <span style="color:var(--fg-subtle)" class="font-normal">(仅写入进程环境变量)</span>
+                  <span style="color:var(--fg-subtle)" class="font-normal">(同步到 .env)</span>
                 </label>
-                <input x-model="modelForm.api_key" type="password" class="input-base w-full font-mono text-[12px]" placeholder="留空则不修改">
+                <input x-model="modelForm.api_key" type="password" class="input-base w-full font-mono text-[12px]"
+                       :placeholder="modelForm.api_key_set ? '已设置，留空不修改' : '输入 API Key'">
+                <div class="mt-1 text-[11px]" :style="modelForm.api_key_set ? 'color:var(--green)' : 'color:var(--fg-subtle)'"
+                     x-text="modelForm.api_key_set ? '当前进程/.env 已保存该变量。重新输入可覆盖。' : '保存后会写入当前进程并同步到 .env。'"></div>
               </div>
             </div>
-            <div class="grid grid-cols-3 gap-3">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label class="text-[11px] font-medium" style="color:var(--fg-muted)">temperature</label>
                 <input x-model.number="modelForm.parameters.temperature" type="number" step="0.1" min="0" max="2" class="input-base w-full">
@@ -809,7 +819,7 @@ function app() {
     modelFormMode: 'create', // create | edit
     modelForm: {
       name: '', enabled: true, provider: '', model_id: '',
-      api_endpoint: '', api_key_env: '', api_key: '',
+      api_endpoint: '', api_key_env: '', api_key: '', api_key_set: false,
       parameters: { temperature: 0.7, top_p: 0.9, max_tokens: 4096 },
     },
     modelFormError: '',
@@ -829,7 +839,7 @@ function app() {
     },
 
     async loadConfig() {
-      try { const r = await fetch('/api/config'); this.config = await r.json() }
+      try { const r = await fetch('/api/config', { cache: 'no-store' }); this.config = await r.json() }
       catch(e) { console.error('config', e) }
     },
 
@@ -977,7 +987,7 @@ function app() {
     async loadModels() {
       this.modelsLoading = true
       try {
-        const r = await fetch('/api/models')
+        const r = await fetch('/api/models', { cache: 'no-store' })
         if (!r.ok) throw new Error('HTTP ' + r.status)
         this.models = await r.json()
       } catch (e) { this.showToast('加载模型失败：' + e.message, 'err') }
@@ -988,7 +998,7 @@ function app() {
       this.modelFormMode = 'create'
       this.modelForm = {
         name: '', enabled: true, provider: '', model_id: '',
-        api_endpoint: '', api_key_env: '', api_key: '',
+        api_endpoint: '', api_key_env: '', api_key: '', api_key_set: false,
         parameters: { temperature: 0.7, top_p: 0.9, max_tokens: 4096 },
       }
       this.modelFormError = ''
@@ -1000,7 +1010,7 @@ function app() {
       this.modelForm = {
         name: m.name, enabled: !!m.enabled, provider: m.provider || '',
         model_id: m.model_id || '', api_endpoint: m.api_endpoint || '',
-        api_key_env: m.api_key_env || '', api_key: '',
+        api_key_env: m.api_key_env || '', api_key: '', api_key_set: !!m.api_key_set,
         parameters: Object.assign({ temperature: 0.7, top_p: 0.9, max_tokens: 4096 }, m.parameters || {}),
       }
       this.modelFormError = ''
@@ -1038,6 +1048,11 @@ function app() {
       try {
         const r = await fetch('/api/models/' + encodeURIComponent(name), { method: 'DELETE' })
         if (!r.ok) { const d = await r.json(); throw new Error(d.error || 'HTTP ' + r.status) }
+        this.models = this.models.filter(m => m.name !== name)
+        this.form.models = this.form.models.filter(m => m !== name)
+        const nextResults = { ...this.modelTestResults }
+        delete nextResults[name]
+        this.modelTestResults = nextResults
         this.showToast('模型 "' + name + '" 已删除', 'ok')
         await this.loadModels()
         await this.loadConfig()
@@ -1100,7 +1115,7 @@ function app() {
         const r = await fetch('/api/runs/' + encodeURIComponent(runID) + '/rerun', { method: 'POST' })
         const data = await r.json()
         if (!r.ok) { this.showToast('重跑失败：' + (data.error || 'HTTP ' + r.status), 'err'); return }
-        this.showToast('已创建新任务 ' + data.run_id, 'ok')
+        this.showToast('已创建 Docker 重跑任务 ' + data.run_id, 'ok')
         await this.loadRuns()
         // 切到任务列表方便查看新任务状态
         this.stopSSE(); this.page = 'runs'

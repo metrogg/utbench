@@ -104,7 +104,7 @@ func (c *apiClient) doOnce(
 		return "", nil, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "request_build_error", Message: err.Error(), Retryable: false}
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	setAuthHeaders(req, provider, apiKey)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -157,6 +157,15 @@ func resolveEndpoint(model modelConfig) string {
 		}
 		return base + "/services/aigc/text-generation/generation"
 	}
+	if isAnthropicProvider(model.Provider) {
+		if strings.HasSuffix(base, "/messages") {
+			return base
+		}
+		if strings.HasSuffix(base, "/v1") {
+			return base + "/messages"
+		}
+		return base + "/v1/messages"
+	}
 	return base + "/chat/completions"
 }
 
@@ -172,6 +181,25 @@ func buildPayload(model modelConfig, prompt string) map[string]any {
 			"input":      map[string]any{"messages": []map[string]any{{"role": "user", "content": prompt}}},
 			"parameters": params,
 		}
+	}
+	if isAnthropicProvider(model.Provider) {
+		maxTokens := any(4096)
+		if v, ok := params["max_tokens"]; ok {
+			maxTokens = v
+			delete(params, "max_tokens")
+		}
+		payload := map[string]any{
+			"model":      model.Model,
+			"system":     systemMessage,
+			"max_tokens": maxTokens,
+			"messages": []map[string]any{
+				{"role": "user", "content": prompt},
+			},
+		}
+		for k, v := range params {
+			payload[k] = v
+		}
+		return payload
 	}
 
 	payload := map[string]any{
@@ -189,6 +217,21 @@ func buildPayload(model modelConfig, prompt string) map[string]any {
 }
 
 func extractResponseText(response map[string]any, provider string) (string, error) {
+	if isAnthropicProvider(provider) {
+		if blocks, ok := response["content"].([]any); ok {
+			var parts []string
+			for _, block := range blocks {
+				item, _ := block.(map[string]any)
+				if text, ok := item["text"].(string); ok && text != "" {
+					parts = append(parts, text)
+				}
+			}
+			if len(parts) > 0 {
+				return strings.Join(parts, "\n"), nil
+			}
+		}
+	}
+
 	if provider == "dashscope" {
 		if output, ok := response["output"].(map[string]any); ok {
 			if text, ok := output["text"].(string); ok && text != "" {
@@ -235,10 +278,21 @@ func extractUsage(response map[string]any) (*int, *int, *int) {
 		c = toIntPtr(usage["output_tokens"])
 	}
 	t := toIntPtr(usage["total_tokens"])
+	if t == nil && p != nil && c != nil {
+		total := *p + *c
+		t = &total
+	}
 	return p, c, t
 }
 
 func extractFinishReason(response map[string]any, provider string) bool {
+	if isAnthropicProvider(provider) {
+		if reason, ok := response["stop_reason"].(string); ok {
+			return reason == "max_tokens"
+		}
+		return false
+	}
+
 	if provider == "dashscope" {
 		if output, ok := response["output"].(map[string]any); ok {
 			if choices, ok := output["choices"].([]any); ok && len(choices) > 0 {
@@ -260,6 +314,20 @@ func extractFinishReason(response map[string]any, provider string) bool {
 		}
 	}
 	return false
+}
+
+func setAuthHeaders(req *http.Request, provider string, apiKey string) {
+	if isAnthropicProvider(provider) {
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+}
+
+func isAnthropicProvider(provider string) bool {
+	p := strings.ToLower(strings.TrimSpace(provider))
+	return p == "anthropic" || p == "claude"
 }
 
 func toIntPtr(v any) *int {
