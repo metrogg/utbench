@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"go-ut-bench/internal/contracts"
+	"go-ut-bench/internal/ctrl"
 	"go-ut-bench/internal/obs"
 )
 
@@ -117,6 +118,10 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		go func() {
 			defer wg.Done()
 			for t := range tasks {
+				// 任务级暂停闸门：当 web 层请求暂停时在此阻塞，不影响已在进行的 API 调用。
+				if err := ctrl.Wait(ctx); err != nil {
+					return
+				}
 				item := s.generateOne(ctx, spec, testRoot, metaRoot, t.model, t.sample)
 				select {
 				case <-ctx.Done():
@@ -132,7 +137,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	skippedByCheckpoint := 0
 	go func() {
 		defer close(tasks)
-		
+
 		// 为每个模型创建一个样本迭代器
 		type modelIterator struct {
 			model   modelConfig
@@ -143,7 +148,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		for i, model := range modelConfigs {
 			iterators[i] = modelIterator{model: model, samples: samples, index: 0}
 		}
-		
+
 		// 轮询分配任务
 		activeModels := len(iterators)
 		for activeModels > 0 {
@@ -154,7 +159,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 				for it.index < len(it.samples) {
 					sample := it.samples[it.index]
 					it.index++
-					
+
 					// 检查checkpoint
 					if spec.Mode == contracts.RunModeIncremental {
 						key := taskKey(it.model.Name, sample.Language, sample.ID)
@@ -163,7 +168,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 							continue
 						}
 					}
-					
+
 					// 发送任务
 					select {
 					case <-ctx.Done():

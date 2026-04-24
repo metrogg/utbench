@@ -142,6 +142,11 @@ type ModelDim struct {
 	AvgPromptTokens     float64 `json:"avg_prompt_tokens,omitempty"`     // 平均提示词Token
 	AvgCompletionTokens float64 `json:"avg_completion_tokens,omitempty"` // 平均生成Token
 	AvgTotalTokens      float64 `json:"avg_total_tokens,omitempty"`      // 平均总Token
+	// 效率指标：每"通过样本"摊销的成本。通过样本 = 编译通过且测试通过率 > 0。
+	// 数值越小越高效；无通过样本时为 0。
+	TokensPerPass float64 `json:"tokens_per_pass,omitempty"` // 每通过样本平均 completion tokens
+	MsPerPass     float64 `json:"ms_per_pass,omitempty"`     // 每通过样本平均耗时
+	PassCount     int     `json:"pass_count,omitempty"`      // 通过样本数（用于效率分母）
 }
 
 // LanguageDim 按语言维度的分析结果
@@ -172,17 +177,21 @@ type ModelRank struct {
 	AvgPromptTokens     float64 `json:"avg_prompt_tokens,omitempty"`     // 平均提示词Token
 	AvgCompletionTokens float64 `json:"avg_completion_tokens,omitempty"` // 平均生成Token
 	AvgTotalTokens      float64 `json:"avg_total_tokens,omitempty"`      // 平均总Token
+	TokensPerPass       float64 `json:"tokens_per_pass,omitempty"`       // 每通过样本平均 completion tokens
+	MsPerPass           float64 `json:"ms_per_pass,omitempty"`           // 每通过样本平均耗时
+	PassCount           int     `json:"pass_count,omitempty"`            // 通过样本数
 }
 
 // FailureRow 失败案例详情
 // 记录特定类型错误的示例案例，用于问题诊断
 type FailureRow struct {
-	Stage          string `json:"stage"`                     // 失败阶段："generate"、"evaluate"等
-	ErrorType      string `json:"error_type"`                // 错误类型："compile_error"、"test_error"等
-	Count          int    `json:"count"`                     // 该类型错误的出现次数
-	ExampleModel   string `json:"example_model,omitempty"`   // 示例模型
-	ExampleSample  string `json:"example_sample,omitempty"`  // 示例样本ID
-	ExampleMessage string `json:"example_message,omitempty"` // 示例错误消息
+	Stage          string         `json:"stage"`                     // 失败阶段："generate"、"evaluate"等
+	ErrorType      string         `json:"error_type"`                // 错误类型："compile_error"、"test_error"等
+	Count          int            `json:"count"`                     // 该类型错误的出现次数
+	ByModel        map[string]int `json:"by_model,omitempty"`        // 按模型拆分的出现次数
+	ExampleModel   string         `json:"example_model,omitempty"`   // 示例模型
+	ExampleSample  string         `json:"example_sample,omitempty"`  // 示例样本ID
+	ExampleMessage string         `json:"example_message,omitempty"` // 示例错误消息
 }
 
 // Thresholds 评估阈值配置

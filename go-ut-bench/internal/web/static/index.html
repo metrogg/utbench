@@ -1,117 +1,87 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>UTBench</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
-  <style>
-    [x-cloak]{display:none!important}
-    :root {
-      --bg: #0d1117; --bg-elevated: #161b22; --bg-overlay: #1c2128;
-      --border: #30363d; --border-subtle: #21262d;
-      --fg: #e6edf3; --fg-muted: #7d8590; --fg-subtle: #484f58;
-      --accent: #2f81f7; --accent-hover: #58a6ff;
-      --green: #3fb950; --yellow: #d29922; --red: #f85149; --blue: #58a6ff;
-    }
-    body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; }
-    .terminal { font-family: 'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace; }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #484f58; }
-    .btn-primary {
-      background: var(--accent); color: #fff; padding: 6px 16px; border-radius: 6px;
-      font-size: 13px; font-weight: 500; transition: .15s;
-    }
-    .btn-primary:hover { background: var(--accent-hover); }
-    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
-    .btn-ghost {
-      padding: 6px 12px; border-radius: 6px; font-size: 13px;
-      color: var(--fg-muted); border: 1px solid var(--border); background: var(--bg-elevated);
-      transition: .15s;
-    }
-    .btn-ghost:hover { border-color: var(--fg-subtle); color: var(--fg); }
-    .status-dot {
-      display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px;
-    }
-    .status-pending   .status-dot { background: var(--yellow); }
-    .status-running   .status-dot { background: var(--blue); animation: pulse 2s infinite; }
-    .status-completed .status-dot { background: var(--green); }
-    .status-failed    .status-dot { background: var(--red); }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-    .section-title {
-      font-size: 14px; font-weight: 600; color: var(--fg);
-      margin-bottom: 12px;
-    }
-    .form-section {
-      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 20px;
-    }
-    .input-base {
-      background: var(--bg-overlay); border: 1px solid var(--border); border-radius: 6px;
-      padding: 6px 10px; font-size: 13px; color: var(--fg); width: 100%;
-      transition: .15s;
-    }
-    .input-base:focus { outline:none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(47,129,247,.15); }
-    .label-text { font-size: 12px; font-weight: 500; color: var(--fg-muted); margin-bottom: 4px; display:block; }
-    .chip {
-      display:inline-flex; align-items:center; gap:6px; padding: 6px 12px;
-      border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
-      cursor: pointer; transition: .15s; background: var(--bg-overlay);
-    }
-    .chip:hover { border-color: var(--fg-subtle); }
-    .chip.active { border-color: var(--accent); background: rgba(47,129,247,.1); color: var(--accent); }
-    .chip input { accent-color: var(--accent); }
-    table.data-table { width: 100%; font-size: 13px; border-collapse: separate; border-spacing: 0; }
-    table.data-table thead th {
-      text-align: left; padding: 8px 12px; color: var(--fg-muted); font-weight: 500;
-      border-bottom: 1px solid var(--border); font-size: 12px; background: var(--bg-elevated);
-    }
-    table.data-table tbody td { padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--fg); }
-    table.data-table tbody tr:hover td { background: rgba(255,255,255,.02); }
-    table.data-table tbody tr { cursor: pointer; transition: .1s; }
-    .kpi-card {
-      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
-      padding: 20px;
-    }
-    .kpi-value { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
-    .kpi-label { font-size: 12px; color: var(--fg-muted); margin-top: 4px; }
-    .log-line { padding: 1px 0; }
-    .nav-item {
-      display:flex; align-items:center; gap:10px; padding: 8px 12px; border-radius: 6px;
-      font-size: 13px; color: var(--fg-muted); cursor: pointer; transition: .15s; margin-bottom: 2px;
-    }
-    .nav-item:hover { background: rgba(255,255,255,.04); color: var(--fg); }
-    .nav-item.active { background: rgba(47,129,247,.12); color: var(--accent); font-weight: 500; }
-    .tab-btn {
-      padding: 8px 16px; font-size: 13px; color: var(--fg-muted); border-bottom: 2px solid transparent;
-      cursor: pointer; transition: .15s;
-    }
-    .tab-btn:hover { color: var(--fg); }
-    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
-    .progress-bar {
-      height: 4px; background: var(--border); border-radius: 2px; overflow: hidden;
-    }
-    .progress-bar > div { height: 100%; border-radius: 2px; transition: width .3s; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UTBench · 单元测试基准</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-webfont@1.7.0/style.css" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+<style>
+[x-cloak]{display:none!important}
+:root{--bg:#04060a;--bg-elevated:#0b0f17;--bg-overlay:#111827;--border:#1e293b;--border-subtle:#0f172a;--fg:#f1f5f9;--fg-muted:#64748b;--fg-subtle:#334155;--accent:#0ea5e9;--accent-warm:#f59e0b;--green:#10b981;--yellow:#f59e0b;--red:#ef4444;--badge-bg:rgba(255,255,255,.03);--heat-null:rgba(255,255,255,.02);--glass-bg:rgba(11,15,23,.7);--grid-line:rgba(30,41,59,.25);--scroll-thumb:#1e293b;--error-bg:rgba(239,68,68,.06);--error-border:rgba(239,68,68,.15);--warn-bg:rgba(245,158,11,.12);--warn-border:rgba(245,158,11,.15);--success-bg:rgba(16,185,129,.1);--overlay-bg:rgba(3,7,18,.6)}
+[data-theme="light"]{--bg:#f8fafc;--bg-elevated:#ffffff;--bg-overlay:#f1f5f9;--border:#e2e8f0;--border-subtle:#f1f5f9;--fg:#0f172a;--fg-muted:#64748b;--fg-subtle:#94a3b8;--accent:#0284c7;--accent-warm:#d97706;--green:#059669;--yellow:#d97706;--red:#dc2626;--badge-bg:rgba(0,0,0,.05);--heat-null:rgba(0,0,0,.04);--glass-bg:rgba(255,255,255,.7);--grid-line:rgba(148,163,184,.2);--scroll-thumb:#cbd5e1;--error-bg:rgba(239,68,68,.06);--error-border:rgba(239,68,68,.2);--warn-bg:rgba(245,158,11,.12);--warn-border:rgba(245,158,11,.2);--success-bg:rgba(16,185,129,.12);--overlay-bg:rgba(148,163,184,.3)}
+*{scrollbar-width:thin;scrollbar-color:var(--scroll-thumb) transparent}
+body{font-family:"LXGW WenKai","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--fg);letter-spacing:.01em}
+.terminal{font-family:"JetBrains Mono","Cascadia Code","SFMono-Regular",Consolas,monospace;font-variant-ligatures:none}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:8px;font-size:13px;color:var(--fg-muted);cursor:pointer;transition:all .15s;margin-bottom:3px;border:1px solid transparent}
+.nav-item:hover{background:rgba(14,165,233,.04);color:var(--fg);border-color:rgba(14,165,233,.08)}
+.nav-item.active{background:rgba(14,165,233,.08);color:var(--accent);font-weight:500;border-color:rgba(14,165,233,.12);box-shadow:0 0 12px rgba(14,165,233,.04)}
+.btn-primary{background:linear-gradient(180deg,rgba(14,165,233,.9),rgba(14,165,233,.7));color:#fff;padding:7px 18px;border-radius:6px;font-size:13px;font-weight:500;transition:all .15s;border:1px solid rgba(56,189,248,.2);display:inline-flex;align-items:center;gap:6px}
+.btn-primary:hover{background:linear-gradient(180deg,rgba(56,189,248,.95),rgba(14,165,233,.8));box-shadow:0 0 16px rgba(14,165,233,.25);transform:translateY(-1px)}
+.btn-primary:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-ghost{padding:6px 14px;border-radius:6px;font-size:13px;color:var(--fg-muted);border:1px solid var(--border);background:var(--bg-elevated);transition:all .15s}
+.btn-ghost:hover{border-color:var(--fg-subtle);color:var(--fg);background:var(--bg-overlay)}
+.btn-warm{background:linear-gradient(180deg,rgba(245,158,11,.9),rgba(245,158,11,.7));color:#fff;padding:7px 18px;border-radius:6px;font-size:13px;font-weight:500;transition:all .15s;border:1px solid rgba(251,191,36,.2);display:inline-flex;align-items:center;gap:6px}
+.btn-warm:hover{background:linear-gradient(180deg,rgba(251,191,36,.95),rgba(245,158,11,.8));box-shadow:0 0 16px rgba(245,158,11,.25);transform:translateY(-1px)}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.status-pending .status-dot{background:var(--yellow);box-shadow:0 0 8px var(--yellow)}
+.status-running .status-dot{background:var(--accent);box-shadow:0 0 10px var(--accent);animation:pulse 2s infinite}
+.status-completed .status-dot{background:var(--green);box-shadow:0 0 8px var(--green)}
+.status-failed .status-dot{background:var(--red);box-shadow:0 0 8px var(--red)}
+.status-canceled .status-dot{background:var(--fg-muted);box-shadow:0 0 8px var(--fg-muted)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.kpi-card{background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:22px;position:relative;overflow:hidden;transition:transform .2s,border-color .2s}
+.kpi-card:hover{transform:translateY(-2px);border-color:#27354f}
+.kpi-value{font-size:32px;font-weight:700;letter-spacing:-.5px;line-height:1}
+.kpi-label{font-size:12px;color:var(--fg-muted);margin-top:8px}
+.form-section{background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:22px;transition:border-color .2s}
+.form-section:hover{border-color:#27354f}
+.input-base{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 11px;font-size:13px;color:var(--fg);width:100%;transition:all .15s;font-family:inherit}
+.input-base:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(14,165,233,.12)}
+.label-text{font-size:12px;font-weight:500;color:var(--fg-muted);margin-bottom:5px;display:block}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;cursor:pointer;transition:all .15s;background:var(--bg-overlay);user-select:none}
+.chip:hover{border-color:var(--fg-subtle);background:rgba(14,165,233,.04)}
+.chip.active{border-color:var(--accent);background:rgba(14,165,233,.08);color:var(--accent);box-shadow:0 0 10px rgba(14,165,233,.08)}
+.chip input{accent-color:var(--accent)}
+.hover-surface:hover{background:var(--bg-overlay)}
+table.data-table{width:100%;font-size:13px;border-collapse:separate;border-spacing:0}
+table.data-table thead th{text-align:left;padding:10px 14px;color:var(--fg-muted);font-weight:500;border-bottom:1px solid var(--border);font-size:11px;background:var(--bg-elevated);letter-spacing:.04em}
+table.data-table tbody td{padding:11px 14px;border-bottom:1px solid var(--border-subtle);color:var(--fg);transition:background .1s}
+table.data-table tbody tr:hover td{background:rgba(14,165,233,.03)}
+table.data-table tbody tr{cursor:pointer;transition:all .1s}
+.tab-btn{padding:9px 18px;font-size:13px;color:var(--fg-muted);border-bottom:2px solid transparent;cursor:pointer;transition:all .15s;font-weight:500;letter-spacing:.02em}
+.tab-btn:hover{color:var(--fg)}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tag-pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:500}
+.glass{background:var(--glass-bg);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.animate-fadeUp{animation:fadeUp .4s ease both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.bg-grid{background-image:linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px);background-size:28px 28px}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:3px}
+.log-line{padding:1px 0}
+.progress-bar{height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.progress-bar>div{height:100%;border-radius:2px;transition:width .3s}
+</style>
 </head>
-<body class="bg-[#0d1117] text-[#e6edf3] h-screen flex overflow-hidden" x-data="app()" x-cloak>
+<body class="h-screen flex overflow-hidden" x-data="app()" x-cloak>
 
   <!-- Sidebar -->
-  <aside class="w-56 flex-shrink-0 border-r border-[#30363d] flex flex-col" style="background:#0d1117">
-    <div class="px-4 py-4 flex items-center gap-3 border-b border-[#21262d]">
-      <div class="w-7 h-7 rounded-md flex items-center justify-center" style="background:var(--accent)">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+  <aside class="w-60 flex-shrink-0 border-r flex flex-col" style="background:var(--bg);border-color:var(--border)">
+    <div class="px-5 py-5 flex items-center gap-3 border-b" style="border-color:var(--border-subtle)">
+      <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,var(--accent),var(--accent-warm));box-shadow:0 0 14px rgba(14,165,233,.25)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
       </div>
       <div>
-        <div class="font-semibold text-[15px] tracking-tight">UTBench</div>
-        <div class="text-[11px]" style="color:var(--fg-muted)">Unit Test Benchmark</div>
+        <div class="font-semibold text-[15px] tracking-tight" style="font-family:'LXGW WenKai','PingFang SC',sans-serif">UTBench</div>
+        <div class="text-[11px]" style="color:var(--fg-muted)">单元测试基准平台</div>
       </div>
     </div>
-
-    <nav class="flex-1 py-2 px-3">
+    <nav class="flex-1 py-3 px-3">
       <template x-for="item in nav" :key="item.id">
         <div @click="goto(item.id)" :class="page === item.id ? 'active' : ''" class="nav-item">
           <span x-html="item.icon"></span>
@@ -119,61 +89,59 @@
         </div>
       </template>
     </nav>
-
-    <div class="px-4 py-3 border-t border-[#21262d] text-[11px]" style="color:var(--fg-muted)">
-      <div class="truncate">config: <span x-text="config?.config_path ?? '...'" class="text-[#484f58]"></span></div>
+    <div class="px-5 py-3 border-t text-[11px]" style="border-color:var(--border-subtle);color:var(--fg-muted)">
+      <div class="truncate">配置: <span x-text="config?.config_path ?? '...'" class="font-mono text-[#334155]"></span></div>
     </div>
   </aside>
-
   <!-- Main -->
-  <main class="flex-1 flex flex-col overflow-hidden" style="background:#0d1117">
+  <main class="flex-1 flex flex-col overflow-hidden bg-grid" style="background-color:var(--bg)">
 
     <!-- Header -->
-    <header class="h-12 border-b border-[#30363d] flex items-center px-5 flex-shrink-0" style="background:#161b22">
-      <h1 class="text-[15px] font-semibold" x-text="pageTitle"></h1>
-      <div class="ml-auto flex items-center gap-2">
-        <!-- Env status pill -->
+    <header class="h-14 border-b flex items-center px-6 flex-shrink-0 glass" style="border-color:var(--border)">
+      <h1 class="text-[15px] font-semibold tracking-wide" style="font-family:'LXGW WenKai','PingFang SC',sans-serif" x-text="pageTitle"></h1>
+      <div class="ml-auto flex items-center gap-3">
         <template x-if="env">
           <div class="flex items-center gap-2 text-[12px]">
-            <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full"
-                  :style="`background:${env.docker_available ? 'rgba(63,185,80,.1)' : 'rgba(248,81,73,.1)'};color:${env.docker_available ? 'var(--green)' : 'var(--red)'}`">
+            <span class="tag-pill" :style="`background:${env.docker_available ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)'};color:${env.docker_available ? 'var(--green)' : 'var(--red)'}`">
               <span class="w-1.5 h-1.5 rounded-full" :style="`background:${env.docker_available ? 'var(--green)' : 'var(--red)'}`"></span>
-              <span x-text="env.docker_available ? 'Docker' : 'No Docker'"></span>
-              <span x-show="env.docker_version" class="opacity-70" x-text="'v'+env.docker_version"></span>
+              <span x-text="env.docker_available ? 'Docker 就绪' : '无 Docker'"></span>
+              <span x-show="env.docker_version" class="opacity-60" x-text="'v'+env.docker_version"></span>
             </span>
-            <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full"
-                  :style="`background:${env.image_present ? 'rgba(63,185,80,.1)' : 'rgba(210,153,34,.1)'};color:${env.image_present ? 'var(--green)' : 'var(--yellow)'}`">
+            <span class="tag-pill" :style="`background:${env.image_present ? 'rgba(16,185,129,.1)' : 'rgba(245,158,11,.1)'};color:${env.image_present ? 'var(--green)' : 'var(--yellow)'}`">
               <span class="w-1.5 h-1.5 rounded-full" :style="`background:${env.image_present ? 'var(--green)' : 'var(--yellow)'}`"></span>
-              <span x-text="env.image_present ? 'Image ready' : 'Image missing'"></span>
+              <span x-text="env.image_present ? '镜像就绪' : '镜像缺失'"></span>
             </span>
-            <button x-show="env.docker_available && !env.image_present"
-                    @click="openBuildImage()"
-                    class="btn-primary text-[12px] py-1 px-2.5">Build Image</button>
-            <button x-show="env.image_present"
-                    @click="openBuildImage()"
-                    class="btn-ghost text-[12px] py-1 px-2.5" title="Rebuild image">Rebuild</button>
+            <button x-show="env.docker_available && !env.image_present" @click="openBuildImage()" class="btn-primary text-[11px] py-1 px-2.5">构建镜像</button>
+            <button x-show="env.image_present" @click="openBuildImage()" class="btn-ghost text-[11px] py-1 px-2.5" title="重新构建">重建</button>
+            <button @click="recheckEnv()" :disabled="envChecking" class="btn-ghost text-[11px] py-1 px-2.5 flex items-center gap-1" title="重新检测 Docker / 镜像 / 原生工具链">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="envChecking ? 'animate-spin' : ''"><path d="M21 12a9 9 0 11-6.219-8.56"/><path d="M21 3v6h-6"/></svg>
+              <span x-text="envChecking ? '检测中...' : '检查环境'"></span>
+            </button>
           </div>
         </template>
-        <span x-show="runsLoading" class="text-[12px]" style="color:var(--fg-muted)">Updating...</span>
-        <button @click="loadRuns()" class="btn-ghost">Refresh</button>
+        <span x-show="toast" class="text-[12px] px-2 py-1 rounded" :style="toastStyle" x-text="toast"></span>
+        <span x-show="runsLoading" class="text-[12px]" style="color:var(--fg-muted)">更新中...</span>
+        <button @click="loadRuns()" class="btn-ghost text-[12px]">刷新</button>
+        <button @click="toggleTheme()" class="btn-ghost text-[12px] p-1.5" :title="theme==='dark'?'切换日间模式':'切换夜间模式'">
+          <svg x-show="theme === 'dark'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          <svg x-show="theme === 'light'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
       </div>
     </header>
 
     <!-- Env recommendation banner -->
     <template x-if="env && env.recommendation">
-      <div class="px-5 py-2 text-[12px] border-b border-[#30363d]"
-           style="background:rgba(210,153,34,.08);color:var(--yellow)">
-        <svg class="inline -mt-0.5 mr-1" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div class="px-6 py-2.5 text-[12px] border-b flex items-center gap-2" style="background:var(--warn-bg);border-color:var(--border);color:var(--yellow)">
+        <svg class="flex-shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         <span x-text="env.recommendation"></span>
       </div>
     </template>
 
     <!-- Content -->
-    <div class="flex-1 overflow-y-auto p-5">
-
+    <div class="flex-1 overflow-y-auto p-6">
       <!-- DASHBOARD -->
-      <div x-show="page === 'dashboard'" class="max-w-6xl">
-        <div class="grid grid-cols-4 gap-4 mb-5">
+      <div x-show="page === 'dashboard'" class="max-w-6xl animate-fadeUp">
+        <div class="grid grid-cols-4 gap-5 mb-6">
           <template x-for="stat in dashStats" :key="stat.label">
             <div class="kpi-card">
               <div class="kpi-value" :class="stat.color" x-text="stat.value"></div>
@@ -181,61 +149,58 @@
             </div>
           </template>
         </div>
-
         <div class="form-section p-0 overflow-hidden">
-          <div class="px-4 py-3 border-b border-[#30363d] flex items-center justify-between">
-            <span class="text-[13px] font-medium">Recent Runs</span>
-            <button @click="goto('runs')" class="text-[12px]" style="color:var(--accent)">View all →</button>
+          <div class="px-5 py-3.5 border-b flex items-center justify-between" style="border-color:var(--border)">
+            <span class="text-[13px] font-medium tracking-wide">最近任务</span>
+            <button @click="goto('runs')" class="text-[12px] font-medium" style="color:var(--accent)">查看全部 →</button>
           </div>
-          <div x-show="runs.length === 0" class="px-4 py-10 text-center text-[13px]" style="color:var(--fg-muted)">
-            No runs yet. <button @click="goto('new-run')" style="color:var(--accent)" class="hover:underline">Start one</button>
+          <div x-show="runs.length === 0" class="px-5 py-12 text-center text-[13px]" style="color:var(--fg-muted)">
+            暂无任务。<button @click="goto('new-run')" style="color:var(--accent)" class="hover:underline ml-1">新建任务</button>
           </div>
           <table x-show="runs.length > 0" class="data-table">
-            <thead><tr><th>Run ID</th><th>Status</th><th>Models</th><th>Languages</th><th>Started</th><th style="width:80px"></th></tr></thead>
+            <thead><tr><th>任务 ID</th><th>状态</th><th>模型</th><th>语言</th><th>启动时间</th><th style="width:80px"></th></tr></thead>
             <tbody>
               <template x-for="run in runs.slice(0,10)" :key="run.run_id">
                 <tr @click="openRun(run.run_id)">
                   <td class="font-mono text-[12px]" style="color:var(--fg-muted)" x-text="run.run_id"></td>
                   <td>
-                    <span :class="'status-' + run.status" class="inline-flex items-center text-[12px] font-medium px-2 py-0.5 rounded-full" style="background:rgba(255,255,255,.04)">
-                      <span class="status-dot"></span><span x-text="run.status"></span>
+                    <span :class="'status-' + run.status" class="inline-flex items-center text-[12px] font-medium px-2.5 py-0.5 rounded-full" style="background:var(--badge-bg)">
+                      <span class="status-dot"></span><span x-text="statusText(run.status, run.paused)"></span>
                     </span>
+                    <span x-show="run.paused" class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background:var(--warn-bg);color:var(--yellow)">暂停</span>
                   </td>
                   <td style="color:var(--fg-muted)" x-text="(run.spec?.models ?? []).join(', ') || '—'"></td>
                   <td style="color:var(--fg-muted)" x-text="(run.spec?.languages ?? []).join(', ') || '—'"></td>
                   <td style="color:var(--fg-muted)" x-text="fmtTime(run.started_at)"></td>
-                  <td class="text-right"><span style="color:var(--accent)" class="text-[12px]">Details →</span></td>
+                  <td class="text-right"><span style="color:var(--accent)" class="text-[12px]">详情 →</span></td>
                 </tr>
               </template>
             </tbody>
           </table>
         </div>
       </div>
-
       <!-- NEW RUN -->
-      <div x-show="page === 'new-run'" class="max-w-3xl">
+      <div x-show="page === 'new-run'" class="max-w-3xl animate-fadeUp">
         <form @submit.prevent="submitRun()" class="space-y-5">
-
           <div class="form-section">
-            <div class="section-title">Run Configuration</div>
+            <div class="section-title">任务配置</div>
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="label-text">Run ID <span class="font-normal" style="color:var(--fg-subtle)">(optional)</span></label>
+                <label class="label-text">任务 ID <span class="font-normal" style="color:var(--fg-subtle)">（可选，留空自动生成）</span></label>
                 <input x-model="form.run_id" type="text" placeholder="auto-generated" class="input-base">
               </div>
               <div>
-                <label class="label-text">Mode</label>
+                <label class="label-text">模式</label>
                 <select x-model="form.mode" class="input-base">
-                  <option value="full">full</option>
-                  <option value="incremental">incremental</option>
+                  <option value="full">完整</option>
+                  <option value="incremental">增量</option>
                 </select>
               </div>
             </div>
           </div>
-
           <div class="form-section">
-            <div class="section-title">Models</div>
-            <div class="flex flex-wrap gap-2">
+            <div class="section-title">模型</div>
+            <div class="flex flex-wrap gap-2.5">
               <template x-for="m in config?.models ?? []" :key="m.name">
                 <label :class="form.models.includes(m.name) ? 'active' : ''" class="chip">
                   <input type="checkbox" :value="m.name" x-model="form.models" class="w-3.5 h-3.5">
@@ -245,10 +210,9 @@
               </template>
             </div>
           </div>
-
           <div class="form-section">
-            <div class="section-title">Languages</div>
-            <div class="flex flex-wrap gap-2">
+            <div class="section-title">语言</div>
+            <div class="flex flex-wrap gap-2.5">
               <template x-for="lang in config?.languages ?? []" :key="lang">
                 <label :class="form.languages.includes(lang) ? 'active' : ''" class="chip">
                   <input type="checkbox" :value="lang" x-model="form.languages" class="w-3.5 h-3.5">
@@ -257,199 +221,359 @@
               </template>
             </div>
           </div>
-
           <div class="form-section">
-            <div class="section-title">Dataset Filter</div>
+            <div class="section-title">数据集筛选</div>
             <div class="grid grid-cols-3 gap-4">
               <div>
-                <label class="label-text">Class</label>
+                <label class="label-text">类型</label>
                 <select x-model="form.class" class="input-base">
-                  <option value="">All</option>
+                  <option value="">全部</option>
                   <template x-for="c in config?.classes ?? []" :key="c"><option :value="c" x-text="c"></option></template>
                 </select>
               </div>
               <div>
-                <label class="label-text">Scenario</label>
+                <label class="label-text">场景</label>
                 <select x-model="form.scenario" class="input-base">
-                  <option value="">All scenarios</option>
+                  <option value="">全部场景</option>
                   <template x-for="sc in config?.scenarios ?? []" :key="sc"><option :value="sc" x-text="sc"></option></template>
                 </select>
               </div>
               <div>
-                <label class="label-text">Level</label>
+                <label class="label-text">等级</label>
                 <input x-model="form.level" type="text" placeholder="l1, l2..." class="input-base">
               </div>
             </div>
           </div>
-
           <div class="form-section">
-            <div class="section-title">Execution</div>
+            <div class="section-title">执行设置</div>
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="label-text">Max Samples <span class="font-normal" style="color:var(--fg-subtle)">(0 = unlimited)</span></label>
+                <label class="label-text">最大样本数 <span class="font-normal" style="color:var(--fg-subtle)">（0 = 无限制）</span></label>
                 <input x-model.number="form.max_samples" type="number" min="0" class="input-base">
               </div>
               <div>
-                <label class="label-text">Workers <span class="font-normal" style="color:var(--fg-subtle)">(0 = auto)</span></label>
+                <label class="label-text">并发数 <span class="font-normal" style="color:var(--fg-subtle)">（0 = 自动）</span></label>
                 <input x-model.number="form.workers" type="number" min="0" class="input-base">
               </div>
             </div>
           </div>
-
           <div class="form-section">
-            <div class="section-title">Options</div>
-            <div class="grid grid-cols-2 gap-x-6 gap-y-3">
-              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded hover:bg-[#21262d]/50">
+            <div class="section-title">高级选项</div>
+            <div class="grid grid-cols-2 gap-x-5 gap-y-3">
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors">
                 <input type="checkbox" x-model="form.dry_run" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
                 <div>
-                  <div class="text-[13px] font-medium">Dry Run</div>
-                  <div class="text-[12px]" style="color:var(--fg-muted)">Skip real API calls</div>
+                  <div class="text-[13px] font-medium">空跑模式</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">跳过真实 API 调用</div>
                 </div>
               </label>
-              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded hover:bg-[#21262d]/50">
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors">
                 <input type="checkbox" x-model="form.mutation_enabled" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
                 <div>
-                  <div class="text-[13px] font-medium">Mutation Testing</div>
-                  <div class="text-[12px]" style="color:var(--fg-muted)">Enable mutation analysis</div>
+                  <div class="text-[13px] font-medium">变异测试</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">启用变异分析</div>
                 </div>
               </label>
-              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded hover:bg-[#21262d]/50">
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors">
                 <input type="checkbox" x-model="form.ingest" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
                 <div>
-                  <div class="text-[13px] font-medium">Persist to DB</div>
-                  <div class="text-[12px]" style="color:var(--fg-muted)">Ingest results into SQLite</div>
+                  <div class="text-[13px] font-medium">入库保存</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">将结果写入 SQLite</div>
                 </div>
               </label>
-              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded hover:bg-[#21262d]/50"
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors"
                      :class="(env && !env.docker_available) ? 'opacity-50 pointer-events-none' : ''">
-                <input type="checkbox" x-model="form.use_docker" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)"
-                       :disabled="env && !env.docker_available">
+                <input type="checkbox" x-model="form.use_docker" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)" :disabled="env && !env.docker_available">
                 <div>
                   <div class="text-[13px] font-medium flex items-center gap-2">
-                    Execute in Docker
-                    <span x-show="env && !env.image_present && env.docker_available"
-                          class="text-[10px] px-1.5 py-0.5 rounded"
-                          style="background:rgba(210,153,34,.15);color:var(--yellow)">image needed</span>
+                    Docker 执行
+                    <span x-show="env && !env.image_present && env.docker_available" class="text-[10px] px-1.5 py-0.5 rounded" style="background:var(--warn-bg);color:var(--yellow)">需镜像</span>
                   </div>
-                  <div class="text-[12px]" style="color:var(--fg-muted)">
-                    Run the evaluator inside <code class="font-mono text-[11px]">utbench:latest</code>
-                    (required for mutmut/mull on Windows)
-                  </div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">在 <code class="font-mono text-[11px]">utbench:latest</code> 容器中运行（Windows 下 mutmut/mull 必需）</div>
                 </div>
               </label>
               <div x-show="form.mutation_enabled">
-                <label class="label-text">Mutation Timeout (s)</label>
+                <label class="label-text">变异超时（秒）</label>
                 <input x-model.number="form.mutation_timeout" type="number" min="60" class="input-base">
               </div>
             </div>
           </div>
-
           <div class="flex items-center gap-3 pt-1">
-            <button type="submit"
-              :disabled="formSubmitting || form.models.length === 0 || form.languages.length === 0"
-              class="btn-primary">
-              <span x-show="!formSubmitting">Start Benchmark</span>
-              <span x-show="formSubmitting">Starting...</span>
+            <button type="submit" :disabled="formSubmitting || form.models.length === 0 || form.languages.length === 0" class="btn-primary">
+              <span x-show="!formSubmitting">开始评测</span>
+              <span x-show="formSubmitting">启动中...</span>
             </button>
             <span x-show="formError" class="text-[13px]" style="color:var(--red)" x-text="formError"></span>
           </div>
         </form>
       </div>
-
       <!-- RUNS LIST -->
-      <div x-show="page === 'runs'" class="max-w-6xl">
+      <div x-show="page === 'runs'" class="max-w-6xl animate-fadeUp">
         <div class="flex items-center gap-3 mb-4">
-          <input x-model="runFilter" type="text" placeholder="Filter by run ID, model, language..."
-            class="input-base w-72">
+          <input x-model="runFilter" type="text" placeholder="按任务 ID、模型、语言筛选..." class="input-base w-72">
           <select x-model="statusFilter" class="input-base w-36">
-            <option value="">All status</option>
-            <option value="pending">pending</option>
-            <option value="running">running</option>
-            <option value="completed">completed</option>
-            <option value="failed">failed</option>
+            <option value="">全部状态</option>
+            <option value="pending">等待中</option>
+            <option value="running">运行中</option>
+            <option value="completed">已完成</option>
+            <option value="failed">失败</option>
           </select>
-          <button @click="goto('new-run')" class="btn-primary ml-auto">+ New Run</button>
+          <button @click="goto('new-run')" class="btn-primary ml-auto">+ 新建任务</button>
         </div>
-
         <div class="form-section p-0 overflow-hidden">
-          <div x-show="filteredRuns.length === 0" class="px-4 py-10 text-center text-[13px]" style="color:var(--fg-muted)">
-            No matching runs
+          <div x-show="filteredRuns.length === 0" class="px-5 py-12 text-center text-[13px]" style="color:var(--fg-muted)">
+            无匹配任务
           </div>
           <table x-show="filteredRuns.length > 0" class="data-table">
             <thead>
               <tr>
-                <th>Run ID</th><th>Status</th><th>Models</th><th>Languages</th><th>Scenario</th><th>Samples</th>
-                <th>Started</th><th>Duration</th><th style="width:80px"></th>
+                <th>任务 ID</th><th>状态</th><th>模型</th><th>语言</th><th>场景</th><th>样本数</th>
+                <th>启动时间</th><th>耗时</th><th style="width:160px" class="text-right">操作</th>
               </tr>
             </thead>
             <tbody>
               <template x-for="run in filteredRuns" :key="run.run_id">
-                <tr @click="openRun(run.run_id)">
-                  <td class="font-mono text-[12px]" style="color:var(--fg-muted)" x-text="run.run_id"></td>
-                  <td>
-                    <span :class="'status-' + run.status" class="inline-flex items-center text-[12px] font-medium px-2 py-0.5 rounded-full" style="background:rgba(255,255,255,.04)">
-                      <span class="status-dot"></span><span x-text="run.status"></span>
+                <tr>
+                  <td class="font-mono text-[12px]" style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="run.run_id"></td>
+                  <td @click="openRun(run.run_id)" style="cursor:pointer">
+                    <span :class="'status-' + run.status" class="inline-flex items-center text-[12px] font-medium px-2.5 py-0.5 rounded-full" style="background:var(--badge-bg)">
+                      <span class="status-dot"></span><span x-text="statusText(run.status, run.paused)"></span>
                     </span>
+                    <span x-show="run.paused" class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background:var(--warn-bg);color:var(--yellow)">暂停</span>
                   </td>
-                  <td style="color:var(--fg-muted)" x-text="(run.spec?.models ?? []).join(', ') || '—'"></td>
-                  <td style="color:var(--fg-muted)" x-text="(run.spec?.languages ?? []).join(', ') || '—'"></td>
-                  <td style="color:var(--fg-muted)" x-text="run.spec?.dataset_scenario || '—'"></td>
-                  <td style="color:var(--fg-muted)" x-text="run.spec?.max_samples ?? '—'"></td>
-                  <td style="color:var(--fg-muted)" x-text="fmtTime(run.started_at)"></td>
-                  <td style="color:var(--fg-muted)" x-text="duration(run.started_at, run.ended_at)"></td>
-                  <td class="text-right"><span style="color:var(--accent)" class="text-[12px]">Details →</span></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="(run.spec?.models ?? []).join(', ') || '—'"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="(run.spec?.languages ?? []).join(', ') || '—'"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="run.spec?.dataset_scenario || '—'"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="run.spec?.max_samples ?? '—'"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="fmtTime(run.started_at)"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="duration(run.started_at, run.ended_at)"></td>
+                  <td class="text-right whitespace-nowrap">
+                    <template x-if="run.status === 'running'">
+                      <span class="inline-flex gap-1.5">
+                        <button x-show="!run.paused" @click.stop="runControl(run.run_id, 'pause')" class="text-[12px]" style="color:var(--yellow)" title="暂停">暂停</button>
+                        <button x-show="run.paused" @click.stop="runControl(run.run_id, 'resume')" class="text-[12px]" style="color:var(--accent)" title="继续">继续</button>
+                        <button @click.stop="runControl(run.run_id, 'cancel')" class="text-[12px]" style="color:var(--red)" title="取消">取消</button>
+                      </span>
+                    </template>
+                    <button @click.stop="rerunRun(run.run_id)" class="text-[12px] mr-2" style="color:var(--yellow)" title="以相同配置再跑一次">重跑</button>
+                    <button @click.stop="openRun(run.run_id)" class="text-[12px]" style="color:var(--accent)">详情 →</button>
+                  </td>
                 </tr>
               </template>
             </tbody>
           </table>
         </div>
       </div>
+      <!-- MODELS -->
+      <div x-show="page === 'models'" class="max-w-5xl animate-fadeUp">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="text-[12px]" style="color:var(--fg-muted)">
+            共 <span x-text="models.length" class="font-medium" style="color:var(--fg)"></span> 个模型
+            <span x-show="modelsLoading" class="ml-2">· 加载中...</span>
+          </div>
+          <button @click="testAllModels()" :disabled="modelTestingAll || models.length === 0" class="btn-warm text-[12px] ml-auto">
+            <span x-text="modelTestingAll ? '测试中...' : '一键测试连接'"></span>
+          </button>
+          <button @click="loadModels()" class="btn-ghost text-[12px]">刷新</button>
+          <button @click="openAddModel()" class="btn-primary text-[12px]">+ 添加模型</button>
+        </div>
+
+        <div class="form-section p-0 overflow-hidden">
+          <div x-show="models.length === 0 && !modelsLoading" class="px-5 py-12 text-center text-[13px]" style="color:var(--fg-muted)">
+            暂无模型。<button @click="openAddModel()" style="color:var(--accent)" class="hover:underline ml-1">添加模型</button>
+          </div>
+          <table x-show="models.length > 0" class="data-table">
+            <thead>
+              <tr>
+                <th style="width:60px">启用</th>
+                <th>名称</th>
+                <th>提供商</th>
+                <th>模型 ID</th>
+                <th>API 端点</th>
+                <th>API Key</th>
+                <th style="width:170px">连接</th>
+                <th style="width:120px" class="text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="m in models" :key="m.name">
+                <tr>
+                  <td>
+                    <button @click="toggleModelEnabled(m)" class="relative inline-flex h-5 w-9 items-center rounded-full transition"
+                            :style="m.enabled ? 'background:var(--accent)' : 'background:var(--border)'">
+                      <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition"
+                            :style="m.enabled ? 'transform:translateX(18px)' : 'transform:translateX(3px)'"></span>
+                    </button>
+                  </td>
+                  <td class="font-medium text-[13px]" x-text="m.name"></td>
+                  <td class="text-[12px]" style="color:var(--fg-muted)" x-text="m.provider"></td>
+                  <td class="font-mono text-[12px]" x-text="m.model_id"></td>
+                  <td class="font-mono text-[11px] truncate max-w-xs" style="color:var(--fg-muted)" :title="m.api_endpoint" x-text="m.api_endpoint"></td>
+                  <td class="text-[12px]">
+                    <div class="flex items-center gap-2">
+                      <span class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="m.api_key_env"></span>
+                      <span class="tag-pill text-[10px]"
+                            :style="m.api_key_set ? 'background:var(--success-bg);color:var(--green)' : 'background:var(--error-bg);color:var(--red)'">
+                        <span x-text="m.api_key_set ? '已设置' : '未设置'"></span>
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="flex items-center gap-2">
+                      <button @click="testModel(m.name)" :disabled="isModelTesting(m.name)" class="btn-ghost text-[11px] py-1 px-2.5">
+                        <span x-text="isModelTesting(m.name) ? '测试中...' : '测试'"></span>
+                      </button>
+                      <template x-if="modelTestResult(m.name)">
+                        <span class="tag-pill text-[10px]"
+                              :title="modelTestResult(m.name).message"
+                              :style="modelTestResult(m.name).ok ? 'background:var(--success-bg);color:var(--green)' : 'background:var(--error-bg);color:var(--red)'">
+                          <span x-text="modelTestResult(m.name).ok ? '正常' : '失败'"></span>
+                          <span x-show="modelTestResult(m.name).latency_ms" class="opacity-70" x-text="modelTestResult(m.name).latency_ms + 'ms'"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </td>
+                  <td class="text-right">
+                    <button @click="openEditModel(m)" class="text-[12px] mr-2" style="color:var(--accent)">编辑</button>
+                    <button @click="deleteModel(m.name)" class="text-[12px]" style="color:var(--red)">删除</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mt-4 text-[11px]" style="color:var(--fg-subtle)">
+          提示：API Key 存入当前进程的环境变量（立即生效），不会写入 YAML；若要永久持久化请在 <span class="font-mono">.env</span> 中配置对应变量名。
+        </div>
+      </div>
+
+      <!-- MODEL FORM MODAL -->
+      <div x-show="modelFormOpen" x-transition.opacity class="fixed inset-0 z-50 flex items-center justify-center" style="background:var(--overlay-bg)">
+        <div @click.outside="closeModelForm()" class="form-section max-w-xl w-full m-4" style="max-height:90vh;overflow-y:auto">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-[14px] font-medium" x-text="modelFormMode === 'create' ? '添加模型' : '编辑模型：' + modelForm.name"></div>
+            <button @click="closeModelForm()" class="btn-ghost text-[12px]">关闭</button>
+          </div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="text-[11px] font-medium" style="color:var(--fg-muted)">名称（唯一标识）<span style="color:var(--red)">*</span></label>
+              <input x-model="modelForm.name" :disabled="modelFormMode === 'edit'" type="text" class="input-base w-full" placeholder="例如：qwen-max">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[11px] font-medium" style="color:var(--fg-muted)">提供商 <span style="color:var(--red)">*</span></label>
+                <input x-model="modelForm.provider" type="text" class="input-base w-full" placeholder="例如：dashscope / openai / deepseek">
+              </div>
+              <div>
+                <label class="text-[11px] font-medium" style="color:var(--fg-muted)">模型 ID <span style="color:var(--red)">*</span></label>
+                <input x-model="modelForm.model_id" type="text" class="input-base w-full" placeholder="例如：qwen-max-2026-04-01">
+              </div>
+            </div>
+            <div>
+              <label class="text-[11px] font-medium" style="color:var(--fg-muted)">API 端点 <span style="color:var(--red)">*</span></label>
+              <input x-model="modelForm.api_endpoint" type="text" class="input-base w-full font-mono text-[12px]" placeholder="https://api.example.com/v1">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[11px] font-medium" style="color:var(--fg-muted)">API Key 环境变量名</label>
+                <input x-model="modelForm.api_key_env" type="text" class="input-base w-full font-mono text-[12px]" placeholder="留空自动生成">
+              </div>
+              <div>
+                <label class="text-[11px] font-medium" style="color:var(--fg-muted)">API Key
+                  <span style="color:var(--fg-subtle)" class="font-normal">(仅写入进程环境变量)</span>
+                </label>
+                <input x-model="modelForm.api_key" type="password" class="input-base w-full font-mono text-[12px]" placeholder="留空则不修改">
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="text-[11px] font-medium" style="color:var(--fg-muted)">temperature</label>
+                <input x-model.number="modelForm.parameters.temperature" type="number" step="0.1" min="0" max="2" class="input-base w-full">
+              </div>
+              <div>
+                <label class="text-[11px] font-medium" style="color:var(--fg-muted)">top_p</label>
+                <input x-model.number="modelForm.parameters.top_p" type="number" step="0.05" min="0" max="1" class="input-base w-full">
+              </div>
+              <div>
+                <label class="text-[11px] font-medium" style="color:var(--fg-muted)">max_tokens</label>
+                <input x-model.number="modelForm.parameters.max_tokens" type="number" step="256" min="128" class="input-base w-full">
+              </div>
+            </div>
+            <div class="flex items-center gap-2 pt-1">
+              <input x-model="modelForm.enabled" type="checkbox" id="mf_enabled">
+              <label for="mf_enabled" class="text-[12px]">启用此模型</label>
+            </div>
+
+            <div x-show="modelFormError" class="text-[12px] px-3 py-2 rounded" style="background:rgba(239,68,68,.08);color:var(--red)" x-text="modelFormError"></div>
+
+            <div class="flex items-center justify-end gap-2 pt-2">
+              <button @click="closeModelForm()" class="btn-ghost">取消</button>
+              <button @click="saveModel()" class="btn-primary" x-text="modelFormMode === 'create' ? '添加' : '保存'"></button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- RUN DETAIL -->
-      <div x-show="page === 'run-detail'" class="max-w-6xl space-y-4">
+      <div x-show="page === 'run-detail'" class="max-w-6xl space-y-4 animate-fadeUp">
         <template x-if="currentRun">
           <div>
-            <!-- Header -->
+            <!-- Detail Header -->
             <div class="form-section flex items-start gap-4">
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-3 mb-2">
-                  <span :class="'status-' + currentRun.status" class="inline-flex items-center text-[12px] font-medium px-2.5 py-1 rounded-full" style="background:rgba(255,255,255,.04)">
-                    <span class="status-dot"></span><span x-text="currentRun.status"></span>
+                  <span :class="'status-' + currentRun.status" class="inline-flex items-center text-[12px] font-medium px-2.5 py-1 rounded-full" style="background:var(--badge-bg)">
+                    <span class="status-dot"></span><span x-text="statusText(currentRun.status, currentRun.paused)"></span>
                   </span>
+                  <span x-show="currentRun.paused" class="text-[10px] px-1.5 py-0.5 rounded" style="background:var(--warn-bg);color:var(--yellow)">暂停</span>
                   <span class="font-mono text-[13px]" style="color:var(--fg-muted)" x-text="currentRun.run_id"></span>
                 </div>
                 <div class="flex flex-wrap gap-x-6 gap-y-1 text-[12px]" style="color:var(--fg-muted)">
-                  <span>Models: <span style="color:var(--fg)" x-text="(currentRun.spec?.models ?? []).join(', ')"></span></span>
-                  <span>Langs: <span style="color:var(--fg)" x-text="(currentRun.spec?.languages ?? []).join(', ')"></span></span>
-                  <span>Class: <span style="color:var(--fg)" x-text="(currentRun.spec?.dataset_classes ?? []).join(', ') || '—'"></span></span>
-                  <span>Scenario: <span style="color:var(--fg)" x-text="currentRun.spec?.dataset_scenario || '—'"></span></span>
-                  <span>Samples: <span style="color:var(--fg)" x-text="currentRun.spec?.max_samples ?? '—'"></span></span>
-                  <span>Workers: <span style="color:var(--fg)" x-text="currentRun.spec?.workers ?? 0"></span></span>
-                  <span>Backend: <span style="color:var(--fg)" x-text="currentRun.use_docker ? 'docker' : 'in-process'"></span></span>
-                  <span>Started: <span style="color:var(--fg)" x-text="fmtTime(currentRun.started_at)"></span></span>
-                  <span x-show="currentRun.ended_at">Duration: <span style="color:var(--fg)" x-text="duration(currentRun.started_at, currentRun.ended_at)"></span></span>
+                  <span>模型: <span style="color:var(--fg)" x-text="(currentRun.spec?.models ?? []).join(', ')"></span></span>
+                  <span>语言: <span style="color:var(--fg)" x-text="(currentRun.spec?.languages ?? []).join(', ')"></span></span>
+                  <span>类型: <span style="color:var(--fg)" x-text="(currentRun.spec?.dataset_classes ?? []).join(', ') || '—'"></span></span>
+                  <span>场景: <span style="color:var(--fg)" x-text="currentRun.spec?.dataset_scenario || '—'"></span></span>
+                  <span>样本: <span style="color:var(--fg)" x-text="currentRun.spec?.max_samples ?? '—'"></span></span>
+                  <span>并发: <span style="color:var(--fg)" x-text="currentRun.spec?.workers ?? 0"></span></span>
+                  <span>后端: <span style="color:var(--fg)" x-text="currentRun.use_docker ? 'Docker' : '本地进程'"></span></span>
+                  <span>启动: <span style="color:var(--fg)" x-text="fmtTime(currentRun.started_at)"></span></span>
+                  <span x-show="currentRun.ended_at">耗时: <span style="color:var(--fg)" x-text="duration(currentRun.started_at, currentRun.ended_at)"></span></span>
                 </div>
-                <div x-show="currentRun.error" class="mt-2 text-[12px] rounded p-2.5" style="background:rgba(248,81,73,.08); color:var(--red); border:1px solid rgba(248,81,73,.2)" x-text="currentRun.error"></div>
+                <div x-show="currentRun.error" class="mt-2 text-[12px] rounded-lg p-2.5" style="background:var(--error-bg);color:var(--red);border:1px solid var(--error-border)" x-text="currentRun.error"></div>
               </div>
-              <div class="flex gap-2 flex-shrink-0">
-                <button x-show="currentRun.status === 'running'" @click="refreshDetail()" class="btn-ghost">Refresh</button>
-                <button @click="goto('runs')" class="btn-ghost">Back</button>
+              <div class="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+                <template x-if="currentRun.status === 'running'">
+                  <span class="inline-flex gap-1.5">
+                    <button x-show="!currentRun.paused" @click="runControl(currentRun.run_id, 'pause')" class="btn-ghost" title="暂停">暂停</button>
+                    <button x-show="currentRun.paused" @click="runControl(currentRun.run_id, 'resume')" class="btn-ghost" title="继续">继续</button>
+                    <button @click="runControl(currentRun.run_id, 'cancel')" class="btn-ghost" style="color:var(--red)" title="取消">取消</button>
+                    <button @click="refreshDetail()" class="btn-ghost">刷新</button>
+                  </span>
+                </template>
+                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="rerunRun(currentRun.run_id)" class="btn-ghost" style="color:var(--yellow)" title="以相同配置再跑一次">重跑</button>
+                <button @click="goto('runs')" class="btn-ghost">返回</button>
+                <button x-show="currentRun.status === 'completed'" @click="openHtmlReport()" class="btn-warm text-[12px]">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
+                  打开 HTML 报告
+                </button>
               </div>
             </div>
 
             <!-- Tabs -->
-            <div class="flex gap-0 border-b border-[#30363d] mb-4">
-              <button @click="detailTab = 'logs'" :class="detailTab === 'logs' ? 'active' : ''" class="tab-btn">Logs</button>
-              <button @click="detailTab = 'report'; loadReport()" :class="detailTab === 'report' ? 'active' : ''" class="tab-btn">Report</button>
+            <div class="flex gap-0 border-b mb-4" style="border-color:var(--border)">
+              <button @click="detailTab = 'logs'" :class="detailTab === 'logs' ? 'active' : ''" class="tab-btn">日志</button>
+              <button @click="detailTab = 'report'; loadReport()" :class="detailTab === 'report' ? 'active' : ''" class="tab-btn">报告</button>
             </div>
 
             <!-- Logs -->
             <div x-show="detailTab === 'logs'" class="form-section p-0 overflow-hidden">
-              <div class="px-3 py-2 border-b border-[#30363d] flex items-center justify-between" style="background:#161b22">
-                <span class="text-[12px]" style="color:var(--fg-muted)">Live Output · <span x-text="currentLogs.length"></span> lines</span>
-                <button @click="scrollLogsBottom()" class="text-[12px]" style="color:var(--fg-subtle)">Scroll to bottom</button>
+              <div class="px-4 py-2.5 border-b flex items-center justify-between" style="border-color:var(--border);background:var(--bg-elevated)">
+                <span class="text-[12px]" style="color:var(--fg-muted)">实时输出 · <span x-text="currentLogs.length"></span> 行</span>
+                <button @click="scrollLogsBottom()" class="text-[12px]" style="color:var(--fg-subtle)">滚动到底部</button>
               </div>
-              <div id="log-area" class="terminal text-[12px] p-3 h-[540px] overflow-y-auto leading-5" style="background:#010409; color:#3fb950">
+              <div id="log-area" class="terminal text-[12px] p-4 h-[540px] overflow-y-auto leading-5" style="background:#020408;color:var(--green)">
                 <template x-for="(line, i) in currentLogs" :key="i">
                   <div class="log-line" x-text="line"></div>
                 </template>
@@ -460,13 +584,13 @@
 
             <!-- Report -->
             <div x-show="detailTab === 'report'">
-              <div x-show="!currentReport && currentRun.status !== 'completed'" class="form-section py-10 text-center">
-                <div x-show="currentRun.status === 'running'" class="animate-pulse text-[13px]" style="color:var(--fg-muted)">Evaluation in progress...</div>
-                <div x-show="currentRun.status === 'failed'" style="color:var(--red)" class="text-[13px]">Run failed. No report available.</div>
-                <div x-show="currentRun.status === 'pending'" class="text-[13px]" style="color:var(--yellow)">Waiting to start...</div>
+              <div x-show="!currentReport && currentRun.status !== 'completed'" class="form-section py-12 text-center">
+                <div x-show="currentRun.status === 'running'" class="animate-pulse text-[13px]" style="color:var(--fg-muted)">评测进行中...</div>
+                <div x-show="currentRun.status === 'failed'" style="color:var(--red)" class="text-[13px]">任务失败，无报告可用。</div>
+                <div x-show="currentRun.status === 'pending'" class="text-[13px]" style="color:var(--yellow)">等待开始...</div>
               </div>
-              <div x-show="!currentReport && currentRun.status === 'completed'" class="form-section py-10 text-center">
-                <button @click="loadReport()" style="color:var(--accent)" class="text-[13px] hover:underline">Load report</button>
+              <div x-show="!currentReport && currentRun.status === 'completed'" class="form-section py-12 text-center">
+                <button @click="loadReport()" style="color:var(--accent)" class="text-[13px] hover:underline">加载报告</button>
               </div>
 
               <template x-if="currentReport">
@@ -481,22 +605,67 @@
                     </template>
                   </div>
 
-                  <!-- Chart -->
-                  <div class="form-section">
-                    <div class="section-title">Model Comparison</div>
-                    <div class="h-60"><canvas id="modelChart"></canvas></div>
+                  <!-- Charts: radar + bar -->
+                  <div class="grid grid-cols-2 gap-4">
+                    <div class="form-section">
+                      <div class="section-title flex items-center justify-between">
+                        <span>能力雷达</span>
+                        <span class="text-[11px] font-normal" style="color:var(--fg-subtle)">编译 / 测试 / 覆盖 / 变异 / 效率</span>
+                      </div>
+                      <div class="h-64"><canvas id="radarChart"></canvas></div>
+                    </div>
+                    <div class="form-section">
+                      <div class="section-title">模型对比</div>
+                      <div class="h-64"><canvas id="modelChart"></canvas></div>
+                    </div>
                   </div>
 
-                  <!-- Model Ranking -->
+                  <!-- Scenario heatmap: model × (language·scenario) with mutation score -->
+                  <div class="form-section" x-show="heatmap.cols.length > 0">
+                    <div class="section-title flex items-center justify-between">
+                      <span>变异分热力图</span>
+                      <span class="text-[11px] font-normal" style="color:var(--fg-subtle)">颜色越暖表示变异分越高（测试越能发现 bug）</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                      <table class="text-[12px] w-full" style="border-collapse:separate;border-spacing:2px">
+                        <thead>
+                          <tr>
+                            <th class="text-left p-2 font-medium" style="color:var(--fg-muted)">模型 \\ 场景</th>
+                            <template x-for="col in heatmap.cols" :key="col">
+                              <th class="p-2 font-mono text-[11px] text-center whitespace-nowrap" style="color:var(--fg-muted)" x-text="col"></th>
+                            </template>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="row in heatmap.rows" :key="row.model">
+                            <tr>
+                              <td class="p-2 font-medium whitespace-nowrap" x-text="row.model"></td>
+                              <template x-for="(v,i) in row.values" :key="i">
+                                <td class="p-2 text-center font-mono rounded"
+                                    :style="heatCell(v)"
+                                    :title="heatmap.cols[i] + ': ' + (v==null ? '无数据' : (v*100).toFixed(1)+'%')">
+                                  <span x-text="v==null ? '—' : (v*100).toFixed(0)"></span>
+                                </td>
+                              </template>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <!-- Leaderboard -->
                   <div class="form-section p-0 overflow-hidden">
-                    <div class="px-4 py-3 border-b border-[#30363d] text-[13px] font-medium">Leaderboard</div>
+                    <div class="px-4 py-3 border-b text-[13px] font-medium" style="border-color:var(--border)">排行榜</div>
                     <table class="data-table">
                       <thead>
                         <tr>
-                          <th style="width:50px">Rank</th><th>Model</th>
-                          <th class="text-right">Compile</th><th class="text-right">Test</th>
-                          <th class="text-right">Coverage</th><th class="text-right">Mutation</th>
-                          <th class="text-right">Score</th>
+                          <th style="width:50px">排名</th><th>模型</th>
+                          <th class="text-right">编译</th><th class="text-right">测试</th>
+                          <th class="text-right">覆盖率</th><th class="text-right">变异</th>
+                          <th class="text-right" title="每通过样本所需的平均生成 token 数，越小越高效">tokens/通过</th>
+                          <th class="text-right" title="每通过样本所需的平均耗时，越小越快">ms/通过</th>
+                          <th class="text-right">总分</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -508,7 +677,9 @@
                             <td class="text-right text-[12px]" :class="pctColor(m.avg_test_pass_rate)" x-text="pct(m.avg_test_pass_rate)"></td>
                             <td class="text-right text-[12px]" :class="pctColor(m.avg_line_coverage)" x-text="pct(m.avg_line_coverage)"></td>
                             <td class="text-right text-[12px]" :class="pctColor(m.avg_mutation_score)" x-text="pct(m.avg_mutation_score)"></td>
-                            <td class="text-right text-[13px] font-bold" style="color:var(--accent)" x-text="m.composite_score?.toFixed(1)"></td>
+                            <td class="text-right text-[12px] font-mono" style="color:var(--fg-muted)" x-text="fmtInt(m.tokens_per_pass)"></td>
+                            <td class="text-right text-[12px] font-mono" style="color:var(--fg-muted)" x-text="fmtMs(m.ms_per_pass)"></td>
+                            <td class="text-right text-[13px] font-bold" style="color:var(--accent)" x-text="((m.composite_score||0)*100).toFixed(1)"></td>
                           </tr>
                         </template>
                       </tbody>
@@ -517,15 +688,26 @@
 
                   <!-- Failures -->
                   <div x-show="(currentReport.failures ?? []).length > 0" class="form-section p-0 overflow-hidden">
-                    <div class="px-4 py-3 border-b border-[#30363d] text-[13px] font-medium">Failures</div>
+                    <div class="px-4 py-3 border-b text-[13px] font-medium" style="border-color:var(--border)">失败项</div>
                     <table class="data-table">
-                      <thead><tr><th>Stage</th><th>Error Type</th><th class="text-right">Count</th><th>Example</th></tr></thead>
+                      <thead><tr><th>阶段</th><th>错误类型</th><th class="text-right">总数</th><th>按模型分布</th><th>示例</th></tr></thead>
                       <tbody>
                         <template x-for="f in currentReport.failures ?? []" :key="f.error_type+f.stage">
                           <tr>
                             <td style="color:var(--fg-muted)" class="text-[12px]" x-text="f.stage"></td>
                             <td style="color:var(--red)" class="font-mono text-[12px]" x-text="f.error_type"></td>
-                            <td class="text-right text-[12px]" x-text="f.count"></td>
+                            <td class="text-right text-[12px] font-medium" x-text="f.count"></td>
+                            <td class="text-[12px]">
+                              <div class="flex flex-wrap gap-1.5">
+                                <template x-for="m in Object.entries(f.by_model || {}).sort((a,b)=>b[1]-a[1])" :key="m[0]">
+                                  <span class="tag-pill" style="background:rgba(239,68,68,.08);color:var(--red);font-size:11px">
+                                    <span class="font-medium" x-text="m[0]"></span>
+                                    <span class="opacity-70" x-text="'×'+m[1]"></span>
+                                  </span>
+                                </template>
+                                <span x-show="!f.by_model || Object.keys(f.by_model).length===0" style="color:var(--fg-subtle)">—</span>
+                              </div>
+                            </td>
                             <td class="text-[12px] truncate max-w-xs" style="color:var(--fg-muted)" x-text="f.example_message || '—'"></td>
                           </tr>
                         </template>
@@ -538,62 +720,53 @@
           </div>
         </template>
       </div>
-
-    </div>
-
-    <!-- Build Image Modal -->
-    <div x-show="buildModalOpen" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center"
-         style="background:rgba(0,0,0,.6)"
-         @keydown.escape.window="closeBuildModal()">
-      <div class="form-section w-[720px] max-w-[90vw] max-h-[85vh] flex flex-col" @click.stop>
-        <div class="flex items-center justify-between mb-3">
-          <div class="section-title m-0">Build Docker Image</div>
-          <button @click="closeBuildModal()" class="btn-ghost text-[12px] py-1 px-2">Close</button>
-        </div>
-        <div class="text-[12px] mb-3" style="color:var(--fg-muted)">
-          Image: <code class="font-mono text-[12px]" style="color:var(--fg)" x-text="env?.image_name || 'utbench:latest'"></code>
-          · Context: <code class="font-mono text-[11px]" x-text="env?.project_root || '.'"></code>
-        </div>
-        <div class="flex items-center gap-3 mb-3">
-          <button @click="startBuild()"
-                  :disabled="buildStatus === 'running' || buildStatus === 'pending'"
-                  class="btn-primary text-[12px]">
-            <span x-show="buildStatus !== 'running' && buildStatus !== 'pending'">Start Build</span>
-            <span x-show="buildStatus === 'running' || buildStatus === 'pending'">Building...</span>
-          </button>
-          <span class="text-[12px]" style="color:var(--fg-muted)">
-            Status:
-            <span :style="buildStatusColor(buildStatus)" class="font-medium" x-text="buildStatus || 'idle'"></span>
-          </span>
-          <span x-show="buildError" class="text-[12px]" style="color:var(--red)" x-text="buildError"></span>
-        </div>
-        <div class="terminal text-[12px] p-3 flex-1 overflow-y-auto leading-5 rounded"
-             style="background:#010409; color:#3fb950; min-height:320px">
-          <template x-if="!buildLogs.length">
-            <div style="color:var(--fg-subtle)">Press "Start Build" to invoke <code class="font-mono">docker build</code>.</div>
-          </template>
-          <template x-for="(line, i) in buildLogs" :key="i">
-            <div class="log-line" x-text="line"></div>
-          </template>
-          <div x-show="buildStatus === 'running'" class="animate-pulse" style="color:var(--yellow)">▊</div>
-          <div id="build-log-bottom"></div>
+      <!-- Build Image Modal -->
+      <div x-show="buildModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.65)" @keydown.escape.window="closeBuildModal()">
+        <div class="form-section w-[720px] max-w-[90vw] max-h-[85vh] flex flex-col" @click.stop>
+          <div class="flex items-center justify-between mb-3">
+            <div class="section-title m-0">构建 Docker 镜像</div>
+            <button @click="closeBuildModal()" class="btn-ghost text-[12px] py-1 px-2">关闭</button>
+          </div>
+          <div class="text-[12px] mb-3" style="color:var(--fg-muted)">
+            镜像: <code class="font-mono text-[12px]" style="color:var(--fg)" x-text="env?.image_name || 'utbench:latest'"></code>
+            · 上下文: <code class="font-mono text-[11px]" x-text="env?.project_root || '.'"></code>
+          </div>
+          <div class="flex items-center gap-3 mb-3">
+            <button @click="startBuild()" :disabled="buildStatus === 'running' || buildStatus === 'pending'" class="btn-primary text-[12px]">
+              <span x-show="buildStatus !== 'running' && buildStatus !== 'pending'">开始构建</span>
+              <span x-show="buildStatus === 'running' || buildStatus === 'pending'">构建中...</span>
+            </button>
+            <span class="text-[12px]" style="color:var(--fg-muted)">
+              状态: <span :style="buildStatusColor(buildStatus)" class="font-medium" x-text="buildStatus || '空闲'"></span>
+            </span>
+            <span x-show="buildError" class="text-[12px]" style="color:var(--red)" x-text="buildError"></span>
+          </div>
+          <div class="terminal text-[12px] p-3 flex-1 overflow-y-auto leading-5 rounded-lg" style="background:#020408;color:var(--green);min-height:320px">
+            <template x-if="!buildLogs.length">
+              <div style="color:var(--fg-subtle)">点击“开始构建”启动 <code class="font-mono">docker build</code>。</div>
+            </template>
+            <template x-for="(line, i) in buildLogs" :key="i">
+              <div class="log-line" x-text="line"></div>
+            </template>
+            <div x-show="buildStatus === 'running'" class="animate-pulse" style="color:var(--yellow)">▊</div>
+            <div id="build-log-bottom"></div>
+          </div>
         </div>
       </div>
+
     </div>
   </main>
-
 <script>
 function app() {
   return {
     page: 'dashboard',
     nav: [
-      { id:'dashboard', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>', label:'Dashboard' },
-      { id:'new-run',   icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>', label:'New Run' },
-      { id:'runs',      icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>', label:'Runs' },
+      { id:'dashboard', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>', label:'总览' },
+      { id:'new-run',   icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>', label:'新建任务' },
+      { id:'runs',      icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>', label:'任务列表' },
+      { id:'models',    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 10v6m11-11h-6m-10 0H1m15.5-6.5l-4.25 4.25M7.75 16.25L3.5 20.5M20.5 20.5l-4.25-4.25M7.75 7.75L3.5 3.5"/></svg>', label:'模型管理' },
     ],
     config: null,
-    env: null,
     runs: [],
     runsLoading: false,
     runFilter: '',
@@ -603,7 +776,18 @@ function app() {
       max_samples:5, workers:0, mode:'full', dry_run:false, mutation_enabled:false,
       mutation_timeout:1800, mutation_policy:'warn', ingest:false, use_docker:false,
     },
-    // Image-build modal state
+    env: null,
+    envChecking: false,
+    toast: '',
+    toastKind: 'ok', // ok | warn | err
+    get toastStyle() {
+      const map = {
+        ok:  'background:var(--success-bg);color:var(--green)',
+        warn:'background:var(--warn-bg);color:var(--yellow)',
+        err: 'background:var(--error-bg);color:var(--red)',
+      }
+      return map[this.toastKind] || map.ok
+    },
     buildModalOpen: false,
     buildId: '',
     buildStatus: '',
@@ -618,7 +802,25 @@ function app() {
     detailTab: 'logs',
     sseSource: null,
 
+    // 模型管理
+    models: [],
+    modelsLoading: false,
+    modelFormOpen: false,
+    modelFormMode: 'create', // create | edit
+    modelForm: {
+      name: '', enabled: true, provider: '', model_id: '',
+      api_endpoint: '', api_key_env: '', api_key: '',
+      parameters: { temperature: 0.7, top_p: 0.9, max_tokens: 4096 },
+    },
+    modelFormError: '',
+    modelKeyVisible: {},
+    theme: localStorage.getItem('utbench-theme') || 'dark',
+    modelTesting: {},
+    modelTestingAll: false,
+    modelTestResults: {},
+
     async init() {
+      this.applyTheme()
       await this.loadConfig()
       await this.loadEnv()
       await this.loadRuns()
@@ -636,8 +838,6 @@ function app() {
         const r = await fetch('/api/env')
         const prev = this.env
         this.env = await r.json()
-        // Auto-suggest Docker mode on first load when native tools are missing
-        // but Docker image is available; don't override explicit user choice.
         if (!prev && this.env.docker_available && this.env.image_present) {
           const needDocker = this.env.os === 'windows' && !this.env.native_tools?.mutmut
           if (needDocker) this.form.use_docker = true
@@ -645,22 +845,41 @@ function app() {
       } catch(e) { console.error('env', e) }
     },
 
-    openBuildImage() {
-      this.buildModalOpen = true
-      // If a previous build still exists, reconnect to its event stream.
-      this.reattachBuild()
+    async recheckEnv() {
+      if (this.envChecking) return
+      this.envChecking = true
+      try {
+        // 加短延迟让动画可见，同时 /api/env 每次都会重新探测 Docker/镜像/工具链
+        const [r] = await Promise.all([fetch('/api/env'), new Promise(res => setTimeout(res, 400))])
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        this.env = await r.json()
+        const parts = []
+        parts.push(this.env.docker_available ? 'Docker✓' : 'Docker✗')
+        parts.push(this.env.image_present ? '镜像✓' : '镜像✗')
+        const nativeCount = Object.values(this.env.native_tools || {}).filter(Boolean).length
+        const nativeTotal = Object.keys(this.env.native_tools || {}).length
+        parts.push(`原生工具 ${nativeCount}/${nativeTotal}`)
+        const kind = (!this.env.docker_available || !this.env.image_present) ? 'warn' : 'ok'
+        this.showToast('环境检查完成 · ' + parts.join(' · '), kind)
+      } catch(e) {
+        this.showToast('环境检查失败：' + e.message, 'err')
+      } finally {
+        this.envChecking = false
+      }
     },
 
-    closeBuildModal() {
-      this.buildModalOpen = false
-      this.stopBuildSSE()
+    showToast(msg, kind = 'ok', ms = 3500) {
+      this.toast = msg
+      this.toastKind = kind
+      clearTimeout(this._toastTimer)
+      this._toastTimer = setTimeout(() => { this.toast = '' }, ms)
     },
+
+    openBuildImage() { this.buildModalOpen = true; this.reattachBuild() },
+    closeBuildModal() { this.buildModalOpen = false; this.stopBuildSSE() },
 
     buildStatusColor(s) {
-      const map = {
-        running: 'color:var(--blue)', pending: 'color:var(--yellow)',
-        completed: 'color:var(--green)', failed: 'color:var(--red)'
-      }
+      const map = { running: 'color:var(--accent)', pending: 'color:var(--yellow)', completed: 'color:var(--green)', failed: 'color:var(--red)' }
       return map[s] || 'color:var(--fg-muted)'
     },
 
@@ -673,32 +892,20 @@ function app() {
           this.buildStatus = data.status
           this.buildError = data.error || ''
           const detail = await fetch('/api/env/build-image/' + this.buildId)
-          if (detail.ok) {
-            const d = await detail.json()
-            this.buildLogs = d.logs || []
-          }
-          if (this.buildStatus === 'running' || this.buildStatus === 'pending') {
-            this.startBuildSSE(this.buildId)
-          }
+          if (detail.ok) { const d = await detail.json(); this.buildLogs = d.logs || [] }
+          if (this.buildStatus === 'running' || this.buildStatus === 'pending') { this.startBuildSSE(this.buildId) }
         }
       } catch(e) { console.error('reattach build', e) }
     },
 
     async startBuild() {
-      this.buildLogs = []
-      this.buildError = ''
-      this.buildStatus = 'pending'
+      this.buildLogs = []; this.buildError = ''; this.buildStatus = 'pending'
       try {
         const r = await fetch('/api/env/build-image', { method: 'POST' })
         const data = await r.json()
-        if (!r.ok) { this.buildError = data.error || 'Start failed'; this.buildStatus = 'failed'; return }
-        this.buildId = data.build_id
-        this.buildStatus = data.status
-        this.startBuildSSE(this.buildId)
-      } catch(e) {
-        this.buildError = String(e)
-        this.buildStatus = 'failed'
-      }
+        if (!r.ok) { this.buildError = data.error || '启动失败'; this.buildStatus = 'failed'; return }
+        this.buildId = data.build_id; this.buildStatus = data.status; this.startBuildSSE(this.buildId)
+      } catch(e) { this.buildError = String(e); this.buildStatus = 'failed' }
     },
 
     startBuildSSE(id) {
@@ -707,25 +914,14 @@ function app() {
       this.buildSSE.onmessage = (e) => {
         try {
           const obj = JSON.parse(e.data)
-          if (obj.type === 'log') {
-            this.buildLogs.push(obj.payload)
-            this.$nextTick(() => {
-              const el = document.getElementById('build-log-bottom')
-              if (el) el.scrollIntoView({ behavior:'smooth' })
-            })
-          } else if (obj.type === 'done') {
-            this.buildStatus = obj.payload
-            this.stopBuildSSE()
-            this.loadEnv()
-          }
+          if (obj.type === 'log') { this.buildLogs.push(obj.payload); this.$nextTick(() => { const el = document.getElementById('build-log-bottom'); if(el) el.scrollIntoView({behavior:'smooth'}) }) }
+          else if (obj.type === 'done') { this.buildStatus = obj.payload; this.stopBuildSSE(); this.loadEnv() }
         } catch {}
       }
       this.buildSSE.onerror = () => this.stopBuildSSE()
     },
 
-    stopBuildSSE() {
-      if (this.buildSSE) { this.buildSSE.close(); this.buildSSE = null }
-    },
+    stopBuildSSE() { if (this.buildSSE) { this.buildSSE.close(); this.buildSSE = null } },
 
     async loadRuns() {
       this.runsLoading = true
@@ -734,11 +930,7 @@ function app() {
         this.runs = await r.json()
         if (this.currentRun) {
           const updated = this.runs.find(r => r.run_id === this.currentRun.run_id)
-          if (updated) {
-            this.currentRun.status = updated.status
-            this.currentRun.ended_at = updated.ended_at
-            this.currentRun.error = updated.error
-          }
+          if (updated) { this.currentRun.status = updated.status; this.currentRun.ended_at = updated.ended_at; this.currentRun.error = updated.error }
         }
       } catch(e) { console.error('runs', e) }
       this.runsLoading = false
@@ -747,9 +939,7 @@ function app() {
     get filteredRuns() {
       return this.runs.filter(r => {
         const q = this.runFilter.toLowerCase()
-        if (q && !r.run_id.includes(q)
-               && !(r.spec?.models ?? []).join(',').toLowerCase().includes(q)
-               && !(r.spec?.languages ?? []).join(',').toLowerCase().includes(q)) return false
+        if (q && !r.run_id.includes(q) && !(r.spec?.models ?? []).join(',').toLowerCase().includes(q) && !(r.spec?.languages ?? []).join(',').toLowerCase().includes(q)) return false
         if (this.statusFilter && r.status !== this.statusFilter) return false
         return true
       })
@@ -760,33 +950,202 @@ function app() {
       const running = this.runs.filter(r => r.status === 'running').length
       const completed = this.runs.filter(r => r.status === 'completed').length
       const failed = this.runs.filter(r => r.status === 'failed').length
+      const canceled = this.runs.filter(r => r.status === 'canceled').length
       return [
-        { label:'Total Runs', value: total,   color: 'text-[#e6edf3]' },
-        { label:'Running',    value: running, color: 'text-[#58a6ff]' },
-        { label:'Completed',  value: completed,color:'text-[#3fb950]' },
-        { label:'Failed',     value: failed,  color: 'text-[#f85149]' },
+        { label:'总任务数', value: total,   color: 'text-[#f1f5f9]' },
+        { label:'运行中',    value: running, color: 'text-[#38bdf8]' },
+        { label:'已完成',    value: completed,color:'text-[#10b981]' },
+        { label:'失败/取消', value: failed + canceled, color: 'text-[#ef4444]' },
       ]
     },
 
-    goto(id) { this.stopSSE(); this.page = id },
+    statusText(s, paused) {
+      const map = { pending:'等待中', running: paused ? '已暂停' : '运行中', completed:'已完成', failed:'失败', canceled:'已取消' }
+      return (map[s] || s)
+    },
+
+    goto(id) {
+      this.stopSSE(); this.page = id
+      if (id === 'models') this.loadModels()
+    },
     get pageTitle() {
-      const map = { dashboard:'Dashboard', 'new-run':'New Run', runs:'All Runs', 'run-detail':'Run Detail' }
+      const map = { dashboard:'总览', 'new-run':'新建任务', runs:'任务列表', 'run-detail':'任务详情', models:'模型管理' }
       return map[this.page] ?? ''
+    },
+
+    // ─── 模型管理 ─────────────────────────────────────────────
+    async loadModels() {
+      this.modelsLoading = true
+      try {
+        const r = await fetch('/api/models')
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        this.models = await r.json()
+      } catch (e) { this.showToast('加载模型失败：' + e.message, 'err') }
+      finally { this.modelsLoading = false }
+    },
+
+    openAddModel() {
+      this.modelFormMode = 'create'
+      this.modelForm = {
+        name: '', enabled: true, provider: '', model_id: '',
+        api_endpoint: '', api_key_env: '', api_key: '',
+        parameters: { temperature: 0.7, top_p: 0.9, max_tokens: 4096 },
+      }
+      this.modelFormError = ''
+      this.modelFormOpen = true
+    },
+
+    openEditModel(m) {
+      this.modelFormMode = 'edit'
+      this.modelForm = {
+        name: m.name, enabled: !!m.enabled, provider: m.provider || '',
+        model_id: m.model_id || '', api_endpoint: m.api_endpoint || '',
+        api_key_env: m.api_key_env || '', api_key: '',
+        parameters: Object.assign({ temperature: 0.7, top_p: 0.9, max_tokens: 4096 }, m.parameters || {}),
+      }
+      this.modelFormError = ''
+      this.modelFormOpen = true
+    },
+
+    closeModelForm() { this.modelFormOpen = false },
+
+    async saveModel() {
+      this.modelFormError = ''
+      const f = this.modelForm
+      if (!f.name.trim()) { this.modelFormError = '模型名称必填'; return }
+      if (!f.provider.trim()) { this.modelFormError = '提供商必填'; return }
+      if (!f.model_id.trim()) { this.modelFormError = '模型 ID 必填'; return }
+      if (!f.api_endpoint.trim()) { this.modelFormError = 'API 端点必填'; return }
+      const body = { ...f }
+      try {
+        let r
+        if (this.modelFormMode === 'create') {
+          r = await fetch('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        } else {
+          r = await fetch('/api/models/' + encodeURIComponent(f.name), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        }
+        const data = await r.json()
+        if (!r.ok) { this.modelFormError = data.error || '保存失败'; return }
+        this.modelFormOpen = false
+        this.showToast(this.modelFormMode === 'create' ? '模型已添加' : '模型已更新', 'ok')
+        await this.loadModels()
+        await this.loadConfig() // 刷新新建任务页面的可选模型列表
+      } catch (e) { this.modelFormError = String(e) }
+    },
+
+    async deleteModel(name) {
+      if (!confirm(`确定删除模型 "${name}"？此操作将从 models.yaml 移除该条目。`)) return
+      try {
+        const r = await fetch('/api/models/' + encodeURIComponent(name), { method: 'DELETE' })
+        if (!r.ok) { const d = await r.json(); throw new Error(d.error || 'HTTP ' + r.status) }
+        this.showToast('模型 "' + name + '" 已删除', 'ok')
+        await this.loadModels()
+        await this.loadConfig()
+      } catch (e) { this.showToast('删除失败：' + e.message, 'err') }
+    },
+
+    isModelTesting(name) {
+      return !!this.modelTesting[name]
+    },
+
+    modelTestResult(name) {
+      return this.modelTestResults[name] || null
+    },
+
+    async testModel(name) {
+      this.modelTesting = { ...this.modelTesting, [name]: true }
+      try {
+        const r = await fetch('/api/models/' + encodeURIComponent(name) + '/test', { method: 'POST' })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.modelTestResults = { ...this.modelTestResults, [name]: data }
+        this.showToast(data.ok ? `模型 "${name}" 连接正常` : `模型 "${name}" 连接失败：${data.message}`, data.ok ? 'ok' : 'err', 5000)
+      } catch (e) {
+        const data = { name, ok: false, status: 'request_error', message: e.message || String(e), checked_at: new Date().toISOString() }
+        this.modelTestResults = { ...this.modelTestResults, [name]: data }
+        this.showToast(`模型 "${name}" 连接失败：${data.message}`, 'err', 5000)
+      } finally {
+        const next = { ...this.modelTesting }
+        delete next[name]
+        this.modelTesting = next
+      }
+    },
+
+    async testAllModels() {
+      if (!this.models.length) return
+      this.modelTestingAll = true
+      const testing = {}
+      for (const m of this.models) testing[m.name] = true
+      this.modelTesting = { ...this.modelTesting, ...testing }
+      try {
+        const r = await fetch('/api/models/test-all', { method: 'POST' })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        const next = { ...this.modelTestResults }
+        for (const item of data) next[item.name] = item
+        this.modelTestResults = next
+        const ok = data.filter(item => item.ok).length
+        this.showToast(`连接测试完成：${ok}/${data.length} 个正常`, ok === data.length ? 'ok' : 'warn', 6000)
+      } catch (e) {
+        this.showToast('一键测试失败：' + (e.message || String(e)), 'err', 6000)
+      } finally {
+        this.modelTestingAll = false
+        this.modelTesting = {}
+      }
+    },
+
+    async rerunRun(runID) {
+      if (!confirm('重新提交该任务？会以相同配置创建一个新的 run。')) return
+      try {
+        const r = await fetch('/api/runs/' + encodeURIComponent(runID) + '/rerun', { method: 'POST' })
+        const data = await r.json()
+        if (!r.ok) { this.showToast('重跑失败：' + (data.error || 'HTTP ' + r.status), 'err'); return }
+        this.showToast('已创建新任务 ' + data.run_id, 'ok')
+        await this.loadRuns()
+        // 切到任务列表方便查看新任务状态
+        this.stopSSE(); this.page = 'runs'
+      } catch (e) { this.showToast('重跑失败：' + e.message, 'err') }
+    },
+
+    async runControl(runID, action) {
+      const actionLabels = { pause:'暂停', resume:'继续', cancel:'取消' }
+      try {
+        const r = await fetch('/api/runs/' + encodeURIComponent(runID) + '/' + action, { method: 'POST' })
+        const data = await r.json()
+        if (!r.ok) { this.showToast((actionLabels[action] || action) + '失败：' + (data.error || 'HTTP ' + r.status), 'err'); return }
+        this.showToast((actionLabels[action] || action) + '成功', 'ok')
+        await this.loadRuns()
+        if (this.page === 'run-detail' && this.currentRun && this.currentRun.run_id === runID) await this.refreshDetail()
+      } catch (e) { this.showToast((actionLabels[action] || action) + '失败：' + e.message, 'err') }
+    },
+
+    async toggleModelEnabled(m) {
+      try {
+        const body = { ...m, enabled: !m.enabled, api_key: '' }
+        const r = await fetch('/api/models/' + encodeURIComponent(m.name), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        if (!r.ok) { const d = await r.json(); throw new Error(d.error || 'HTTP ' + r.status) }
+        await this.loadModels()
+      } catch (e) { this.showToast('切换失败：' + e.message, 'err') }
+    },
+
+    applyTheme() {
+      document.documentElement.dataset.theme = this.theme
+      localStorage.setItem('utbench-theme', this.theme)
+    },
+    toggleTheme() {
+      this.theme = this.theme === 'dark' ? 'light' : 'dark'
+      this.applyTheme()
     },
 
     async submitRun() {
       this.formError = ''
-      if (!this.form.models.length) { this.formError = 'Select at least one model'; return }
-      if (!this.form.languages.length) { this.formError = 'Select at least one language'; return }
+      if (!this.form.models.length) { this.formError = '请至少选择一个模型'; return }
+      if (!this.form.languages.length) { this.formError = '请至少选择一种语言'; return }
       this.formSubmitting = true
       try {
-        const r = await fetch('/api/runs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.form),
-        })
+        const r = await fetch('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.form) })
         const data = await r.json()
-        if (!r.ok) { this.formError = data.error || 'Submit failed'; return }
+        if (!r.ok) { this.formError = data.error || '提交失败'; return }
         await this.loadRuns()
         await this.openRun(data.run_id)
       } catch(e) { this.formError = String(e) }
@@ -794,10 +1153,7 @@ function app() {
     },
 
     async openRun(runId) {
-      this.stopSSE()
-      this.currentReport = null
-      this.currentLogs = []
-      this.detailTab = 'logs'
+      this.stopSSE(); this.currentReport = null; this.currentLogs = []; this.detailTab = 'logs'
       this.page = 'run-detail'
       const found = this.runs.find(r => r.run_id === runId)
       this.currentRun = found ? { ...found } : { run_id: runId, status: 'pending', started_at: new Date().toISOString() }
@@ -809,32 +1165,21 @@ function app() {
       this.sseSource.onmessage = (e) => {
         try {
           const obj = JSON.parse(e.data)
-          if (obj.type === 'log') {
-            this.currentLogs.push(obj.payload)
-            this.$nextTick(() => this.scrollLogsBottom())
-          } else if (obj.type === 'done') {
-            this.stopSSE()
-            if (this.currentRun) this.currentRun.status = obj.payload
-            this.loadRuns()
-          }
+          if (obj.type === 'log') { this.currentLogs.push(obj.payload); this.$nextTick(() => this.scrollLogsBottom()) }
+          else if (obj.type === 'done') { this.stopSSE(); if (this.currentRun) this.currentRun.status = obj.payload; this.loadRuns() }
         } catch {}
       }
       this.sseSource.onerror = () => this.stopSSE()
     },
 
-    stopSSE() {
-      if (this.sseSource) { this.sseSource.close(); this.sseSource = null }
-    },
+    stopSSE() { if (this.sseSource) { this.sseSource.close(); this.sseSource = null } },
 
     async refreshDetail() {
       if (!this.currentRun) return
       const r = await fetch(`/api/runs/${this.currentRun.run_id}`)
       if (r.ok) {
         const data = await r.json()
-        this.currentRun.status = data.status
-        this.currentRun.ended_at = data.ended_at
-        this.currentRun.error = data.error
-        this.currentLogs = data.logs ?? []
+        this.currentRun.status = data.status; this.currentRun.ended_at = data.ended_at; this.currentRun.error = data.error; this.currentLogs = data.logs ?? []
       }
     },
 
@@ -843,8 +1188,13 @@ function app() {
       const r = await fetch(`/api/runs/${this.currentRun.run_id}/report`)
       if (r.ok) {
         this.currentReport = await r.json()
-        this.$nextTick(() => this.renderChart())
+        this.$nextTick(() => { this.renderChart(); this.renderRadar() })
       }
+    },
+
+    openHtmlReport() {
+      if (!this.currentRun) return
+      window.open(`/api/runs/${this.currentRun.run_id}/report-html`, '_blank')
     },
 
     renderChart() {
@@ -859,19 +1209,19 @@ function app() {
         data: {
           labels,
           datasets: [
-            { label:'Compile', data: dims.map(d => +(d.compile_pass_rate*100).toFixed(1)), backgroundColor:'rgba(47,129,247,.7)' },
-            { label:'Test',    data: dims.map(d => +(d.avg_test_pass_rate*100).toFixed(1)), backgroundColor:'rgba(63,185,80,.7)' },
-            { label:'Coverage',data: dims.map(d => +(d.avg_line_coverage||0).toFixed(1)),  backgroundColor:'rgba(210,153,34,.7)' },
-            { label:'Mutation',data: dims.map(d => +(d.avg_mutation_score||0).toFixed(1)), backgroundColor:'rgba(248,81,73,.7)' },
+            { label:'编译',  data: dims.map(d => +((d.compile_pass_rate||0)*100).toFixed(1)), backgroundColor:'rgba(14,165,233,.7)' },
+            { label:'测试',  data: dims.map(d => +((d.avg_test_pass_rate||0)*100).toFixed(1)), backgroundColor:'rgba(16,185,129,.7)' },
+            { label:'覆盖率',data: dims.map(d => +((d.avg_line_coverage||0)*100).toFixed(1)), backgroundColor:'rgba(245,158,11,.7)' },
+            { label:'变异',  data: dims.map(d => +((d.avg_mutation_score||0)*100).toFixed(1)), backgroundColor:'rgba(239,68,68,.7)' },
           ]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
           scales: {
-            y: { min:0, max:100, ticks:{ color:'#484f58', font:{size:11} }, grid:{ color:'#21262d' } },
-            x: { ticks:{ color:'#7d8590', font:{size:11} }, grid:{ display:false } }
+            y: { min:0, max:100, ticks:{ color:'#334155', font:{size:11} }, grid:{ color:'#0f172a' } },
+            x: { ticks:{ color:'#64748b', font:{size:11} }, grid:{ display:false } }
           },
-          plugins: { legend: { labels:{ color:'#7d8590', font:{size:11}, boxWidth:10, padding:15 } } }
+          plugins: { legend: { labels:{ color:'#64748b', font:{size:11}, boxWidth:10, padding:15 } } }
         }
       })
     },
@@ -879,11 +1229,11 @@ function app() {
     get reportCards() {
       const s = this.currentReport?.summary ?? {}
       return [
-        { label:'Samples',  value: s.total_samples ?? 0, color:'text-[#e6edf3]' },
-        { label:'Compile',  value: pct(s.compile_pass_rate), color: pctColor(s.compile_pass_rate) },
-        { label:'Test',     value: pct(s.test_pass_rate), color: pctColor(s.test_pass_rate) },
-        { label:'Coverage', value: pct((s.avg_line_coverage??0)/100), color: pctColor(s.avg_line_coverage/100) },
-        { label:'Mutation', value: pct((s.avg_mutation_score??0)/100), color: pctColor(s.avg_mutation_score/100) },
+        { label:'样本数',  value: s.total_samples ?? 0, color:'text-[#f1f5f9]' },
+        { label:'编译通过率',  value: pct(s.compile_pass_rate), color: pctColor(s.compile_pass_rate) },
+        { label:'测试通过率',  value: pct(s.test_pass_rate), color: pctColor(s.test_pass_rate) },
+        { label:'平均行覆盖率', value: pct(s.avg_line_coverage), color: pctColor(s.avg_line_coverage) },
+        { label:'平均变异分', value: pct(s.avg_mutation_score), color: pctColor(s.avg_mutation_score) },
       ]
     },
 
@@ -894,7 +1244,7 @@ function app() {
 
     fmtTime(t) {
       if (!t) return '—'
-      return new Date(t).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
+      return new Date(t).toLocaleString('zh-CN', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
     },
     duration(start, end) {
       if (!start) return '—'
@@ -905,16 +1255,107 @@ function app() {
     },
     pct(v) { return pct(v) },
     pctColor(v) { return pctColor(v) },
+    fmtInt(v) { return (v==null || v===0) ? '—' : Math.round(v).toLocaleString('zh-CN') },
+    fmtMs(v) {
+      if (v==null || v===0) return '—'
+      if (v < 1000) return Math.round(v) + 'ms'
+      if (v < 60000) return (v/1000).toFixed(1) + 's'
+      return (v/60000).toFixed(1) + 'm'
+    },
+
+    renderRadar() {
+      const canvas = document.getElementById('radarChart')
+      if (!canvas || !this.currentReport) return
+      Chart.getChart(canvas)?.destroy()
+      const dims = this.currentReport.dimensions?.by_model ?? []
+      if (!dims.length) return
+      // 效率维度 = 1 - 归一化 tokens_per_pass（无数据为 0）
+      const tokArr = dims.map(d => d.tokens_per_pass || 0).filter(v => v > 0)
+      const maxTok = tokArr.length ? Math.max(...tokArr) : 1
+      const palette = [
+        { border:'#0ea5e9', bg:'rgba(14,165,233,.15)' },
+        { border:'#10b981', bg:'rgba(16,185,129,.15)' },
+        { border:'#f59e0b', bg:'rgba(245,158,11,.15)' },
+        { border:'#ef4444', bg:'rgba(239,68,68,.15)' },
+        { border:'#a855f7', bg:'rgba(168,85,247,.15)' },
+      ]
+      new Chart(canvas, {
+        type: 'radar',
+        data: {
+          labels: ['编译','测试','覆盖率','变异','效率'],
+          datasets: dims.map((d, i) => ({
+            label: d.model,
+            data: [
+              +((d.compile_pass_rate||0)*100).toFixed(1),
+              +((d.avg_test_pass_rate||0)*100).toFixed(1),
+              +((d.avg_line_coverage||0)*100).toFixed(1),
+              +((d.avg_mutation_score||0)*100).toFixed(1),
+              d.tokens_per_pass > 0 ? +((1 - d.tokens_per_pass/maxTok)*100).toFixed(1) : 0,
+            ],
+            borderColor: palette[i % palette.length].border,
+            backgroundColor: palette[i % palette.length].bg,
+            borderWidth: 2,
+            pointRadius: 3,
+            pointBackgroundColor: palette[i % palette.length].border,
+          }))
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: {
+            r: {
+              min: 0, max: 100,
+              ticks: { stepSize: 25, color: '#475569', font:{size:10}, backdropColor: 'transparent' },
+              grid: { color: '#1e293b' },
+              angleLines: { color: '#1e293b' },
+              pointLabels: { color: '#cbd5e1', font: { size: 12, weight: '500' } }
+            }
+          },
+          plugins: { legend: { labels: { color:'#94a3b8', font:{size:11}, boxWidth:12, padding:12 } } }
+        }
+      })
+    },
+
+    get heatmap() {
+      const rep = this.currentReport
+      if (!rep) return { cols: [], rows: [] }
+      const byMS = rep.by_model_scenario ?? rep.dimensions?.by_model_scenario ?? []
+      if (!byMS.length) return { cols: [], rows: [] }
+      const colSet = new Map()
+      const grid = new Map()
+      for (const r of byMS) {
+        const col = `${r.language}·${r.scenario}`
+        colSet.set(col, (colSet.get(col) || 0) + 1)
+        if (!grid.has(r.model)) grid.set(r.model, {})
+        grid.get(r.model)[col] = r.avg_mutation_score
+      }
+      const cols = [...colSet.keys()].sort()
+      const rows = [...grid.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([model, m]) => ({
+        model,
+        values: cols.map(c => (c in m) ? m[c] : null),
+      }))
+      return { cols, rows }
+    },
+
+    heatCell(v) {
+      if (v == null) return 'background:var(--heat-null);color:var(--fg-subtle)'
+      // 色阶：0 → 暗红，0.5 → 暗黄，1 → 暖橙绿
+      const clamped = Math.max(0, Math.min(1, v))
+      const hue = 10 + clamped * 130 // 10(红) → 140(绿)
+      const alpha = 0.15 + clamped * 0.45
+      const fg = clamped > 0.55 ? '#0b1120' : '#e2e8f0'
+      return `background:hsla(${hue},70%,50%,${alpha});color:${fg};font-weight:600`
+    },
   }
 }
 
 function pct(v) { return v==null ? '—' : (v*100).toFixed(1)+'%' }
 function pctColor(v) {
-  if (v==null) return 'text-[#484f58]'
-  if (v >= .8) return 'text-[#3fb950]'
-  if (v >= .6) return 'text-[#d29922]'
-  return 'text-[#f85149]'
+  if (v==null) return 'text-[#334155]'
+  if (v >= .8) return 'text-[#10b981]'
+  if (v >= .6) return 'text-[#f59e0b]'
+  return 'text-[#ef4444]'
 }
 </script>
+
 </body>
 </html>

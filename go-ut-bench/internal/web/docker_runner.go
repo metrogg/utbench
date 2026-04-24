@@ -28,6 +28,11 @@ type DockerConfig struct {
 // working unchanged.
 func runInDocker(ctx context.Context, entry *RunEntry, spec contracts.RunSpec, opts orchestrator.Options, cfg DockerConfig) error {
 	args := buildDockerRunArgs(spec, opts, cfg)
+	// 注入稳定容器名，使 docker pause/unpause/kill 可以定位到本次运行。
+	// `--name` 必须紧跟在 `docker run` 之后、镜像名之前。
+	if entry.container != "" {
+		args = append([]string{args[0], "--name", entry.container}, args[1:]...)
+	}
 	entry.appendLog(fmt.Sprintf("[%s] docker exec → docker %s", logTS(), redactArgs(args)))
 
 	cmd := exec.CommandContext(ctx, "docker", args...)

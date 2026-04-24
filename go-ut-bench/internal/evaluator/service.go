@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"go-ut-bench/internal/contracts"
+	"go-ut-bench/internal/ctrl"
 	"go-ut-bench/internal/obs"
 )
 
@@ -110,6 +111,9 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 				}
 			}()
 			for t := range tasks {
+				if err := ctrl.Wait(ctx); err != nil {
+					return
+				}
 				item := s.evaluateOne(ctx, spec, t.item)
 				select {
 				case <-ctx.Done():

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -316,7 +317,7 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			modelID = detail.ModelID
 			provider = detail.Provider
 		}
-		byModel = append(byModel, contracts.ModelDim{
+		dim := contracts.ModelDim{
 			Model:               agg.key,
 			ModelID:             modelID,
 			Provider:            provider,
@@ -330,8 +331,14 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			AvgPromptTokens:     avgFloat(agg.promptTokensSum, agg.tokenCnt),
 			AvgCompletionTokens: avgFloat(agg.completionTokensSum, agg.tokenCnt),
 			AvgTotalTokens:      avgFloat(agg.totalTokensSum, agg.tokenCnt),
-		})
+			PassCount:           agg.passCount,
+			TokensPerPass:       round(avgFloat(agg.completionTokensSum, agg.passCount), 2),
+			MsPerPass:           round(avgFloat(agg.latencySum, agg.passCount), 2),
+		}
+		dim.CompositeScore = round(compositeScore(dim), 6)
+		byModel = append(byModel, dim)
 	}
+	applyEfficiencyBonus(byModel)
 	sort.Slice(byModel, func(i, j int) bool { return byModel[i].Model < byModel[j].Model })
 
 	var byLanguage []contracts.LanguageDim
@@ -411,6 +418,7 @@ type modelAgg struct {
 	key                 string
 	count               int
 	compilePass         int
+	passCount           int // 编译通过且至少一条测试通过的样本数，用于效率分母
 	testPassTotal       int
 	testTotal           int
 	lineSum             float64
@@ -512,14 +520,24 @@ func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
 	if row.CompilePass {
 		a.compilePass++
 	}
+	samplePassed := false
 	if row.TestPassCount != nil && row.TestTotalCount != nil {
 		a.testPassTotal += *row.TestPassCount
 		a.testTotal += *row.TestTotalCount
+		if row.CompilePass && *row.TestPassCount > 0 {
+			samplePassed = true
+		}
 	} else if row.TestPass != nil {
 		a.testTotal++
 		if *row.TestPass {
 			a.testPassTotal++
+			if row.CompilePass {
+				samplePassed = true
+			}
 		}
+	}
+	if samplePassed {
+		a.passCount++
 	}
 	if row.LineCoverage != nil {
 		a.lineSum += *row.LineCoverage
@@ -644,14 +662,71 @@ func buildTokenStats(rows []contracts.EvaluationResult) contracts.TokenStats {
 	return stats
 }
 
-func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
-	var sorted []contracts.ModelDim
-	for _, m := range models {
-		// 计算综合得分：编译30% + 测试30% + 覆盖20% + 变异20%
-		composite := m.CompilePassRate*0.3 + m.AvgTestPassRate*0.3 + m.AvgLineCoverage*0.2 + m.AvgMutationScore*0.2
-		m.CompositeScore = round(composite, 6)
-		sorted = append(sorted, m)
+// compositeScore 计算模型综合得分。
+//
+// 权重设计：
+//   - 编译通过率 20%：基础门槛
+//   - 测试通过率 20%：按编译通过率折减（未编译视为 0 贡献）
+//   - 行覆盖率 15%：同样按编译通过率折减
+//   - 变异得分 35%：最能区分模型"测试是否真的有效"的指标，主导排名
+//   - 效率 bonus 10%：基于效率相对排名的加分项（无参照时返回 0）
+//
+// 所有输入均为 [0,1] 小数；返回值亦为 [0,1]。
+func compositeScore(m contracts.ModelDim) float64 {
+	cp := m.CompilePassRate
+	// 编译失败的样本视为测试/覆盖/变异全 0，折减后的"有效指标"
+	effTest := m.AvgTestPassRate * cp
+	effLine := m.AvgLineCoverage * cp
+	effMut := m.AvgMutationScore * cp
+	return cp*0.20 + effTest*0.20 + effLine*0.15 + effMut*0.35
+}
+
+// applyEfficiencyBonus 在一组模型间根据 tokens_per_pass / ms_per_pass 的相对排名
+// 为 composite_score 叠加最多 0.10 的 bonus（最快最便宜的模型得满额，最差得 0）。
+// 需要在所有 ModelDim 都填充完 composite_score 后调用。
+func applyEfficiencyBonus(models []contracts.ModelDim) {
+	if len(models) <= 1 {
+		return
 	}
+	minTok, maxTok := math.Inf(1), math.Inf(-1)
+	minMs, maxMs := math.Inf(1), math.Inf(-1)
+	for _, m := range models {
+		if m.TokensPerPass > 0 {
+			if m.TokensPerPass < minTok {
+				minTok = m.TokensPerPass
+			}
+			if m.TokensPerPass > maxTok {
+				maxTok = m.TokensPerPass
+			}
+		}
+		if m.MsPerPass > 0 {
+			if m.MsPerPass < minMs {
+				minMs = m.MsPerPass
+			}
+			if m.MsPerPass > maxMs {
+				maxMs = m.MsPerPass
+			}
+		}
+	}
+	tokSpan := maxTok - minTok
+	msSpan := maxMs - minMs
+	for i := range models {
+		var tokScore, msScore float64
+		if tokSpan > 0 && models[i].TokensPerPass > 0 {
+			tokScore = 1 - (models[i].TokensPerPass-minTok)/tokSpan
+		}
+		if msSpan > 0 && models[i].MsPerPass > 0 {
+			msScore = 1 - (models[i].MsPerPass-minMs)/msSpan
+		}
+		bonus := (tokScore + msScore) / 2 * 0.10
+		models[i].CompositeScore = round(models[i].CompositeScore+bonus, 6)
+	}
+}
+
+// buildTopModels 基于 buildDimensions 已计算好的 CompositeScore 生成排名。
+// 不再重复计算，确保与 by_model 中的 composite_score 一致（含 efficiency bonus）。
+func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
+	sorted := append([]contracts.ModelDim(nil), models...)
 	// 按综合得分降序排序
 	sort.Slice(sorted, func(i, j int) bool {
 		if sorted[i].CompositeScore != sorted[j].CompositeScore {
@@ -682,6 +757,9 @@ func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 			AvgPromptTokens:     m.AvgPromptTokens,
 			AvgCompletionTokens: m.AvgCompletionTokens,
 			AvgTotalTokens:      m.AvgTotalTokens,
+			TokensPerPass:       m.TokensPerPass,
+			MsPerPass:           m.MsPerPass,
+			PassCount:           m.PassCount,
 		})
 	}
 	return out
@@ -695,6 +773,7 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "generate", errType: "truncated"}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
+			agg.byModel[row.Model]++
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -705,6 +784,7 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "compile", errType: classifyError(row.CompileError)}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
+			agg.byModel[row.Model]++
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -715,6 +795,7 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "test", errType: classifyError(row.TestError)}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
+			agg.byModel[row.Model]++
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -725,6 +806,7 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "coverage", errType: "coverage_error"}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
+			agg.byModel[row.Model]++
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -735,6 +817,7 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "mutation", errType: "mutation_error"}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
+			agg.byModel[row.Model]++
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -749,6 +832,7 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			Stage:          k.stage,
 			ErrorType:      k.errType,
 			Count:          agg.count,
+			ByModel:        agg.byModel,
 			ExampleModel:   agg.exampleModel,
 			ExampleSample:  agg.exampleSample,
 			ExampleMessage: agg.exampleMessage,
@@ -765,6 +849,7 @@ type failureKey struct {
 type failureAgg struct {
 	key            failureKey
 	count          int
+	byModel        map[string]int
 	exampleModel   string
 	exampleSample  string
 	exampleMessage string
@@ -774,7 +859,7 @@ func getOrCreateFailureAgg(m map[failureKey]*failureAgg, k failureKey) *failureA
 	if a, ok := m[k]; ok {
 		return a
 	}
-	a := &failureAgg{key: k}
+	a := &failureAgg{key: k, byModel: map[string]int{}}
 	m[k] = a
 	return a
 }

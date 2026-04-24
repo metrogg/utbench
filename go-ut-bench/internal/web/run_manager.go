@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"sync"
 	"time"
 
 	"go-ut-bench/internal/contracts"
+	"go-ut-bench/internal/ctrl"
 	"go-ut-bench/internal/dataset"
 	"go-ut-bench/internal/evaluator"
 	"go-ut-bench/internal/obs"
@@ -24,8 +26,10 @@ type RunStatus string
 const (
 	StatusPending   RunStatus = "pending"
 	StatusRunning   RunStatus = "running"
+	StatusPaused    RunStatus = "paused"
 	StatusCompleted RunStatus = "completed"
 	StatusFailed    RunStatus = "failed"
+	StatusCanceled  RunStatus = "canceled"
 )
 
 // RunEntry holds in-memory state for a single benchmark run.
@@ -42,10 +46,21 @@ type RunEntry struct {
 	// the UI so the detail view can label how the run was executed.
 	UseDocker bool `json:"use_docker,omitempty"`
 
+	// Paused 反映任务是否被用户请求挂起（in-process 模式下由 Gate 实现，
+	// Docker 模式下通过 `docker pause/unpause` 实现）。
+	// Status 在暂停期间保持 "running"；前端需叠加 Paused 才能显示"已暂停"。
+	// 此处单独字段保持 Status 单一职责，避免 paused→running 逻辑到处散落。
+	Paused bool `json:"paused,omitempty"`
+
 	logs []string
 	mu   sync.RWMutex
 	subs []chan string
 	Done chan struct{}
+
+	// 运行时控制（不序列化）。
+	gate      *ctrl.ChanGate
+	cancel    context.CancelFunc
+	container string // docker 模式下的容器名，用于 docker pause/unpause/kill
 }
 
 func (r *RunEntry) appendLog(line string) {
@@ -164,6 +179,8 @@ func (m *RunManager) Submit(spec contracts.RunSpec, opts orchestrator.Options, u
 		Spec:      spec,
 		UseDocker: useDocker,
 		Done:      make(chan struct{}),
+		gate:      ctrl.NewChanGate(),
+		container: "utbench-" + spec.RunID, // 用于 docker pause/unpause/kill 的稳定名
 	}
 	m.mu.Lock()
 	m.runs[spec.RunID] = entry
@@ -176,16 +193,21 @@ func (m *RunManager) Submit(spec contracts.RunSpec, opts orchestrator.Options, u
 func (m *RunManager) execute(entry *RunEntry, spec contracts.RunSpec, opts orchestrator.Options) {
 	defer close(entry.Done)
 
+	ctx, cancel := context.WithCancel(context.Background())
 	entry.mu.Lock()
 	entry.Status = StatusRunning
+	entry.cancel = cancel
 	entry.mu.Unlock()
+	defer cancel()
+
+	// 将 gate 绑定到 ctx，runner/evaluator 的 worker 将在每个任务前调用 ctrl.Wait。
+	ctx = ctrl.WithGate(ctx, entry.gate)
 
 	entry.appendLog(fmt.Sprintf("[%s] run started  id=%s  backend=%s",
 		logTS(), spec.RunID, backendLabel(entry.UseDocker)))
 	entry.appendLog(fmt.Sprintf("[%s] models=%v  langs=%v  dry_run=%v  max_samples=%d  workers=%d",
 		logTS(), spec.Models, spec.Languages, spec.DryRun, spec.MaxSamples, spec.Workers))
 
-	ctx := context.Background()
 	var err error
 	if entry.UseDocker {
 		err = runInDocker(ctx, entry, spec, opts, m.dockerCfg)
@@ -196,19 +218,141 @@ func (m *RunManager) execute(entry *RunEntry, spec contracts.RunSpec, opts orche
 	now := time.Now()
 	entry.mu.Lock()
 	entry.EndedAt = &now
-	if err != nil {
+	entry.Paused = false
+	switch {
+	case err == nil:
+		entry.Status = StatusCompleted
+	case ctx.Err() == context.Canceled:
+		entry.Status = StatusCanceled
+		if entry.Error == "" {
+			entry.Error = "canceled by user"
+		}
+	default:
 		entry.Status = StatusFailed
 		entry.Error = err.Error()
-	} else {
-		entry.Status = StatusCompleted
 	}
+	finalStatus := entry.Status
 	entry.mu.Unlock()
 
-	if err != nil {
-		entry.appendLog(fmt.Sprintf("[%s] FAILED: %v", logTS(), err))
-	} else {
+	switch finalStatus {
+	case StatusCompleted:
 		entry.appendLog(fmt.Sprintf("[%s] run completed", logTS()))
+	case StatusCanceled:
+		entry.appendLog(fmt.Sprintf("[%s] CANCELED", logTS()))
+	default:
+		entry.appendLog(fmt.Sprintf("[%s] FAILED: %v", logTS(), err))
 	}
+}
+
+// Pause 请求挂起任务。
+//   - in-process: 闸门切到暂停态，worker 在下一次任务循环顶端阻塞（当前任务不中断）。
+//   - docker: 调用 `docker pause <container>`，直接冻结容器。
+//
+// 幂等：已暂停时返回 nil。
+func (m *RunManager) Pause(runID string) error {
+	entry, ok := m.Get(runID)
+	if !ok {
+		return fmt.Errorf("run not found: %s", runID)
+	}
+	entry.mu.RLock()
+	status := entry.Status
+	useDocker := entry.UseDocker
+	container := entry.container
+	alreadyPaused := entry.Paused
+	entry.mu.RUnlock()
+	if status != StatusRunning {
+		return fmt.Errorf("cannot pause run in status %q", status)
+	}
+	if alreadyPaused {
+		return nil
+	}
+	if useDocker {
+		if err := dockerControl("pause", container); err != nil {
+			return err
+		}
+	} else {
+		entry.gate.Pause()
+	}
+	entry.mu.Lock()
+	entry.Paused = true
+	entry.mu.Unlock()
+	entry.appendLog(fmt.Sprintf("[%s] run paused", logTS()))
+	return nil
+}
+
+// Resume 解除挂起；未暂停时幂等返回 nil。
+func (m *RunManager) Resume(runID string) error {
+	entry, ok := m.Get(runID)
+	if !ok {
+		return fmt.Errorf("run not found: %s", runID)
+	}
+	entry.mu.RLock()
+	useDocker := entry.UseDocker
+	container := entry.container
+	paused := entry.Paused
+	entry.mu.RUnlock()
+	if !paused {
+		return nil
+	}
+	if useDocker {
+		if err := dockerControl("unpause", container); err != nil {
+			return err
+		}
+	} else {
+		entry.gate.Resume()
+	}
+	entry.mu.Lock()
+	entry.Paused = false
+	entry.mu.Unlock()
+	entry.appendLog(fmt.Sprintf("[%s] run resumed", logTS()))
+	return nil
+}
+
+// Cancel 终止任务。
+//   - in-process: cancel context，worker 快速退出；当前正在进行的 API 调用/子进程会随 ctx 结束被中断。
+//   - docker: `docker kill <container>`，容器立即终止。
+//
+// 如果任务还处于 paused 状态，会先 Resume 再取消，避免阻塞在 gate。
+func (m *RunManager) Cancel(runID string) error {
+	entry, ok := m.Get(runID)
+	if !ok {
+		return fmt.Errorf("run not found: %s", runID)
+	}
+	entry.mu.RLock()
+	status := entry.Status
+	useDocker := entry.UseDocker
+	container := entry.container
+	cancel := entry.cancel
+	paused := entry.Paused
+	entry.mu.RUnlock()
+	if status != StatusRunning && status != StatusPending {
+		return fmt.Errorf("cannot cancel run in status %q", status)
+	}
+	if paused {
+		// 先放行 gate，否则 in-process worker 无法看到 ctx.Done。
+		if useDocker {
+			_ = dockerControl("unpause", container)
+		} else {
+			entry.gate.Resume()
+		}
+	}
+	if useDocker {
+		_ = dockerControl("kill", container)
+	}
+	if cancel != nil {
+		cancel()
+	}
+	entry.appendLog(fmt.Sprintf("[%s] cancel requested", logTS()))
+	return nil
+}
+
+// dockerControl 封装 `docker <action> <container>`。
+func dockerControl(action, container string) error {
+	out, err := exec.Command("docker", action, container).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker %s %s: %v: %s", action, container, err, string(out))
+	}
+	return nil
 }
 
 // executeInProcess runs the orchestrator in the same Go process.

@@ -55,7 +55,7 @@ func (s *Server) Start(addr string) error {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -72,6 +72,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/env/build-image/", s.handleBuildImageSub)
 	s.mux.HandleFunc("/api/runs", s.handleRuns)
 	s.mux.HandleFunc("/api/runs/", s.handleRunSub)
+	s.mux.HandleFunc("/api/models", s.handleModels)
+	s.mux.HandleFunc("/api/models/test-all", s.handleTestAllModels)
+	s.mux.HandleFunc("/api/models/", s.handleModelsSub)
 
 	// Static SPA
 	sub, err := fs.Sub(staticFiles, "static")
@@ -160,6 +163,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 type runSummaryItem struct {
 	RunID     string            `json:"run_id"`
 	Status    RunStatus         `json:"status"`
+	Paused    bool              `json:"paused,omitempty"`
 	StartedAt time.Time         `json:"started_at"`
 	EndedAt   *time.Time        `json:"ended_at,omitempty"`
 	Error     string            `json:"error,omitempty"`
@@ -214,6 +218,7 @@ func (s *Server) listRuns(w http.ResponseWriter, _ *http.Request) {
 		item := runSummaryItem{
 			RunID:     entry.RunID,
 			Status:    entry.Status,
+			Paused:    entry.Paused,
 			StartedAt: entry.StartedAt,
 			EndedAt:   entry.EndedAt,
 			Error:     entry.Error,
@@ -335,14 +340,106 @@ func (s *Server) handleRunSub(w http.ResponseWriter, r *http.Request) {
 		s.handleRunEvents(w, r, runID)
 	case "report":
 		s.handleRunReport(w, r, runID)
+	case "report-html":
+		s.handleRunReportHTML(w, r, runID)
+	case "rerun":
+		s.handleRunRerun(w, r, runID)
+	case "pause", "resume", "cancel":
+		s.handleRunControl(w, r, runID, sub)
 	default:
 		s.handleRunGet(w, r, runID)
 	}
 }
 
+// handleRunControl 处理 /api/runs/{id}/{pause|resume|cancel}。
+func (s *Server) handleRunControl(w http.ResponseWriter, r *http.Request, runID, action string) {
+	if r.Method != http.MethodPost {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var err error
+	switch action {
+	case "pause":
+		err = s.mgr.Pause(runID)
+	case "resume":
+		err = s.mgr.Resume(runID)
+	case "cancel":
+		err = s.mgr.Cancel(runID)
+	}
+	if err != nil {
+		errJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	entry, _ := s.mgr.Get(runID)
+	status := ""
+	paused := false
+	if entry != nil {
+		entry.mu.RLock()
+		status = string(entry.Status)
+		paused = entry.Paused
+		entry.mu.RUnlock()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"run_id": runID,
+		"action": action,
+		"status": status,
+		"paused": paused,
+	})
+}
+
+// handleRunRerun 以已有 run 的 spec 为模板，生成新 run_id 并提交。
+// 数据来源顺序：in-memory RunEntry.Spec → run_summary.json["spec"]。
+func (s *Server) handleRunRerun(w http.ResponseWriter, r *http.Request, runID string) {
+	if r.Method != http.MethodPost {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var spec contracts.RunSpec
+	found := false
+	if entry, ok := s.mgr.Get(runID); ok {
+		entry.mu.RLock()
+		spec = entry.Spec
+		entry.mu.RUnlock()
+		found = spec.RunID != ""
+	}
+	if !found {
+		// fallback: 从 artifacts/runs/<id>/run_summary.json 恢复
+		path := filepath.Join(s.outputRoot, "runs", runID, "run_summary.json")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			errJSON(w, http.StatusNotFound, "run not found or summary missing: "+runID)
+			return
+		}
+		var raw struct {
+			Spec contracts.RunSpec `json:"spec"`
+		}
+		if err := json.Unmarshal(data, &raw); err != nil || raw.Spec.RunID == "" {
+			errJSON(w, http.StatusInternalServerError, "run_summary.json missing spec")
+			return
+		}
+		spec = raw.Spec
+	}
+
+	// 重置生成字段：新 run_id、新时间、路径按当前 server 配置
+	spec.RunID = contracts.NewRunID()
+	spec.CreatedAtUTC = time.Now().UTC()
+	spec.OutputRoot = s.outputRoot
+	spec.ConfigPath = s.configPath
+	spec.DatasetRoot = s.mgr.datasetRoot
+
+	opts := orchestrator.Options{DBPath: s.mgr.dbPath}
+	entry := s.mgr.Submit(spec, opts, false)
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"run_id":        entry.RunID,
+		"source_run_id": runID,
+		"status":        string(entry.Status),
+	})
+}
+
 type runDetailResponse struct {
 	RunID     string            `json:"run_id"`
 	Status    RunStatus         `json:"status"`
+	Paused    bool              `json:"paused,omitempty"`
 	StartedAt time.Time         `json:"started_at"`
 	EndedAt   *time.Time        `json:"ended_at,omitempty"`
 	Error     string            `json:"error,omitempty"`
@@ -364,6 +461,7 @@ func (s *Server) handleRunGet(w http.ResponseWriter, r *http.Request, runID stri
 	resp := runDetailResponse{
 		RunID:     entry.RunID,
 		Status:    entry.Status,
+		Paused:    entry.Paused,
 		StartedAt: entry.StartedAt,
 		EndedAt:   entry.EndedAt,
 		Error:     entry.Error,
@@ -443,6 +541,21 @@ func (s *Server) handleRunReport(w http.ResponseWriter, r *http.Request, runID s
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data)
+}
+
+func (s *Server) handleRunReportHTML(w http.ResponseWriter, r *http.Request, runID string) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	htmlPath := filepath.Join(s.outputRoot, "runs", runID, "report", "report.html")
+	data, err := os.ReadFile(htmlPath)
+	if err != nil {
+		errJSON(w, http.StatusNotFound, "HTML report not available yet")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(data)
 }
 
