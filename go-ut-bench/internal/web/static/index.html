@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UTBench</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    :root {
+      --bg: #0d1117; --bg-elevated: #161b22; --bg-overlay: #1c2128;
+      --border: #30363d; --border-subtle: #21262d;
+      --fg: #e6edf3; --fg-muted: #7d8590; --fg-subtle: #484f58;
+      --accent: #2f81f7; --accent-hover: #58a6ff;
+      --green: #3fb950; --yellow: #d29922; --red: #f85149; --blue: #58a6ff;
+    }
+    body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; }
+    .terminal { font-family: 'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+    .btn-primary {
+      background: var(--accent); color: #fff; padding: 6px 16px; border-radius: 6px;
+      font-size: 13px; font-weight: 500; transition: .15s;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-ghost {
+      padding: 6px 12px; border-radius: 6px; font-size: 13px;
+      color: var(--fg-muted); border: 1px solid var(--border); background: var(--bg-elevated);
+      transition: .15s;
+    }
+    .btn-ghost:hover { border-color: var(--fg-subtle); color: var(--fg); }
+    .status-dot {
+      display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px;
+    }
+    .status-pending   .status-dot { background: var(--yellow); }
+    .status-running   .status-dot { background: var(--blue); animation: pulse 2s infinite; }
+    .status-completed .status-dot { background: var(--green); }
+    .status-failed    .status-dot { background: var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .section-title {
+      font-size: 14px; font-weight: 600; color: var(--fg);
+      margin-bottom: 12px;
+    }
+    .form-section {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 20px;
+    }
+    .input-base {
+      background: var(--bg-overlay); border: 1px solid var(--border); border-radius: 6px;
+      padding: 6px 10px; font-size: 13px; color: var(--fg); width: 100%;
+      transition: .15s;
+    }
+    .input-base:focus { outline:none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(47,129,247,.15); }
+    .label-text { font-size: 12px; font-weight: 500; color: var(--fg-muted); margin-bottom: 4px; display:block; }
+    .chip {
+      display:inline-flex; align-items:center; gap:6px; padding: 6px 12px;
+      border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+      cursor: pointer; transition: .15s; background: var(--bg-overlay);
+    }
+    .chip:hover { border-color: var(--fg-subtle); }
+    .chip.active { border-color: var(--accent); background: rgba(47,129,247,.1); color: var(--accent); }
+    .chip input { accent-color: var(--accent); }
+    table.data-table { width: 100%; font-size: 13px; border-collapse: separate; border-spacing: 0; }
+    table.data-table thead th {
+      text-align: left; padding: 8px 12px; color: var(--fg-muted); font-weight: 500;
+      border-bottom: 1px solid var(--border); font-size: 12px; background: var(--bg-elevated);
+    }
+    table.data-table tbody td { padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--fg); }
+    table.data-table tbody tr:hover td { background: rgba(255,255,255,.02); }
+    table.data-table tbody tr { cursor: pointer; transition: .1s; }
+    .kpi-card {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
+      padding: 20px;
+    }
+    .kpi-value { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+    .kpi-label { font-size: 12px; color: var(--fg-muted); margin-top: 4px; }
+    .log-line { padding: 1px 0; }
+    .nav-item {
+      display:flex; align-items:center; gap:10px; padding: 8px 12px; border-radius: 6px;
+      font-size: 13px; color: var(--fg-muted); cursor: pointer; transition: .15s; margin-bottom: 2px;
+    }
+    .nav-item:hover { background: rgba(255,255,255,.04); color: var(--fg); }
+    .nav-item.active { background: rgba(47,129,247,.12); color: var(--accent); font-weight: 500; }
+    .tab-btn {
+      padding: 8px 16px; font-size: 13px; color: var(--fg-muted); border-bottom: 2px solid transparent;
+      cursor: pointer; transition: .15s;
+    }
+    .tab-btn:hover { color: var(--fg); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+    .progress-bar {
+      height: 4px; background: var(--border); border-radius: 2px; overflow: hidden;
+    }
+    .progress-bar > div { height: 100%; border-radius: 2px; transition: width .3s; }
+  </style>
+</head>
+<body class="bg-[#0d1117] text-[#e6edf3] h-screen flex overflow-hidden" x-data="app()" x-cloak>
+
+  <!-- Sidebar -->
+  <aside class="w-56 flex-shrink-0 border-r border-[#30363d] flex flex-col" style="background:#0d1117">
+    <div class="px-4 py-4 flex items-center gap-3 border-b border-[#21262d]">
+      <div class="w-7 h-7 rounded-md flex items-center justify-center" style="background:var(--accent)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+      </div>
+      <div>
+        <div class="font-semibold text-[15px] tracking-tight">UTBench</div>
+        <div class="text-[11px]" style="color:var(--fg-muted)">Unit Test Benchmark</div>
+      </div>
+    </div>
+
+    <nav class="flex-1 py-2 px-3">
+      <template x-for="item in nav" :key="item.id">
+        <div @click="goto(item.id)" :class="page === item.id ? 'active' : ''" class="nav-item">
+          <span x-html="item.icon"></span>
+          <span x-text="item.label"></span>
+        </div>
+      </template>
+    </nav>
+
+    <div class="px-4 py-3 border-t border-[#21262d] text-[11px]" style="color:var(--fg-muted)">
+      <div class="truncate">config: <span x-text="config?.config_path ?? '...'" class="text-[#484f58]"></span></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 flex flex-col overflow-hidden" style="background:#0d1117">
+
+    <!-- Header -->
+    <header class="h-12 border-b border-[#30363d] flex items-center px-5 flex-shrink-0" style="background:#161b22">
+      <h1 class="text-[15px] font-semibold" x-text="pageTitle"></h1>
+      <div class="ml-auto flex items-center gap-2">
+        <!-- Env status pill -->
+        <template x-if="env">
+          <div class="flex items-center gap-2 text-[12px]">
+            <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full"
+                  :style="`background:${env.docker_available ? 'rgba(63,185,80,.1)' : 'rgba(248,81,73,.1)'};color:${env.docker_available ? 'var(--green)' : 'var(--red)'}`">
+              <span class="w-1.5 h-1.5 rounded-full" :style="`background:${env.docker_available ? 'var(--green)' : 'var(--red)'}`"></span>
+              <span x-text="env.docker_available ? 'Docker' : 'No Docker'"></span>
+              <span x-show="env.docker_version" class="opacity-70" x-text="'v'+env.docker_version"></span>
+            </span>
+            <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full"
+                  :style="`background:${env.image_present ? 'rgba(63,185,80,.1)' : 'rgba(210,153,34,.1)'};color:${env.image_present ? 'var(--green)' : 'var(--yellow)'}`">
+              <span class="w-1.5 h-1.5 rounded-full" :style="`background:${env.image_present ? 'var(--green)' : 'var(--yellow)'}`"></span>
+              <span x-text="env.image_present ? 'Image ready' : 'Image missing'"></span>
+            </span>
+            <button x-show="env.docker_available && !env.image_present"
+                    @click="openBuildImage()"
+                    class="btn-primary text-[12px] py-1 px-2.5">Build Image</button>
+            <button x-show="env.image_present"
+                    @click="openBuildImage()"
+                    class="btn-ghost text-[12px] py-1 px-2.5" title="Rebuild image">Rebuild</button>
+          </div>
+        </template>
+        <span x-show="runsLoading" class="text-[12px]" style="color:var(--fg-muted)">Updating...</span>
+        <button @click="loadRuns()" class="btn-ghost">Refresh</button>
+      </div>
+    </header>
+
+    <!-- Env recommendation banner -->
+    <template x-if="env && env.recommendation">
+      <div class="px-5 py-2 text-[12px] border-b border-[#30363d]"
+           style="background:rgba(210,153,34,.08);color:var(--yellow)">
+        <svg class="inline -mt-0.5 mr-1" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span x-text="env.recommendation"></span>
+      </div>
+    </template>
+
+    <!-- Content -->
+    <div class="flex-1 overflow-y-auto p-5">
+
+      <!-- DASHBOARD -->
+      <div x-show="page === 'dashboard'" class="max-w-6xl">
+        <div class="grid grid-cols-4 gap-4 mb-5">
+          <template x-for="stat in dashStats" :key="stat.label">
+            <div class="kpi-card">
+              <div class="kpi-value" :class="stat.color" x-text="stat.value"></div>
+              <div class="kpi-label" x-text="stat.label"></div>
+            </div>
+          </template>
+        </div>
+
+        <div class="form-section p-0 overflow-hidden">
+          <div class="px-4 py-3 border-b border-[#30363d] flex items-center justify-between">
+            <span class="text-[13px] font-medium">Recent Runs</span>
+            <button @click="goto('runs')" class="text-[12px]" style="color:var(--accent)">View all →</button>
+          </div>
+          <div x-show="runs.length === 0" class="px-4 py-10 text-center text-[13px]" style="color:var(--fg-muted)">
+            No runs yet. <button @click="goto('new-run')" style="color:var(--accent)" class="hover:underline">Start one</button>
+          </div>
+          <table x-show="runs.length > 0" class="data-table">
+            <thead><tr><th>Run ID</th><th>Status</th><th>Models</th><th>Languages</th><th>Started</th><th style="width:80px"></th></tr></thead>
+            <tbody>
+              <template x-for="run in runs.slice(0,10)" :key="run.run_id">
+                <tr @click="openRun(run.run_id)">
+                  <td class="font-mono text-[12px]" style="color:var(--fg-muted)" x-text="run.run_id"></td>
+                  <td>
+                    <span :class="'status-' + run.status" class="inline-flex items-center text-[12px] font-medium px-2 py-0.5 rounded-full" style="background:rgba(255,255,255,.04)">
+                      <span class="status-dot"></span><span x-text="run.status"></span>
+                    </span>
+                  </td>
+                  <td style="color:var(--fg-muted)" x-text="(run.spec?.models ?? []).join(', ') || '—'"></td>
+                  <td style="color:var(--fg-muted)" x-text="(run.spec?.languages ?? []).join(', ') || '—'"></td>
+                  <td style="color:var(--fg-muted)" x-text="fmtTime(run.started_at)"></td>
+                  <td class="text-right"><span style="color:var(--accent)" class="text-[12px]">Details →</span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- NEW RUN -->
+      <div x-show="page === 'new-run'" class="max-w-3xl">
+        <form @submit.prevent="submitRun()" class="space-y-5">
+
+          <div class="form-section">
+            <div class="section-title">Run Configuration</div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="label-text">Run ID <span class="font-normal" style="color:var(--fg-subtle)">(optional)</span></label>
+                <input x-model="form.run_id" type="text" placeholder="auto-generated" class="input-base">
+              </div>
+              <div>
+                <label class="label-text">Mode</label>
+                <select x-model="form.mode" class="input-base">
+                  <option value="full">full</option>
+                  <option value="incremental">incremental</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-title">Models</div>
+            <div class="flex flex-wrap gap-2">
+              <template x-for="m in config?.models ?? []" :key="m.name">
+                <label :class="form.models.includes(m.name) ? 'active' : ''" class="chip">
+                  <input type="checkbox" :value="m.name" x-model="form.models" class="w-3.5 h-3.5">
+                  <span x-text="m.name" class="font-medium"></span>
+                  <span x-text="m.model_id" class="text-[11px]" style="color:var(--fg-muted)"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-title">Languages</div>
+            <div class="flex flex-wrap gap-2">
+              <template x-for="lang in config?.languages ?? []" :key="lang">
+                <label :class="form.languages.includes(lang) ? 'active' : ''" class="chip">
+                  <input type="checkbox" :value="lang" x-model="form.languages" class="w-3.5 h-3.5">
+                  <span x-text="lang"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-title">Dataset Filter</div>
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="label-text">Class</label>
+                <select x-model="form.class" class="input-base">
+                  <option value="">All</option>
+                  <template x-for="c in config?.classes ?? []" :key="c"><option :value="c" x-text="c"></option></template>
+                </select>
+              </div>
+              <div>
+                <label class="label-text">Scenario</label>
+                <select x-model="form.scenario" class="input-base">
+                  <option value="">All scenarios</option>
+                  <template x-for="sc in config?.scenarios ?? []" :key="sc"><option :value="sc" x-text="sc"></option></template>
+                </select>
+              </div>
+              <div>
+                <label class="label-text">Level</label>
+                <input x-model="form.level" type="text" placeholder="l1, l2..." class="input-base">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-title">Execution</div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="label-text">Max Samples <span class="font-normal" style="color:var(--fg-subtle)">(0 = unlimited)</span></label>
+                <input x-model.number="form.max_samples" type="number" min="0" class="input-base">
+              </div>
+              <div>
+                <label class="label-text">Workers <span class="font-normal" style="color:var(--fg-subtle)">(0 = auto)</span></label>
+                <input x-model.number="form.workers" type="number" min="0" class="input-base">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-title">Options</div>
+            <div class="grid grid-cols-2 gap-x-6 gap-y-3">
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded hover:bg-[#21262d]/50">
+                <input type="checkbox" x-model="form.dry_run" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
+                <div>
+                  <div class="text-[13px] font-medium">Dry Run</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">Skip real API calls</div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded hover:bg-[#21262d]/50">
+                <input type="checkbox" x-model="form.mutation_enabled" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
+                <div>
+                  <div class="text-[13px] font-medium">Mutation Testing</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">Enable mutation analysis</div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded hover:bg-[#21262d]/50">
+                <input type="checkbox" x-model="form.ingest" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
+                <div>
+                  <div class="text-[13px] font-medium">Persist to DB</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">Ingest results into SQLite</div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded hover:bg-[#21262d]/50"
+                     :class="(env && !env.docker_available) ? 'opacity-50 pointer-events-none' : ''">
+                <input type="checkbox" x-model="form.use_docker" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)"
+                       :disabled="env && !env.docker_available">
+                <div>
+                  <div class="text-[13px] font-medium flex items-center gap-2">
+                    Execute in Docker
+                    <span x-show="env && !env.image_present && env.docker_available"
+                          class="text-[10px] px-1.5 py-0.5 rounded"
+                          style="background:rgba(210,153,34,.15);color:var(--yellow)">image needed</span>
+                  </div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">
+                    Run the evaluator inside <code class="font-mono text-[11px]">utbench:latest</code>
+                    (required for mutmut/mull on Windows)
+                  </div>
+                </div>
+              </label>
+              <div x-show="form.mutation_enabled">
+                <label class="label-text">Mutation Timeout (s)</label>
+                <input x-model.number="form.mutation_timeout" type="number" min="60" class="input-base">
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3 pt-1">
+            <button type="submit"
+              :disabled="formSubmitting || form.models.length === 0 || form.languages.length === 0"
+              class="btn-primary">
+              <span x-show="!formSubmitting">Start Benchmark</span>
+              <span x-show="formSubmitting">Starting...</span>
+            </button>
+            <span x-show="formError" class="text-[13px]" style="color:var(--red)" x-text="formError"></span>
+          </div>
+        </form>
+      </div>
+
+      <!-- RUNS LIST -->
+      <div x-show="page === 'runs'" class="max-w-6xl">
+        <div class="flex items-center gap-3 mb-4">
+          <input x-model="runFilter" type="text" placeholder="Filter by run ID, model, language..."
+            class="input-base w-72">
+          <select x-model="statusFilter" class="input-base w-36">
+            <option value="">All status</option>
+            <option value="pending">pending</option>
+            <option value="running">running</option>
+            <option value="completed">completed</option>
+            <option value="failed">failed</option>
+          </select>
+          <button @click="goto('new-run')" class="btn-primary ml-auto">+ New Run</button>
+        </div>
+
+        <div class="form-section p-0 overflow-hidden">
+          <div x-show="filteredRuns.length === 0" class="px-4 py-10 text-center text-[13px]" style="color:var(--fg-muted)">
+            No matching runs
+          </div>
+          <table x-show="filteredRuns.length > 0" class="data-table">
+            <thead>
+              <tr>
+                <th>Run ID</th><th>Status</th><th>Models</th><th>Languages</th><th>Scenario</th><th>Samples</th>
+                <th>Started</th><th>Duration</th><th style="width:80px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="run in filteredRuns" :key="run.run_id">
+                <tr @click="openRun(run.run_id)">
+                  <td class="font-mono text-[12px]" style="color:var(--fg-muted)" x-text="run.run_id"></td>
+                  <td>
+                    <span :class="'status-' + run.status" class="inline-flex items-center text-[12px] font-medium px-2 py-0.5 rounded-full" style="background:rgba(255,255,255,.04)">
+                      <span class="status-dot"></span><span x-text="run.status"></span>
+                    </span>
+                  </td>
+                  <td style="color:var(--fg-muted)" x-text="(run.spec?.models ?? []).join(', ') || '—'"></td>
+                  <td style="color:var(--fg-muted)" x-text="(run.spec?.languages ?? []).join(', ') || '—'"></td>
+                  <td style="color:var(--fg-muted)" x-text="run.spec?.dataset_scenario || '—'"></td>
+                  <td style="color:var(--fg-muted)" x-text="run.spec?.max_samples ?? '—'"></td>
+                  <td style="color:var(--fg-muted)" x-text="fmtTime(run.started_at)"></td>
+                  <td style="color:var(--fg-muted)" x-text="duration(run.started_at, run.ended_at)"></td>
+                  <td class="text-right"><span style="color:var(--accent)" class="text-[12px]">Details →</span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- RUN DETAIL -->
+      <div x-show="page === 'run-detail'" class="max-w-6xl space-y-4">
+        <template x-if="currentRun">
+          <div>
+            <!-- Header -->
+            <div class="form-section flex items-start gap-4">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-3 mb-2">
+                  <span :class="'status-' + currentRun.status" class="inline-flex items-center text-[12px] font-medium px-2.5 py-1 rounded-full" style="background:rgba(255,255,255,.04)">
+                    <span class="status-dot"></span><span x-text="currentRun.status"></span>
+                  </span>
+                  <span class="font-mono text-[13px]" style="color:var(--fg-muted)" x-text="currentRun.run_id"></span>
+                </div>
+                <div class="flex flex-wrap gap-x-6 gap-y-1 text-[12px]" style="color:var(--fg-muted)">
+                  <span>Models: <span style="color:var(--fg)" x-text="(currentRun.spec?.models ?? []).join(', ')"></span></span>
+                  <span>Langs: <span style="color:var(--fg)" x-text="(currentRun.spec?.languages ?? []).join(', ')"></span></span>
+                  <span>Class: <span style="color:var(--fg)" x-text="(currentRun.spec?.dataset_classes ?? []).join(', ') || '—'"></span></span>
+                  <span>Scenario: <span style="color:var(--fg)" x-text="currentRun.spec?.dataset_scenario || '—'"></span></span>
+                  <span>Samples: <span style="color:var(--fg)" x-text="currentRun.spec?.max_samples ?? '—'"></span></span>
+                  <span>Workers: <span style="color:var(--fg)" x-text="currentRun.spec?.workers ?? 0"></span></span>
+                  <span>Backend: <span style="color:var(--fg)" x-text="currentRun.use_docker ? 'docker' : 'in-process'"></span></span>
+                  <span>Started: <span style="color:var(--fg)" x-text="fmtTime(currentRun.started_at)"></span></span>
+                  <span x-show="currentRun.ended_at">Duration: <span style="color:var(--fg)" x-text="duration(currentRun.started_at, currentRun.ended_at)"></span></span>
+                </div>
+                <div x-show="currentRun.error" class="mt-2 text-[12px] rounded p-2.5" style="background:rgba(248,81,73,.08); color:var(--red); border:1px solid rgba(248,81,73,.2)" x-text="currentRun.error"></div>
+              </div>
+              <div class="flex gap-2 flex-shrink-0">
+                <button x-show="currentRun.status === 'running'" @click="refreshDetail()" class="btn-ghost">Refresh</button>
+                <button @click="goto('runs')" class="btn-ghost">Back</button>
+              </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex gap-0 border-b border-[#30363d] mb-4">
+              <button @click="detailTab = 'logs'" :class="detailTab === 'logs' ? 'active' : ''" class="tab-btn">Logs</button>
+              <button @click="detailTab = 'report'; loadReport()" :class="detailTab === 'report' ? 'active' : ''" class="tab-btn">Report</button>
+            </div>
+
+            <!-- Logs -->
+            <div x-show="detailTab === 'logs'" class="form-section p-0 overflow-hidden">
+              <div class="px-3 py-2 border-b border-[#30363d] flex items-center justify-between" style="background:#161b22">
+                <span class="text-[12px]" style="color:var(--fg-muted)">Live Output · <span x-text="currentLogs.length"></span> lines</span>
+                <button @click="scrollLogsBottom()" class="text-[12px]" style="color:var(--fg-subtle)">Scroll to bottom</button>
+              </div>
+              <div id="log-area" class="terminal text-[12px] p-3 h-[540px] overflow-y-auto leading-5" style="background:#010409; color:#3fb950">
+                <template x-for="(line, i) in currentLogs" :key="i">
+                  <div class="log-line" x-text="line"></div>
+                </template>
+                <div x-show="currentRun.status === 'running'" class="animate-pulse mt-1" style="color:var(--yellow)">▊</div>
+                <div id="log-bottom"></div>
+              </div>
+            </div>
+
+            <!-- Report -->
+            <div x-show="detailTab === 'report'">
+              <div x-show="!currentReport && currentRun.status !== 'completed'" class="form-section py-10 text-center">
+                <div x-show="currentRun.status === 'running'" class="animate-pulse text-[13px]" style="color:var(--fg-muted)">Evaluation in progress...</div>
+                <div x-show="currentRun.status === 'failed'" style="color:var(--red)" class="text-[13px]">Run failed. No report available.</div>
+                <div x-show="currentRun.status === 'pending'" class="text-[13px]" style="color:var(--yellow)">Waiting to start...</div>
+              </div>
+              <div x-show="!currentReport && currentRun.status === 'completed'" class="form-section py-10 text-center">
+                <button @click="loadReport()" style="color:var(--accent)" class="text-[13px] hover:underline">Load report</button>
+              </div>
+
+              <template x-if="currentReport">
+                <div class="space-y-4">
+                  <!-- Summary -->
+                  <div class="grid grid-cols-5 gap-3">
+                    <template x-for="card in reportCards" :key="card.label">
+                      <div class="kpi-card text-center">
+                        <div class="kpi-value" :class="card.color" x-text="card.value"></div>
+                        <div class="kpi-label" x-text="card.label"></div>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- Chart -->
+                  <div class="form-section">
+                    <div class="section-title">Model Comparison</div>
+                    <div class="h-60"><canvas id="modelChart"></canvas></div>
+                  </div>
+
+                  <!-- Model Ranking -->
+                  <div class="form-section p-0 overflow-hidden">
+                    <div class="px-4 py-3 border-b border-[#30363d] text-[13px] font-medium">Leaderboard</div>
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th style="width:50px">Rank</th><th>Model</th>
+                          <th class="text-right">Compile</th><th class="text-right">Test</th>
+                          <th class="text-right">Coverage</th><th class="text-right">Mutation</th>
+                          <th class="text-right">Score</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="m in currentReport.top_models ?? []" :key="m.rank">
+                          <tr>
+                            <td class="font-mono text-[12px]" style="color:var(--fg-muted)">#<span x-text="m.rank"></span></td>
+                            <td class="font-medium text-[13px]" x-text="m.model"></td>
+                            <td class="text-right text-[12px]" :class="pctColor(m.compile_pass_rate)" x-text="pct(m.compile_pass_rate)"></td>
+                            <td class="text-right text-[12px]" :class="pctColor(m.avg_test_pass_rate)" x-text="pct(m.avg_test_pass_rate)"></td>
+                            <td class="text-right text-[12px]" :class="pctColor(m.avg_line_coverage)" x-text="pct(m.avg_line_coverage)"></td>
+                            <td class="text-right text-[12px]" :class="pctColor(m.avg_mutation_score)" x-text="pct(m.avg_mutation_score)"></td>
+                            <td class="text-right text-[13px] font-bold" style="color:var(--accent)" x-text="m.composite_score?.toFixed(1)"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- Failures -->
+                  <div x-show="(currentReport.failures ?? []).length > 0" class="form-section p-0 overflow-hidden">
+                    <div class="px-4 py-3 border-b border-[#30363d] text-[13px] font-medium">Failures</div>
+                    <table class="data-table">
+                      <thead><tr><th>Stage</th><th>Error Type</th><th class="text-right">Count</th><th>Example</th></tr></thead>
+                      <tbody>
+                        <template x-for="f in currentReport.failures ?? []" :key="f.error_type+f.stage">
+                          <tr>
+                            <td style="color:var(--fg-muted)" class="text-[12px]" x-text="f.stage"></td>
+                            <td style="color:var(--red)" class="font-mono text-[12px]" x-text="f.error_type"></td>
+                            <td class="text-right text-[12px]" x-text="f.count"></td>
+                            <td class="text-[12px] truncate max-w-xs" style="color:var(--fg-muted)" x-text="f.example_message || '—'"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+
+    </div>
+
+    <!-- Build Image Modal -->
+    <div x-show="buildModalOpen" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center"
+         style="background:rgba(0,0,0,.6)"
+         @keydown.escape.window="closeBuildModal()">
+      <div class="form-section w-[720px] max-w-[90vw] max-h-[85vh] flex flex-col" @click.stop>
+        <div class="flex items-center justify-between mb-3">
+          <div class="section-title m-0">Build Docker Image</div>
+          <button @click="closeBuildModal()" class="btn-ghost text-[12px] py-1 px-2">Close</button>
+        </div>
+        <div class="text-[12px] mb-3" style="color:var(--fg-muted)">
+          Image: <code class="font-mono text-[12px]" style="color:var(--fg)" x-text="env?.image_name || 'utbench:latest'"></code>
+          · Context: <code class="font-mono text-[11px]" x-text="env?.project_root || '.'"></code>
+        </div>
+        <div class="flex items-center gap-3 mb-3">
+          <button @click="startBuild()"
+                  :disabled="buildStatus === 'running' || buildStatus === 'pending'"
+                  class="btn-primary text-[12px]">
+            <span x-show="buildStatus !== 'running' && buildStatus !== 'pending'">Start Build</span>
+            <span x-show="buildStatus === 'running' || buildStatus === 'pending'">Building...</span>
+          </button>
+          <span class="text-[12px]" style="color:var(--fg-muted)">
+            Status:
+            <span :style="buildStatusColor(buildStatus)" class="font-medium" x-text="buildStatus || 'idle'"></span>
+          </span>
+          <span x-show="buildError" class="text-[12px]" style="color:var(--red)" x-text="buildError"></span>
+        </div>
+        <div class="terminal text-[12px] p-3 flex-1 overflow-y-auto leading-5 rounded"
+             style="background:#010409; color:#3fb950; min-height:320px">
+          <template x-if="!buildLogs.length">
+            <div style="color:var(--fg-subtle)">Press "Start Build" to invoke <code class="font-mono">docker build</code>.</div>
+          </template>
+          <template x-for="(line, i) in buildLogs" :key="i">
+            <div class="log-line" x-text="line"></div>
+          </template>
+          <div x-show="buildStatus === 'running'" class="animate-pulse" style="color:var(--yellow)">▊</div>
+          <div id="build-log-bottom"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+<script>
+function app() {
+  return {
+    page: 'dashboard',
+    nav: [
+      { id:'dashboard', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>', label:'Dashboard' },
+      { id:'new-run',   icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>', label:'New Run' },
+      { id:'runs',      icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>', label:'Runs' },
+    ],
+    config: null,
+    env: null,
+    runs: [],
+    runsLoading: false,
+    runFilter: '',
+    statusFilter: '',
+    form: {
+      run_id:'', models:[], languages:[], class:'self_contained', scenario:'', level:'',
+      max_samples:5, workers:0, mode:'full', dry_run:false, mutation_enabled:false,
+      mutation_timeout:1800, mutation_policy:'warn', ingest:false, use_docker:false,
+    },
+    // Image-build modal state
+    buildModalOpen: false,
+    buildId: '',
+    buildStatus: '',
+    buildLogs: [],
+    buildError: '',
+    buildSSE: null,
+    formSubmitting: false,
+    formError: '',
+    currentRun: null,
+    currentLogs: [],
+    currentReport: null,
+    detailTab: 'logs',
+    sseSource: null,
+
+    async init() {
+      await this.loadConfig()
+      await this.loadEnv()
+      await this.loadRuns()
+      setInterval(() => this.loadRuns(), 4000)
+      setInterval(() => this.loadEnv(), 15000)
+    },
+
+    async loadConfig() {
+      try { const r = await fetch('/api/config'); this.config = await r.json() }
+      catch(e) { console.error('config', e) }
+    },
+
+    async loadEnv() {
+      try {
+        const r = await fetch('/api/env')
+        const prev = this.env
+        this.env = await r.json()
+        // Auto-suggest Docker mode on first load when native tools are missing
+        // but Docker image is available; don't override explicit user choice.
+        if (!prev && this.env.docker_available && this.env.image_present) {
+          const needDocker = this.env.os === 'windows' && !this.env.native_tools?.mutmut
+          if (needDocker) this.form.use_docker = true
+        }
+      } catch(e) { console.error('env', e) }
+    },
+
+    openBuildImage() {
+      this.buildModalOpen = true
+      // If a previous build still exists, reconnect to its event stream.
+      this.reattachBuild()
+    },
+
+    closeBuildModal() {
+      this.buildModalOpen = false
+      this.stopBuildSSE()
+    },
+
+    buildStatusColor(s) {
+      const map = {
+        running: 'color:var(--blue)', pending: 'color:var(--yellow)',
+        completed: 'color:var(--green)', failed: 'color:var(--red)'
+      }
+      return map[s] || 'color:var(--fg-muted)'
+    },
+
+    async reattachBuild() {
+      try {
+        const r = await fetch('/api/env/build-image')
+        const data = await r.json()
+        if (data && data.build_id) {
+          this.buildId = data.build_id
+          this.buildStatus = data.status
+          this.buildError = data.error || ''
+          const detail = await fetch('/api/env/build-image/' + this.buildId)
+          if (detail.ok) {
+            const d = await detail.json()
+            this.buildLogs = d.logs || []
+          }
+          if (this.buildStatus === 'running' || this.buildStatus === 'pending') {
+            this.startBuildSSE(this.buildId)
+          }
+        }
+      } catch(e) { console.error('reattach build', e) }
+    },
+
+    async startBuild() {
+      this.buildLogs = []
+      this.buildError = ''
+      this.buildStatus = 'pending'
+      try {
+        const r = await fetch('/api/env/build-image', { method: 'POST' })
+        const data = await r.json()
+        if (!r.ok) { this.buildError = data.error || 'Start failed'; this.buildStatus = 'failed'; return }
+        this.buildId = data.build_id
+        this.buildStatus = data.status
+        this.startBuildSSE(this.buildId)
+      } catch(e) {
+        this.buildError = String(e)
+        this.buildStatus = 'failed'
+      }
+    },
+
+    startBuildSSE(id) {
+      this.stopBuildSSE()
+      this.buildSSE = new EventSource('/api/env/build-image/' + id + '/events')
+      this.buildSSE.onmessage = (e) => {
+        try {
+          const obj = JSON.parse(e.data)
+          if (obj.type === 'log') {
+            this.buildLogs.push(obj.payload)
+            this.$nextTick(() => {
+              const el = document.getElementById('build-log-bottom')
+              if (el) el.scrollIntoView({ behavior:'smooth' })
+            })
+          } else if (obj.type === 'done') {
+            this.buildStatus = obj.payload
+            this.stopBuildSSE()
+            this.loadEnv()
+          }
+        } catch {}
+      }
+      this.buildSSE.onerror = () => this.stopBuildSSE()
+    },
+
+    stopBuildSSE() {
+      if (this.buildSSE) { this.buildSSE.close(); this.buildSSE = null }
+    },
+
+    async loadRuns() {
+      this.runsLoading = true
+      try {
+        const r = await fetch('/api/runs')
+        this.runs = await r.json()
+        if (this.currentRun) {
+          const updated = this.runs.find(r => r.run_id === this.currentRun.run_id)
+          if (updated) {
+            this.currentRun.status = updated.status
+            this.currentRun.ended_at = updated.ended_at
+            this.currentRun.error = updated.error
+          }
+        }
+      } catch(e) { console.error('runs', e) }
+      this.runsLoading = false
+    },
+
+    get filteredRuns() {
+      return this.runs.filter(r => {
+        const q = this.runFilter.toLowerCase()
+        if (q && !r.run_id.includes(q)
+               && !(r.spec?.models ?? []).join(',').toLowerCase().includes(q)
+               && !(r.spec?.languages ?? []).join(',').toLowerCase().includes(q)) return false
+        if (this.statusFilter && r.status !== this.statusFilter) return false
+        return true
+      })
+    },
+
+    get dashStats() {
+      const total = this.runs.length
+      const running = this.runs.filter(r => r.status === 'running').length
+      const completed = this.runs.filter(r => r.status === 'completed').length
+      const failed = this.runs.filter(r => r.status === 'failed').length
+      return [
+        { label:'Total Runs', value: total,   color: 'text-[#e6edf3]' },
+        { label:'Running',    value: running, color: 'text-[#58a6ff]' },
+        { label:'Completed',  value: completed,color:'text-[#3fb950]' },
+        { label:'Failed',     value: failed,  color: 'text-[#f85149]' },
+      ]
+    },
+
+    goto(id) { this.stopSSE(); this.page = id },
+    get pageTitle() {
+      const map = { dashboard:'Dashboard', 'new-run':'New Run', runs:'All Runs', 'run-detail':'Run Detail' }
+      return map[this.page] ?? ''
+    },
+
+    async submitRun() {
+      this.formError = ''
+      if (!this.form.models.length) { this.formError = 'Select at least one model'; return }
+      if (!this.form.languages.length) { this.formError = 'Select at least one language'; return }
+      this.formSubmitting = true
+      try {
+        const r = await fetch('/api/runs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.form),
+        })
+        const data = await r.json()
+        if (!r.ok) { this.formError = data.error || 'Submit failed'; return }
+        await this.loadRuns()
+        await this.openRun(data.run_id)
+      } catch(e) { this.formError = String(e) }
+      finally { this.formSubmitting = false }
+    },
+
+    async openRun(runId) {
+      this.stopSSE()
+      this.currentReport = null
+      this.currentLogs = []
+      this.detailTab = 'logs'
+      this.page = 'run-detail'
+      const found = this.runs.find(r => r.run_id === runId)
+      this.currentRun = found ? { ...found } : { run_id: runId, status: 'pending', started_at: new Date().toISOString() }
+      this.startSSE(runId)
+    },
+
+    startSSE(runId) {
+      this.sseSource = new EventSource(`/api/runs/${runId}/events`)
+      this.sseSource.onmessage = (e) => {
+        try {
+          const obj = JSON.parse(e.data)
+          if (obj.type === 'log') {
+            this.currentLogs.push(obj.payload)
+            this.$nextTick(() => this.scrollLogsBottom())
+          } else if (obj.type === 'done') {
+            this.stopSSE()
+            if (this.currentRun) this.currentRun.status = obj.payload
+            this.loadRuns()
+          }
+        } catch {}
+      }
+      this.sseSource.onerror = () => this.stopSSE()
+    },
+
+    stopSSE() {
+      if (this.sseSource) { this.sseSource.close(); this.sseSource = null }
+    },
+
+    async refreshDetail() {
+      if (!this.currentRun) return
+      const r = await fetch(`/api/runs/${this.currentRun.run_id}`)
+      if (r.ok) {
+        const data = await r.json()
+        this.currentRun.status = data.status
+        this.currentRun.ended_at = data.ended_at
+        this.currentRun.error = data.error
+        this.currentLogs = data.logs ?? []
+      }
+    },
+
+    async loadReport() {
+      if (!this.currentRun) return
+      const r = await fetch(`/api/runs/${this.currentRun.run_id}/report`)
+      if (r.ok) {
+        this.currentReport = await r.json()
+        this.$nextTick(() => this.renderChart())
+      }
+    },
+
+    renderChart() {
+      const canvas = document.getElementById('modelChart')
+      if (!canvas || !this.currentReport) return
+      Chart.getChart(canvas)?.destroy()
+      const dims = this.currentReport.dimensions?.by_model ?? []
+      if (!dims.length) return
+      const labels = dims.map(d => d.model)
+      new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label:'Compile', data: dims.map(d => +(d.compile_pass_rate*100).toFixed(1)), backgroundColor:'rgba(47,129,247,.7)' },
+            { label:'Test',    data: dims.map(d => +(d.avg_test_pass_rate*100).toFixed(1)), backgroundColor:'rgba(63,185,80,.7)' },
+            { label:'Coverage',data: dims.map(d => +(d.avg_line_coverage||0).toFixed(1)),  backgroundColor:'rgba(210,153,34,.7)' },
+            { label:'Mutation',data: dims.map(d => +(d.avg_mutation_score||0).toFixed(1)), backgroundColor:'rgba(248,81,73,.7)' },
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: {
+            y: { min:0, max:100, ticks:{ color:'#484f58', font:{size:11} }, grid:{ color:'#21262d' } },
+            x: { ticks:{ color:'#7d8590', font:{size:11} }, grid:{ display:false } }
+          },
+          plugins: { legend: { labels:{ color:'#7d8590', font:{size:11}, boxWidth:10, padding:15 } } }
+        }
+      })
+    },
+
+    get reportCards() {
+      const s = this.currentReport?.summary ?? {}
+      return [
+        { label:'Samples',  value: s.total_samples ?? 0, color:'text-[#e6edf3]' },
+        { label:'Compile',  value: pct(s.compile_pass_rate), color: pctColor(s.compile_pass_rate) },
+        { label:'Test',     value: pct(s.test_pass_rate), color: pctColor(s.test_pass_rate) },
+        { label:'Coverage', value: pct((s.avg_line_coverage??0)/100), color: pctColor(s.avg_line_coverage/100) },
+        { label:'Mutation', value: pct((s.avg_mutation_score??0)/100), color: pctColor(s.avg_mutation_score/100) },
+      ]
+    },
+
+    scrollLogsBottom() {
+      const el = document.getElementById('log-bottom')
+      if (el) el.scrollIntoView({ behavior:'smooth' })
+    },
+
+    fmtTime(t) {
+      if (!t) return '—'
+      return new Date(t).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
+    },
+    duration(start, end) {
+      if (!start) return '—'
+      const ms = (end ? new Date(end) : new Date()) - new Date(start)
+      if (ms < 1000) return ms + 'ms'
+      if (ms < 60000) return (ms/1000).toFixed(1) + 's'
+      return Math.floor(ms/60000) + 'm ' + Math.floor((ms%60000)/1000) + 's'
+    },
+    pct(v) { return pct(v) },
+    pctColor(v) { return pctColor(v) },
+  }
+}
+
+function pct(v) { return v==null ? '—' : (v*100).toFixed(1)+'%' }
+function pctColor(v) {
+  if (v==null) return 'text-[#484f58]'
+  if (v >= .8) return 'text-[#3fb950]'
+  if (v >= .6) return 'text-[#d29922]'
+  return 'text-[#f85149]'
+}
+</script>
+</body>
+</html>

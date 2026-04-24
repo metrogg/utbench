@@ -4,6 +4,7 @@ package obs
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 )
@@ -31,6 +32,17 @@ func NewLogger(verbose bool) *Logger {
 		level = slog.LevelDebug
 	}
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	return &Logger{base: slog.New(handler)}
+}
+
+// NewLoggerWithWriter creates a logger that writes to both os.Stderr and the given writer.
+func NewLoggerWithWriter(verbose bool, w io.Writer) *Logger {
+	level := slog.LevelInfo
+	if verbose {
+		level = slog.LevelDebug
+	}
+	mw := io.MultiWriter(os.Stderr, w)
+	handler := slog.NewTextHandler(mw, &slog.HandlerOptions{Level: level})
 	return &Logger{base: slog.New(handler)}
 }
 
