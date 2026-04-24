@@ -1,2 +1,0 @@
-"""ut-bench benchmark package."""
-

@@ -1,0 +1,8 @@
+{
+  "sample_id": "simple_function_000",
+  "module_import": "dateutil.relativedelta",
+  "package_name": "dateutil",
+  "target_file": "dateutil/relativedelta.py",
+  "workspace_root": "./workspace",
+  "requirements": ["six"]
+}

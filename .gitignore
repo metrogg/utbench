@@ -14,4 +14,17 @@ justtest/
 .venv/
 venv/
 
+.opencode/
+
 .DS_Store
+
+# Build/Docker logs
+*.log
+docker_build*
+
+# Pre-built binaries
+*.tar
+*.exe
+
+# Environment files
+.env

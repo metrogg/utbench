@@ -1,0 +1,35 @@
+# Build artifacts
+artifacts/
+storage/
+*.tar
+*.log
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Scripts (not needed in image)
+*.ps1
+*.sh
+
+# Test files
+tests/
+
+# Claude/Workbuddy
+.claude/
+.workbuddy/
+
+# Temporary files
+__pycache__/
+*.pyc
+.env.example
+docker-compose.yml

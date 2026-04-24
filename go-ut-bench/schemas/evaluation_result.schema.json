@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EvaluationResultSet",
+  "type": "object",
+  "required": ["schema_version", "run_id", "evaluated_at_utc", "results"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "evaluated_at_utc": { "type": "string" },
+    "manifest_path": { "type": "string" },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["model", "language", "sample_id", "compile_pass"]
+      }
+    }
+  }
+}
