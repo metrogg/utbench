@@ -6,7 +6,7 @@
 
 ```bash
 # Linux/macOS
-./docker.sh build
+docker build -t utbench:latest .
 
 # Windows PowerShell
 docker build -t utbench:latest .
@@ -21,37 +21,51 @@ cp .env.example .env
 # 编辑 .env 文件，填入你的 API 密钥
 ```
 
+`.env` 文件内容：
+
+```bash
+DEEPSEEK_API_KEY=sk-xxx        # DeepSeek
+DASHSCOPE_API_KEY=xxx          # 通义千问 (Qwen)
+MINIMAX_API_KEY=xxx            # Minimax
+VOLCENGINE_API_KEY=xxx         # 豆包 (Doubao)
+ARK_API_KEY=xxx                # 豆包 ARK 版本
+```
+
 ### 3. 运行评测
 
-```bash
-# 快速测试（Python，dry-run）
-./docker.sh run-python
-
-# 评测所有语言
-./docker.sh run-all
-
-# 自定义参数
-./docker.sh run run --models deepseek --langs python --max-samples 10
-```
-
-### 4. 进入容器调试
+**Linux/macOS:**
 
 ```bash
-./docker.sh shell
+docker run --rm --env-file .env \
+  -v "$(pwd)/datasets:/app/datasets" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -v "$(pwd)/configs:/app/configs" \
+  -w /app \
+  utbench:latest run \
+    --models deepseek \
+    --langs python,java \
+    --config /app/configs/models.yaml \
+    --dataset-root /app/datasets \
+    --max-samples 5
 ```
 
-## Docker Compose 方式
+**Windows PowerShell:**
 
-```bash
-# 构建并运行
-docker-compose up --build
-
-# 运行特定服务
-docker-compose run run-python
-
-# 查看日志
-docker-compose logs -f
+```powershell
+docker run --rm --env-file .env `
+  -v "${PWD}/datasets:/app/datasets" `
+  -v "${PWD}/artifacts:/app/artifacts" `
+  -v "${PWD}/configs:/app/configs" `
+  -w /app `
+  utbench:latest run `
+    --models deepseek `
+    --langs python,java `
+    --config /app/configs/models.yaml `
+    --dataset-root /app/datasets `
+    --max-samples 5
 ```
+
+---
 
 ## 挂载目录说明
 
@@ -59,8 +73,128 @@ docker-compose logs -f
 |---------|------|
 | `/app/datasets` | 数据集目录 |
 | `/app/artifacts` | 输出结果目录 |
-| `/app/storage` | SQLite 数据库 |
-| `/app/configs` | 配置文件 |
+| `/app/configs` | 配置文件目录 |
+| `/app/storage` | SQLite 数据库（可选） |
+
+---
+
+## 常用命令示例
+
+### 快速测试（2个样本）
+
+```bash
+docker run --rm --env-file .env \
+  -v "$(pwd)/datasets:/app/datasets" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -v "$(pwd)/configs:/app/configs" \
+  -w /app \
+  utbench:latest run \
+    --models deepseek \
+    --langs python \
+    --config /app/configs/models.yaml \
+    --dataset-root /app/datasets \
+    --max-samples 2 \
+    --class module_level
+```
+
+### 全量评测（多模型+多语言）
+
+```bash
+docker run --rm --env-file .env \
+  -v "$(pwd)/datasets:/app/datasets" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -v "$(pwd)/configs:/app/configs" \
+  -w /app \
+  utbench:latest run \
+    --models deepseek,qwen,minimax \
+    --langs python,java,go,cpp \
+    --config /app/configs/models.yaml \
+    --dataset-root /app/datasets \
+    --mutation-enabled \
+    --mutation-timeout 360
+```
+
+### 仅生成测试（调试用）
+
+```bash
+docker run --rm --env-file .env \
+  -v "$(pwd)/datasets:/app/datasets" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -v "$(pwd)/configs:/app/configs" \
+  -w /app \
+  utbench:latest generate \
+    --models deepseek \
+    --langs cpp \
+    --config /app/configs/models.yaml \
+    --dataset-root /app/datasets \
+    --max-samples 1 \
+    --class self_contained
+```
+
+### Dry-run（不调用API）
+
+```bash
+docker run --rm \
+  -v "$(pwd)/datasets:/app/datasets" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -v "$(pwd)/configs:/app/configs" \
+  -w /app \
+  utbench:latest run \
+    --models deepseek \
+    --langs python \
+    --config /app/configs/models.yaml \
+    --dataset-root /app/datasets \
+    --max-samples 2 \
+    --dry-run
+```
+
+---
+
+## 进入容器调试
+
+```bash
+docker run --rm -it \
+  -v "$(pwd)/datasets:/app/datasets" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -v "$(pwd)/configs:/app/configs" \
+  -w /app \
+  utbench:latest \
+  /bin/bash
+```
+
+---
+
+## 查看帮助
+
+```bash
+docker run --rm utbench:latest --help
+docker run --rm utbench:latest run --help
+```
+
+---
+
+## 注意事项
+
+### 数据集类别
+
+- **Python/Go**: 使用 `--class module_level`
+- **Java/C++**: 使用 `--class self_contained`
+
+### 路径问题
+
+在容器内运行时，所有路径使用容器路径：
+- 配置文件：`/app/configs/models.yaml`
+- 数据集：`/app/datasets`
+- 输出：`/app/artifacts`
+
+### Windows 路径
+
+Windows PowerShell 使用 `${PWD}` 获取当前目录：
+```powershell
+-v "${PWD}/datasets:/app/datasets"
+```
+
+---
 
 ## 本地运行（不使用 Docker）
 
@@ -81,13 +215,11 @@ go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest
 **Java:**
 - JDK 17+
 - Maven 3+
-- JaCoCo、pitest 插件（Maven 会自动下载）
 
 **C++:**
-- CMake 3.10+
-- GoogleTest
-- gcov
-- mull（可选，用于 mutation testing）
+```bash
+sudo apt-get install cmake clang-15 libgtest-dev g++-15 mull-15
+```
 
 ### 运行命令
 
@@ -95,46 +227,9 @@ go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest
 # 构建
 go build -o utbench ./cmd/utbench/
 
+# 设置环境变量
+export DEEPSEEK_API_KEY="sk-xxx"
+
 # 运行
 ./utbench run --models deepseek --langs python --max-samples 5
-```
-
-## 跨平台修复说明
-
-代码已修复以下 Windows 兼容性问题：
-
-1. **go_eval.go**: `/dev/null` → 使用临时文件
-2. **cpp_eval.go**: `os.Symlink` → 使用文件复制
-3. **java_eval.go**: 正则匹配增加 nil 检查
-4. **service.go**: 移除死代码，修复断言密度计算
-
-## 常见问题
-
-### Q: Windows 上 Docker 很慢？
-A: 可以使用 WSL2 + Docker Desktop，或直接本地运行（需安装工具链）。
-
-### Q: 某些语言评测失败？
-A: 检查对应工具链是否正确安装：
-```bash
-# Python
-pytest --version
-coverage --version
-
-# Go
-go version
-go-mutesting --version
-
-# Java
-java -version
-mvn -version
-
-# C++
-cmake --version
-gcov --version
-```
-
-### Q: 如何只评测特定语言？
-A: 使用 `--langs` 参数：
-```bash
-./utbench run --langs python,go
 ```
