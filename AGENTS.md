@@ -3,8 +3,8 @@
 ## 1) Repository Structure
 
 - `go-ut-bench/` — main Go CLI tool for multi-model unit-test generation (has its own AGENTS.md)
-- Root `README.md` — legacy Python benchmark docs; the Python tool no longer exists at root
-- `docker-compose.yml`, `docker.sh` — Docker orchestration scripts (must run from `go-ut-bench/`)
+- Root `README.md` — **obsolete** legacy Python docs; ignore and use `go-ut-bench/readme.md` instead
+- `docker-compose.yml`, `docker.sh` — Docker scripts at root; **broken** (Dockerfile is in `go-ut-bench/`)
 
 ## 2) Primary Usage (Docker)
 
@@ -38,9 +38,9 @@ Copy `.env.example` to `.env` and fill in API keys:
 DEEPSEEK_API_KEY=...
 DASHSCOPE_API_KEY=...     # qwen
 MINIMAX_API_KEY=...
-VOLCENGINE_API_KEY=...    # doubao
-ARK_API_KEY=...           # newer doubao/glm models
-BIGMODEL_API_KEY=...      # glm
+VOLCENGINE_API_KEY=...    # doubao-seed (original)
+ARK_API_KEY=...           # doubao-seed-2.0-lite, doubao-seed-1.6, doubao-seed-2.0-pro-v2, glm-4.7
+BIGMODEL_API_KEY=...      # glm (legacy, if needed)
 ```
 
 ## 4) Model Config
