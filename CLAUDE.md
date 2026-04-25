@@ -137,7 +137,7 @@ Runner in incremental mode hashes `(dataset_root + classes + level + manifest + 
 
 ## Common Pitfalls
 
-- **Default `--class` is `self_contained`**: Python and Go datasets are entirely `module_level`. Use `--class module_level` for those languages.
+- **Default `--class` is `self_contained`**: current Python and Go datasets are also `self_contained`, so the default works correctly. Use `--class module_level` only when using actual module-level samples that require workspace context.
 - **Module-level samples** require `meta.json` with `workspace_root` and `module_import`; the evaluator does not clean up their workspaces (reused in-place).
 - **Checkpoint invalidation**: changing any of models, langs, class, level, manifest, max-samples, or dataset-root changes the hash and starts a fresh run.
 - **Mutation testing tools**: Python uses `mutmut`, Go uses `gremlins` (`go install github.com/go-gremlins/gremlins/cmd/gremlins@latest`). Windows mutation testing for Python is validated on Linux only; use Docker on Windows.
