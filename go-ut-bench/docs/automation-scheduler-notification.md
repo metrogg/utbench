@@ -217,7 +217,82 @@ POST   /api/notification-channels/{id}/test
 
 适合团队已经有 Jenkins、GitHub Actions、Kubernetes 等基础设施，并希望把 go-ut-bench 作为评测命令接入现有流水线。
 
-## 6. 推荐实现路径
+## 6. 环境检查与辅助安装
+
+自动化评测在真实运行前，需要确认本机或 Docker 环境具备对应语言和评测工具链。建议增加一个“环境检查”功能，由 Web 端展示缺失项，并在用户确认后辅助安装。
+
+### 检查范围
+
+建议第一版检查以下内容：
+
+- 基础能力：Go、Python、Java、Maven、CMake、Docker。
+- Python 评测：pytest、coverage、mutmut。
+- Go 评测：go test、gremlins。
+- Java 评测：JDK 17+、Maven、JUnit/PITest 依赖解析能力。
+- C++ 评测：CMake、GoogleTest、gcov、mull。
+- 项目目录：datasets、artifacts、storage、configs/models.yaml。
+- 模型配置：启用模型是否有 endpoint、model、api_key_env，以及 API Key 是否可读取。
+
+### Web 交互
+
+Web UI 可以增加“环境检查”入口，检查结果按类别展示：
+
+- 正常：工具存在且版本满足要求。
+- 警告：工具存在但版本可能不推荐。
+- 缺失：工具不存在或无法执行。
+- 未验证：当前平台暂不支持自动验证。
+
+对于缺失项，页面提供“安装/修复”按钮。点击后先弹出确认窗口，明确展示即将执行的动作、影响范围和命令摘要。用户确认后才允许后端执行安装。
+
+### 后端 API
+
+建议增加以下接口：
+
+```text
+GET  /api/environment/check
+POST /api/environment/install
+POST /api/environment/check/{tool}
+```
+
+`POST /api/environment/install` 请求体建议包含：
+
+```json
+{
+  "tool": "pytest",
+  "scope": "python",
+  "confirmed": true
+}
+```
+
+后端必须再次校验 `confirmed == true`，并且只能执行白名单安装器，不能直接执行前端传入的任意命令。
+
+### 安装策略
+
+安装逻辑建议采用“平台适配 + 白名单命令”：
+
+- Python 包：优先使用当前 Python 环境执行 `python -m pip install ...`。
+- Go 工具：使用 `go install <module>@<version>`。
+- Java/C++ 系统工具：优先给出安装指引；是否自动安装取决于平台。
+- Docker 环境：优先检查 Docker 是否可用，不自动安装 Docker Desktop。
+- Windows：可以检测 winget/choco 是否可用，但默认只给出确认后的安装命令。
+- Linux/macOS：可以检测 apt/brew，但第一版建议只生成指引，避免过度修改系统环境。
+
+第一版更稳的边界是：自动安装只覆盖 Python 包和 Go 工具；系统级工具只提示安装方式，不直接执行。
+
+### 安全边界
+
+- 所有安装动作都必须由用户在弹窗中确认。
+- 后端只接受工具 ID，不接受任意 shell 命令。
+- 安装命令必须来自后端白名单。
+- 安装日志需要脱敏，不输出 API Key、SMTP 密码等敏感环境变量。
+- 安装失败不能影响已有任务和配置。
+- 对需要管理员权限的工具，不自动提权，只提示用户手动处理。
+
+### 与自动化任务的关系
+
+自动化任务创建或触发前，可以自动执行一次只读环境检查。如果发现当前任务需要的工具缺失，Web UI 应提示用户先修复环境。定时任务触发时不应自动安装工具，只应记录环境缺失并发送失败通知，避免无人值守时修改机器环境。
+
+## 7. 推荐实现路径
 
 建议分两阶段推进：
 
@@ -227,6 +302,8 @@ POST   /api/notification-channels/{id}/test
 - 后端实现自动化任务 CRUD。
 - 后端实现通知通道 CRUD。
 - 支持 SMTP 邮箱通知。
+- 支持环境检查接口和 Web 检查入口。
+- 支持 Python 包、Go 工具的弹窗确认安装。
 - 支持手动触发自动化任务。
 - 支持定时触发自动化任务。
 - 调度触发默认使用 Docker 运行。
@@ -236,13 +313,14 @@ POST   /api/notification-channels/{id}/test
 
 - Web UI 增加自动化任务页面。
 - Web UI 增加通知通道测试按钮。
+- Web UI 增加环境修复历史和安装日志。
 - 支持失败重试策略。
 - 支持只在失败时通知、每次都通知、状态变化时通知。
 - 支持 Webhook、飞书、企业微信、钉钉。
 - 支持查看最近 N 次自动化运行记录。
 - 支持从历史任务一键保存为自动化模板。
 
-## 7. 第一版边界建议
+## 8. 第一版边界建议
 
 第一版不要做太复杂，建议先限定：
 
@@ -250,17 +328,21 @@ POST   /api/notification-channels/{id}/test
 - cron 表达式可以先支持常见五段式，或者先支持 daily/weekly/interval 三种简单模式。
 - 通知先只支持 SMTP 邮箱。
 - 邮箱密码只允许从环境变量读取，不写入 YAML 或 SQLite 明文。
+- 环境检查支持全量检查，但自动安装只支持 Python 包和 Go 工具。
+- 系统级工具只给出安装指引，不自动安装。
 - 自动化任务触发时默认 Docker 运行。
 - 同一 schedule 上一次还在运行时，默认跳过本次触发。
 
-## 8. 风险点
+## 9. 风险点
 
 - 进程重启时可能错过触发时间，需要定义是否补跑。
 - 多个 Web Server 实例同时运行时可能重复触发，需要数据库锁或部署约束。
 - 邮件发送失败不能影响评测结果落盘，需要单独记录通知状态。
 - 通知内容必须避免泄露 API Key、SMTP 密码、模型返回中的敏感内容。
 - 大任务执行时间可能跨过下一个周期，需要明确并发策略。
+- 自动安装工具可能改变用户环境，必须坚持白名单、确认弹窗和最小权限。
+- 定时无人值守任务不能自动安装缺失工具，否则排查和审计会变复杂。
 
-## 9. 结论
+## 10. 结论
 
 如果目标是快速验证，可以先做方案 A。但从当前项目已经具备 Web UI、SQLite 和任务历史的情况看，更推荐直接做方案 B 的最小闭环：SQLite 持久化调度中心 + Web 管理 + SMTP 邮件通知。这样既能满足定时评测和结果通知，也能为后续企业微信、飞书、钉钉、Webhook 等消息通道扩展留下清晰接口。

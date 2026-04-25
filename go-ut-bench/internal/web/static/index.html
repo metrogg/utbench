@@ -37,6 +37,14 @@ body{font-family:"LXGW WenKai","PingFang SC","Hiragino Sans GB","Microsoft YaHei
 .kpi-card:hover{transform:translateY(-2px);border-color:#27354f}
 .kpi-value{font-size:32px;font-weight:700;letter-spacing:-.5px;line-height:1}
 .kpi-label{font-size:12px;color:var(--fg-muted);margin-top:8px}
+.kpi-total{color:var(--fg)}
+.kpi-running{color:var(--accent)}
+.kpi-completed{color:var(--green)}
+.kpi-failed{color:var(--red)}
+.pct-null{color:var(--fg-subtle)}
+.pct-good{color:var(--green)}
+.pct-warn{color:var(--yellow)}
+.pct-bad{color:var(--red)}
 .form-section{background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:22px;transition:border-color .2s}
 .form-section:hover{border-color:#27354f}
 .input-base{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 11px;font-size:13px;color:var(--fg);width:100%;transition:all .15s;font-family:inherit}
@@ -59,6 +67,10 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
 .model-table .conn-cell{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
 .model-table .conn-cell .tag-pill,.model-table .key-cell .tag-pill{white-space:nowrap;padding-left:8px;padding-right:8px}
 .model-table .action-cell{white-space:nowrap}
+.env-group-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.env-item{border:1px solid var(--border);border-radius:8px;background:var(--bg-elevated);padding:13px;min-width:0}
+.env-item-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.env-path{font-family:"JetBrains Mono","Cascadia Code","SFMono-Regular",Consolas,monospace;font-size:11px;color:var(--fg-muted);overflow-wrap:anywhere;word-break:break-word}
 .tab-btn{padding:9px 18px;font-size:13px;color:var(--fg-muted);border-bottom:2px solid transparent;cursor:pointer;transition:all .15s;font-weight:500;letter-spacing:.02em}
 .tab-btn:hover{color:var(--fg)}
 .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
@@ -97,7 +109,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
       </template>
     </nav>
     <div class="px-5 py-3 border-t text-[11px]" style="border-color:var(--border-subtle);color:var(--fg-muted)">
-      <div class="truncate">配置: <span x-text="config?.config_path ?? '...'" class="font-mono text-[#334155]"></span></div>
+      <div class="truncate">配置: <span x-text="config?.config_path ?? '...'" class="font-mono" style="color:var(--fg-subtle)"></span></div>
     </div>
   </aside>
   <!-- Main -->
@@ -371,6 +383,87 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           </table>
         </div>
       </div>
+      <!-- ENVIRONMENT -->
+      <div x-show="page === 'environment'" class="max-w-7xl animate-fadeUp">
+        <div class="flex flex-wrap items-center gap-3 mb-4">
+          <div class="text-[12px]" style="color:var(--fg-muted)">
+            <span x-show="!environmentLoading && environment">上次检查：<span x-text="fmtTime(environment?.checked_at)" style="color:var(--fg)"></span></span>
+            <span x-show="environmentLoading">检查中...</span>
+          </div>
+          <button @click="loadEnvironment(true)" :disabled="environmentLoading" class="btn-primary text-[12px] ml-auto">
+            <span x-text="environmentLoading ? '检查中...' : '重新检查'"></span>
+          </button>
+        </div>
+
+        <template x-if="environment">
+          <div class="space-y-5">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div class="kpi-card">
+                <div class="kpi-value kpi-total" x-text="environment.summary?.total ?? 0"></div>
+                <div class="kpi-label">检查项</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-value kpi-completed" x-text="environment.summary?.ok ?? 0"></div>
+                <div class="kpi-label">正常</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-value kpi-running" x-text="environment.summary?.warning ?? 0"></div>
+                <div class="kpi-label">警告</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-value kpi-failed" x-text="environment.summary?.missing ?? 0"></div>
+                <div class="kpi-label">缺失</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-value kpi-running" x-text="environment.summary?.installable ?? 0"></div>
+                <div class="kpi-label">可安装</div>
+              </div>
+            </div>
+
+            <template x-for="group in environment.groups" :key="group.id">
+              <div class="form-section">
+                <div class="section-title flex items-center justify-between">
+                  <span x-text="group.label"></span>
+                  <span class="text-[11px] font-normal" style="color:var(--fg-muted)" x-text="group.items.length + ' 项'"></span>
+                </div>
+                <div class="env-group-grid">
+                  <template x-for="item in group.items" :key="item.id">
+                    <div class="env-item">
+                      <div class="env-item-head">
+                        <div class="min-w-0">
+                          <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-medium text-[13px]" x-text="item.name"></span>
+                            <span x-show="item.required" class="tag-pill text-[10px]" style="background:var(--warn-bg);color:var(--yellow)">必需</span>
+                          </div>
+                          <div x-show="item.version" class="text-[11px] mt-1" style="color:var(--fg-muted)" x-text="item.version"></div>
+                        </div>
+                        <span class="tag-pill text-[10px] flex-shrink-0" :style="envStatusStyle(item.status)">
+                          <span x-text="envStatusText(item.status)"></span>
+                        </span>
+                      </div>
+                      <div x-show="item.path" class="env-path mt-2" x-text="item.path"></div>
+                      <div x-show="item.message" class="text-[12px] mt-2" style="color:var(--fg-muted)" x-text="item.message"></div>
+                      <div x-show="item.advice" class="text-[12px] mt-2" style="color:var(--fg-subtle)" x-text="item.advice"></div>
+                      <div class="flex items-center gap-2 mt-3" x-show="item.installable && item.status !== 'ok'">
+                        <button @click="openInstallConfirm(item)" class="btn-warm text-[12px] py-1.5 px-3">
+                          <span x-text="item.install_label || '安装'"></span>
+                        </button>
+                        <code class="font-mono text-[11px] truncate" style="color:var(--fg-muted)" x-text="installCommandText(item)"></code>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <div x-show="!environment && !environmentLoading" class="form-section text-center py-12">
+          <div class="text-[13px]" style="color:var(--fg-muted)">尚未执行环境检查</div>
+          <button @click="loadEnvironment(true)" class="btn-primary mt-3">开始检查</button>
+        </div>
+      </div>
+
       <!-- MODELS -->
       <div x-show="page === 'models'" class="max-w-none animate-fadeUp">
         <div class="flex items-center gap-3 mb-4">
@@ -730,6 +823,44 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           </div>
         </template>
       </div>
+      <!-- Environment Install Confirm Modal -->
+      <div x-show="installConfirmOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" style="background:var(--overlay-bg)" @keydown.escape.window="closeInstallConfirm()">
+        <div class="form-section w-[min(720px,calc(100vw-32px))] max-h-[88vh] overflow-y-auto" @click.stop>
+          <div class="flex items-center justify-between mb-4">
+            <div class="section-title m-0">确认安装</div>
+            <button @click="closeInstallConfirm()" :disabled="installRunning" class="btn-ghost text-[12px]">关闭</button>
+          </div>
+          <template x-if="installTarget">
+            <div class="space-y-4">
+              <div class="rounded-lg p-3" style="background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--yellow)">
+                <div class="text-[13px] font-medium">即将安装：<span x-text="installTarget.name"></span></div>
+                <div class="text-[12px] mt-1 opacity-90">后端只会执行白名单命令；安装前需要你在这里确认。</div>
+              </div>
+              <div>
+                <label class="label-text">命令摘要</label>
+                <div class="terminal text-[12px] p-3 rounded-lg overflow-x-auto" style="background:#020408;color:var(--green)">
+                  <span x-text="installCommandText(installTarget)"></span>
+                </div>
+              </div>
+              <div x-show="installOutput">
+                <label class="label-text">执行输出</label>
+                <div class="terminal text-[12px] p-3 rounded-lg whitespace-pre-wrap leading-5" style="background:#020408;color:var(--green);max-height:220px;overflow:auto" x-text="installOutput"></div>
+              </div>
+              <div x-show="installError">
+                <label class="label-text" style="color:var(--red)">错误信息</label>
+                <div class="terminal text-[12px] p-3 rounded-lg whitespace-pre-wrap leading-5" style="background:#020408;color:var(--red);max-height:160px;overflow:auto" x-text="installError"></div>
+              </div>
+              <div class="flex items-center justify-end gap-2">
+                <button @click="closeInstallConfirm()" :disabled="installRunning" class="btn-ghost">取消</button>
+                <button @click="confirmInstall()" :disabled="installRunning" class="btn-warm">
+                  <span x-text="installRunning ? '安装中...' : '确认安装'"></span>
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
       <!-- Build Image Modal -->
       <div x-show="buildModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.65)" @keydown.escape.window="closeBuildModal()">
         <div class="form-section w-[720px] max-w-[90vw] max-h-[85vh] flex flex-col" @click.stop>
@@ -774,6 +905,7 @@ function app() {
       { id:'dashboard', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>', label:'总览' },
       { id:'new-run',   icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>', label:'新建任务' },
       { id:'runs',      icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>', label:'任务列表' },
+      // { id:'environment', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-5"/></svg>', label:'环境检查' },
       { id:'models',    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 10v6m11-11h-6m-10 0H1m15.5-6.5l-4.25 4.25M7.75 16.25L3.5 20.5M20.5 20.5l-4.25-4.25M7.75 7.75L3.5 3.5"/></svg>', label:'模型管理' },
     ],
     config: null,
@@ -804,6 +936,13 @@ function app() {
     buildLogs: [],
     buildError: '',
     buildSSE: null,
+    environment: null,
+    environmentLoading: false,
+    installConfirmOpen: false,
+    installTarget: null,
+    installRunning: false,
+    installOutput: '',
+    installError: '',
     formSubmitting: false,
     formError: '',
     currentRun: null,
@@ -875,6 +1014,90 @@ function app() {
         this.showToast('环境检查失败：' + e.message, 'err')
       } finally {
         this.envChecking = false
+      }
+    },
+
+    async loadEnvironment(toast = false) {
+      if (this.environmentLoading) return
+      this.environmentLoading = true
+      try {
+        const r = await fetch('/api/environment/check', { cache: 'no-store' })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.environment = data
+        if (toast) {
+          const s = data.summary || {}
+          const kind = (s.missing || s.warning) ? 'warn' : 'ok'
+          this.showToast(`环境检查完成：正常 ${s.ok || 0}，缺失 ${s.missing || 0}`, kind)
+        }
+      } catch (e) {
+        this.showToast('环境检查失败：' + (e.message || String(e)), 'err')
+      } finally {
+        this.environmentLoading = false
+      }
+    },
+
+    envStatusText(s) {
+      return ({ ok:'正常', warning:'警告', missing:'缺失', unknown:'未验证' })[s] || s || '未知'
+    },
+
+    envStatusStyle(s) {
+      const map = {
+        ok: 'background:var(--success-bg);color:var(--green)',
+        warning: 'background:var(--warn-bg);color:var(--yellow)',
+        missing: 'background:var(--error-bg);color:var(--red)',
+        unknown: 'background:var(--badge-bg);color:var(--fg-muted)',
+      }
+      return map[s] || map.unknown
+    },
+
+    installCommandText(item) {
+      const parts = item?.command_preview || []
+      return parts.length ? parts.join(' ') : '由后端白名单生成'
+    },
+
+    openInstallConfirm(item) {
+      this.installTarget = item
+      this.installOutput = ''
+      this.installError = ''
+      this.installConfirmOpen = true
+    },
+
+    closeInstallConfirm() {
+      if (this.installRunning) return
+      this.installConfirmOpen = false
+      this.installTarget = null
+      this.installOutput = ''
+      this.installError = ''
+    },
+
+    async confirmInstall() {
+      if (!this.installTarget || this.installRunning) return
+      this.installRunning = true
+      this.installOutput = ''
+      this.installError = ''
+      try {
+        const r = await fetch('/api/environment/install', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool: this.installTarget.id, confirmed: true }),
+        })
+        const data = await r.json()
+        this.installOutput = data.output || ''
+        if (!r.ok) {
+          this.installError = data.error || 'HTTP ' + r.status
+          throw new Error(this.installError)
+        }
+        this.showToast(`${this.installTarget.name} 安装完成`, 'ok')
+        await this.loadEnvironment(false)
+        await this.loadEnv()
+        // 安装成功后延迟关闭弹窗（让用户看到输出）
+        setTimeout(() => { this.closeInstallConfirm() }, 1500)
+      } catch (e) {
+        if (!this.installError) this.installError = e.message || String(e)
+        this.showToast(`${this.installTarget?.name || '工具'} 安装失败：${this.installError}`, 'err', 6000)
+      } finally {
+        this.installRunning = false
       }
     },
 
@@ -962,10 +1185,10 @@ function app() {
       const failed = this.runs.filter(r => r.status === 'failed').length
       const canceled = this.runs.filter(r => r.status === 'canceled').length
       return [
-        { label:'总任务数', value: total,   color: 'text-[#f1f5f9]' },
-        { label:'运行中',    value: running, color: 'text-[#38bdf8]' },
-        { label:'已完成',    value: completed,color:'text-[#10b981]' },
-        { label:'失败/取消', value: failed + canceled, color: 'text-[#ef4444]' },
+        { label:'总任务数', value: total,   color: 'kpi-total' },
+        { label:'运行中',    value: running, color: 'kpi-running' },
+        { label:'已完成',    value: completed,color:'kpi-completed' },
+        { label:'失败/取消', value: failed + canceled, color: 'kpi-failed' },
       ]
     },
 
@@ -977,9 +1200,10 @@ function app() {
     goto(id) {
       this.stopSSE(); this.page = id
       if (id === 'models') this.loadModels()
+      if (id === 'environment' && !this.environment) this.loadEnvironment()
     },
     get pageTitle() {
-      const map = { dashboard:'总览', 'new-run':'新建任务', runs:'任务列表', 'run-detail':'任务详情', models:'模型管理' }
+      const map = { dashboard:'总览', 'new-run':'新建任务', runs:'任务列表', 'run-detail':'任务详情', environment:'环境检查', models:'模型管理' }
       return map[this.page] ?? ''
     },
 
@@ -1244,7 +1468,7 @@ function app() {
     get reportCards() {
       const s = this.currentReport?.summary ?? {}
       return [
-        { label:'样本数',  value: s.total_samples ?? 0, color:'text-[#f1f5f9]' },
+        { label:'样本数',  value: s.total_samples ?? 0, color:'kpi-total' },
         { label:'编译通过率',  value: pct(s.compile_pass_rate), color: pctColor(s.compile_pass_rate) },
         { label:'测试通过率',  value: pct(s.test_pass_rate), color: pctColor(s.test_pass_rate) },
         { label:'平均行覆盖率', value: pct(s.avg_line_coverage), color: pctColor(s.avg_line_coverage) },
@@ -1365,10 +1589,10 @@ function app() {
 
 function pct(v) { return v==null ? '—' : (v*100).toFixed(1)+'%' }
 function pctColor(v) {
-  if (v==null) return 'text-[#334155]'
-  if (v >= .8) return 'text-[#10b981]'
-  if (v >= .6) return 'text-[#f59e0b]'
-  return 'text-[#ef4444]'
+  if (v==null) return 'pct-null'
+  if (v >= .8) return 'pct-good'
+  if (v >= .6) return 'pct-warn'
+  return 'pct-bad'
 }
 </script>
 
