@@ -811,15 +811,18 @@ func isEnvironmentFailureMessage(msg string) bool {
 	return strings.Contains(msg, "permission denied") ||
 		strings.Contains(msg, "access is denied") ||
 		strings.Contains(msg, "executable file not found") ||
-		strings.Contains(msg, "no such file or directory") ||
 		strings.Contains(msg, "not installed") ||
-		strings.Contains(msg, "command not found")
+		strings.Contains(msg, "command not found") ||
+		// Only for compile errors with missing headers (.h/.cpp files)
+		// NOT for test errors - those with "no such file or directory" are model issues (wrong mock strategy)
+		(strings.Contains(msg, "no such file or directory") &&
+			(strings.Contains(msg, ".h\"") || strings.Contains(msg, ".h>") ||
+				strings.Contains(msg, ".cpp\"") || strings.Contains(msg, ".cpp>")))
 }
 
 func isToolFailureMessage(msg string) bool {
 	msg = strings.ToLower(msg)
-	if strings.Contains(msg, "pass rate") ||
-		strings.Contains(msg, "all tests failed") ||
+	if strings.Contains(msg, "all tests failed") ||
 		strings.Contains(msg, "no tests found, skipping mutation") ||
 		strings.Contains(msg, "pytest timed out") ||
 		strings.Contains(msg, "coverage run timed out") {
@@ -828,10 +831,10 @@ func isToolFailureMessage(msg string) bool {
 	return strings.Contains(msg, "coverage json failed") ||
 		strings.Contains(msg, "coverage files empty") ||
 		strings.Contains(msg, "stats file not found") ||
-		strings.Contains(msg, "parse error") ||
 		strings.Contains(msg, "produced zero mutants") ||
 		strings.Contains(msg, "did not execute any mutants") ||
-		strings.Contains(msg, "run incomplete")
+		strings.Contains(msg, "run incomplete") ||
+		strings.Contains(msg, "parse error")
 }
 
 func shortFailureReason(msg string) string {
