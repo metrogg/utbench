@@ -1923,9 +1923,7 @@ html { scroll-behavior: smooth; }
 	}
 
 	// Score Exclusions Section
-	if len(payload.ScoreExclusions) > 0 {
-		b.WriteString(buildScoreExclusionsSection(payload.ScoreExclusions))
-	}
+	b.WriteString(buildScoreExclusionsSection(payload.ScoreExclusions))
 
 	// Charts Section - 图表分析
 	b.WriteString(buildDatasetSection(rows))
@@ -2369,9 +2367,9 @@ func buildByScenarioSection() string {
 	return `<div class="section" id="error-analysis">
 
 	// 统计错误类型分布
-  
+
   <h2>错误分析 Error Analysis</h2>
-  
+
   <div class="grid-2">
     <div class="panel">
       <h3>错误类型分布</h3>
@@ -2382,7 +2380,7 @@ func buildByScenarioSection() string {
       <div class="chart-box" style="height:220px"><canvas id="stageChart"></canvas></div>
     </div>
   </div>
-  
+
   <h3 style="margin-top:20px">失败案例统计</h3>
   <div class="table-wrap">
     <table>
@@ -2446,12 +2444,16 @@ func buildErrorAnalysisSection() string {
 }
 
 func buildScoreExclusionsSection(rows []contracts.ScoreExclusionRow) string {
-	if len(rows) == 0 {
-		return ""
-	}
 	var b strings.Builder
 	b.WriteString(`<div class="section" id="score-exclusions">
   <h2>计分剔除 Score Exclusions</h2>
+  <p class="muted">只有 environment / dataset / tool 归因的样本会被剔除；模型自身生成导致的编译或测试失败仍保留在计分分母内。</p>`)
+	if len(rows) == 0 {
+		b.WriteString(`<div class="hint-box">当前报告没有计分剔除项，所有样本均进入排名计分。</div>
+</div>`)
+		return b.String()
+	}
+	b.WriteString(`
   <div class="table-wrap">
     <table>
       <thead>
@@ -2486,7 +2488,6 @@ func buildScoreExclusionsSection(rows []contracts.ScoreExclusionRow) string {
 </div>`)
 	return b.String()
 }
-
 
 // buildRawDataSection 生成原始数据部分（可展开收起）
 func buildRawDataSection(rows []contracts.EvaluationResult) string {

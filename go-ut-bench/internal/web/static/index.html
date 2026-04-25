@@ -823,6 +823,35 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                       </tbody>
                     </table>
                   </div>
+
+                  <!-- Score Exclusions -->
+                  <div class="form-section p-0 overflow-hidden">
+                    <div class="px-4 py-3 border-b flex items-center justify-between" style="border-color:var(--border)">
+                      <div class="text-[13px] font-medium">计分剔除</div>
+                      <div class="text-[11px]" style="color:var(--fg-subtle)">
+                        <span x-text="currentReport.summary?.excluded_samples ?? 0"></span>
+                        <span> / </span>
+                        <span x-text="currentReport.summary?.total_samples ?? 0"></span>
+                      </div>
+                    </div>
+                    <div x-show="!(currentReport.score_exclusions ?? []).length" class="p-4 text-[12px]" style="color:var(--fg-muted)">
+                      当前报告没有计分剔除项。只有 environment / dataset / tool 归因的样本会被剔除；模型自身生成导致的失败仍进入计分。
+                    </div>
+                    <table x-show="(currentReport.score_exclusions ?? []).length" class="data-table">
+                      <thead><tr><th>归因</th><th>原因</th><th class="text-right">数量</th><th>示例模型</th><th>示例样本</th></tr></thead>
+                      <tbody>
+                        <template x-for="item in currentReport.score_exclusions ?? []" :key="item.origin + item.reason">
+                          <tr>
+                            <td><span class="tag-pill" style="background:var(--warn-bg);color:var(--yellow)" x-text="item.origin"></span></td>
+                            <td class="text-[12px]" style="color:var(--fg-muted)" x-text="item.reason"></td>
+                            <td class="text-right text-[12px] font-medium" x-text="item.count"></td>
+                            <td class="text-[12px]" x-text="item.example_model || '-'"></td>
+                            <td class="font-mono text-[12px]" style="color:var(--fg-muted)" x-text="item.example_sample || '-'"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </template>
             </div>
