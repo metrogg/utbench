@@ -174,16 +174,22 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 func cppCompileCheck(workdir string) (bool, string) {
 	buildDir := filepath.Join(workdir, "build")
 
-	cmakeCmd := exec.Command("cmake", "..")
-	cmakeCmd.Dir = buildDir
-	cmakeOut, cmakeErr := cmakeCmd.CombinedOutput()
+	cmakeCtx, cancelCMake := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancelCMake()
+	cmakeOut, cmakeErr := runCommandWithProcessGroupKill(cmakeCtx, "cmake", []string{".."}, buildDir, nil)
+	if cmakeCtx.Err() != nil {
+		return false, "cmake timed out after 120s"
+	}
 	if cmakeErr != nil {
 		return false, trimErr(string(cmakeOut), 2000)
 	}
 
-	makeCmd := exec.Command("make", "-j2")
-	makeCmd.Dir = buildDir
-	makeOut, makeErr := makeCmd.CombinedOutput()
+	makeCtx, cancelMake := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancelMake()
+	makeOut, makeErr := runCommandWithProcessGroupKill(makeCtx, "make", []string{"-j2"}, buildDir, nil)
+	if makeCtx.Err() != nil {
+		return false, "make timed out after 120s"
+	}
 	if makeErr != nil {
 		return false, trimErr(string(makeOut), 2000)
 	}
@@ -194,11 +200,14 @@ func cppCompileCheck(workdir string) (bool, string) {
 func executeCppTests(workdir string) (bool, string, int) {
 	buildDir := filepath.Join(workdir, "build")
 
-	cmd := exec.Command("./test_runner")
-	cmd.Dir = buildDir
+	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
+	defer cancel()
 	started := time.Now()
-	output, err := cmd.CombinedOutput()
+	output, err := runCommandWithProcessGroupKill(runCtx, "./test_runner", nil, buildDir, nil)
 	latency := int(time.Since(started).Milliseconds())
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("cpp test timed out after %ds", defaultTestTimeoutSeconds), latency
+	}
 	if err == nil {
 		return true, string(output), latency
 	}
@@ -282,9 +291,12 @@ func collectCppCoverage(workdir, testFileName string) (float64, float64, string)
 		}
 	}
 
-	gcovCmd := exec.Command("gcov", "-b", testFileName)
-	gcovCmd.Dir = gcovDir
-	gcovOut, gcovErr := gcovCmd.CombinedOutput()
+	gcovCtx, cancelGCov := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelGCov()
+	gcovOut, gcovErr := runCommandWithProcessGroupKill(gcovCtx, "gcov", []string{"-b", testFileName}, gcovDir, nil)
+	if gcovCtx.Err() != nil {
+		return 0, 0, "gcov timed out after 30s"
+	}
 	if gcovErr != nil {
 		return 0, 0, trimErr(string(gcovOut), 2000)
 	}
@@ -475,10 +487,15 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 	compileArgs = append(compileArgs, "-c", testFileName, "-o", testObj)
 
 	compileCtx, cancelCompile := context.WithTimeout(ctx, 120*time.Second)
-	compileCmd := exec.CommandContext(compileCtx, "clang++-19", compileArgs...)
-	compileCmd.Dir = workdir
-	out, err := compileCmd.CombinedOutput()
+	out, err := runCommandWithProcessGroupKill(compileCtx, "clang++-19", compileArgs, workdir, nil)
+	compileCtxErr := compileCtx.Err()
 	cancelCompile()
+	if compileCtxErr == context.DeadlineExceeded {
+		return 0, mutationStats{}, "compile for Mull timed out after 120s"
+	}
+	if compileCtxErr != nil {
+		return 0, mutationStats{}, "compile for Mull canceled: " + compileCtxErr.Error()
+	}
 	if err != nil {
 		return 0, mutationStats{}, fmt.Sprintf("compile for Mull failed\n%s", trimErr(string(out), 4000))
 	}
@@ -492,10 +509,15 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 	linkArgs = append(linkArgs, "-lpthread", "-ldl")
 
 	linkCtx, cancelLink := context.WithTimeout(ctx, 120*time.Second)
-	linkCmd := exec.CommandContext(linkCtx, "clang++-19", linkArgs...)
-	linkCmd.Dir = workdir
-	linkOut, linkErr := linkCmd.CombinedOutput()
+	linkOut, linkErr := runCommandWithProcessGroupKill(linkCtx, "clang++-19", linkArgs, workdir, nil)
+	linkCtxErr := linkCtx.Err()
 	cancelLink()
+	if linkCtxErr == context.DeadlineExceeded {
+		return 0, mutationStats{}, "link for Mull timed out after 120s"
+	}
+	if linkCtxErr != nil {
+		return 0, mutationStats{}, "link for Mull canceled: " + linkCtxErr.Error()
+	}
 	if linkErr != nil {
 		return 0, mutationStats{}, fmt.Sprintf("link for Mull failed\n%s", trimErr(string(linkOut), 4000))
 	}

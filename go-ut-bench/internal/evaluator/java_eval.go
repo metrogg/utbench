@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -93,6 +92,13 @@ const javaPomTemplate = `<?xml version="1.0" encoding="UTF-8"?>
                 <groupId>org.pitest</groupId>
                 <artifactId>pitest-maven</artifactId>
                 <version>1.19.6</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-junit5-plugin</artifactId>
+                        <version>1.2.1</version>
+                    </dependency>
+                </dependencies>
                 <configuration>
                     <targetClasses>%s</targetClasses>
                     <targetTests>%s</targetTests>
@@ -282,9 +288,12 @@ func splitJavaSourceByClasses(source string) map[string]string {
 }
 
 func javaCompileCheck(workdir string) (bool, string) {
-	cmd := exec.Command("mvn", "test-compile", "-q")
-	cmd.Dir = workdir
-	output, err := cmd.CombinedOutput()
+	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
+	defer cancel()
+	output, err := runCommandWithProcessGroupKill(runCtx, "mvn", []string{"test-compile", "-q"}, workdir, nil)
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("java compile timed out after %ds", defaultTestTimeoutSeconds)
+	}
 	if err == nil {
 		return true, ""
 	}
@@ -299,23 +308,14 @@ func executeJavaTestsWithTimeout(workdir string, timeoutSeconds int) (bool, stri
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = defaultTestTimeoutSeconds
 	}
-	cmd := exec.Command("mvn", "test", "-q")
-	cmd.Dir = workdir
 	started := time.Now()
-	done := make(chan error, 1)
-	var output []byte
-	var err error
-	go func() {
-		output, err = cmd.CombinedOutput()
-		done <- nil
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Duration(timeoutSeconds) * time.Second):
-		cmd.Process.Kill()
-		return false, "test execution timed out", int(time.Since(started).Milliseconds())
-	}
+	runCtx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
+	output, err := runCommandWithProcessGroupKill(runCtx, "mvn", []string{"test", "-q"}, workdir, nil)
 	latency := int(time.Since(started).Milliseconds())
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("java test timed out after %ds", timeoutSeconds), latency
+	}
 	if err == nil {
 		return true, string(output), latency
 	}
@@ -498,20 +498,20 @@ func collectJavaMutation(ctx context.Context, workdir, className string, timeout
 
 	stats, parseErr := parsePitXML(workdir)
 	if parseErr != "" {
-		return 0, stats, formatMutationError("pitest parse error", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("pitest", "pitest parse error", runErr, runOut, nil, nil)
 	}
 
 	if stats.Total <= 0 {
-		return 0, stats, formatMutationError("pitest produced zero mutants", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("pitest", "pitest produced zero mutants", runErr, runOut, nil, nil)
 	}
 
 	processed := stats.Killed + stats.Survived + stats.NoTests + stats.Timeout + stats.Skipped + stats.Suspicious
 	if processed <= 0 {
-		return 0, stats, formatMutationError("pitest did not execute any mutants", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("pitest", "pitest did not execute any mutants", runErr, runOut, nil, nil)
 	}
 
 	if stats.Killed+stats.Survived <= 0 {
-		return 0, stats, formatMutationError("pitest no killed/survived results", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("pitest", "pitest no killed/survived results", runErr, runOut, nil, nil)
 	}
 
 	score := round(float64(stats.Killed)/float64(stats.Killed+stats.Survived), 6)

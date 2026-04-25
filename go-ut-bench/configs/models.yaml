@@ -1,75 +1,18 @@
-benchmark:
-    parallel:
-        max_concurrent_models: 6
-        max_concurrent_samples: 8
-    thresholds:
-        branch_coverage: 0.6
-        compile_rate: 0.7
-        execution_rate: 0.7
-        function_coverage: 0.8
-        line_coverage: 0.7
-        mutation_score: 0.7
-    timeouts:
-        api_call: 120000
-        compilation: 60000
-        mutation_test: 120000
-        test_execution: 30000
-languages:
-    cpp:
-        compiler: g++
-        coverage_tool: gcov
-        mutation_tool: mull
-        source_dir: src
-        test_dir: tests
-        test_framework: gtest
-    go:
-        compiler: go build
-        coverage_tool: go tool cover
-        mutation_tool: gremlins
-        source_dir: .
-        test_dir: .
-        test_framework: go test
-    java:
-        compiler: javac
-        coverage_tool: jacoco
-        mutation_tool: pitest
-        source_dir: src/main/java
-        test_dir: src/test/java
-        test_framework: junit
-        test_framework_version: "4.13"
-    python:
-        compiler: pylint
-        coverage_tool: coverage
-        mutation_tool: mutmut
-        source_dir: src
-        test_dir: tests
-        test_framework: pytest
 models:
-  qwen:
-    enabled: true
-    provider: dashscope
-    config:
-      api_endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-      model: "qwen3.6-plus"
-      api_key_env: "DASHSCOPE_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
-
-  deepseek:
+  
+  deepseek-v4-flash:
     enabled: true
     provider: deepseek
     config:
-      api_endpoint: "https://api.deepseek.com/v1"
-      model: "deepseek-chat"
+      api_endpoint: "https://api.deepseek.com"
+      model: "deepseek-v4-flash"
       api_key_env: "DEEPSEEK_API_KEY"
       parameters:
         temperature: 0.7
         top_p: 0.9
         max_tokens: 4096
 
-  minimax:
+  minimax2.7:
     enabled: true
     provider: minimax
     config:
@@ -81,60 +24,51 @@ models:
         top_p: 0.9
         max_tokens: 4096
 
-  doubao-seed:
-    enabled: true
-    provider: volcengine
-    config:
-      api_endpoint: "https://ark.cn-beijing.volces.com/api/coding/v3"
-      model: "doubao-seed-2.0-pro"
-      api_key_env: "VOLCENGINE_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
+  
 
-  doubao-seed-2.0-lite:
+
+  deepseek-v3.2:  # 火山方舟上的 DeepSeek
     enabled: true
     provider: volcengine
     config:
       api_endpoint: "https://ark.cn-beijing.volces.com/api/v3"
-      model: "ep-20260423021121-552wl"
+      model: "ep-20260425131055-4q4ck"  # 你的 endpoint ID
+      api_key_env: "ARK_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096  
+
+  doubao-seed-1.6-flash:
+    enabled: true
+    provider: volcengine
+    config:
+      api_endpoint: "https://ark.cn-beijing.volces.com/api/v3"
+      model: "ep-20260425130953-qr2sj"
+      api_key_env: "ARK_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096  
+
+  doubao-seed-1.8:
+    enabled: true
+    provider: volcengine
+    config:
+      api_endpoint: "https://ark.cn-beijing.volces.com/api/v3"
+      model: "ep-20260425130558-gs24c"
       api_key_env: "ARK_API_KEY"
       parameters:
         temperature: 0.7
         top_p: 0.9
         max_tokens: 4096
 
-  doubao-seed-1.6:
+  doubao-seed-2.0-code:
     enabled: true
     provider: volcengine
     config:
       api_endpoint: "https://ark.cn-beijing.volces.com/api/v3"
-      model: "ep-20260423020928-pfb28"
-      api_key_env: "ARK_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
-
-  doubao-seed-2.0-pro-v2:
-    enabled: true
-    provider: volcengine
-    config:
-      api_endpoint: "https://ark.cn-beijing.volces.com/api/v3"
-      model: "ep-20260423020824-jd59z"
-      api_key_env: "ARK_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
-
-  glm-4.7:
-    enabled: true
-    provider: volcengine
-    config:
-      api_endpoint: "https://ark.cn-beijing.volces.com/api/v3"
-      model: "ep-20260423021013-zdd9s"
+      model: "ep-20260425130248-lqxth"
       api_key_env: "ARK_API_KEY"
       parameters:
         temperature: 0.7

@@ -265,6 +265,19 @@ type createRunRequest struct {
 	// shells out to `docker run utbench:latest run ...` instead of running
 	// the orchestrator in-process.
 	UseDocker bool `json:"use_docker"`
+	// Phase controls which pipeline stage(s) to execute.
+	// Supported values: "full" (default), "generate", "evaluate", "report".
+	// When phase is not "full", the run requires existing artifacts from previous stages.
+	Phase string `json:"phase"`
+	// SourceRunID specifies the run ID to use as data source for evaluate/report phases.
+	// If empty, uses the current RunID (which must have existing artifacts).
+	SourceRunID string `json:"source_run_id"`
+	// ManifestPath overrides the default manifest path for evaluate phase.
+	// If empty, uses artifacts/runs/<source_run_id>/generated/generated_manifest.json.
+	ManifestPath string `json:"manifest_path"`
+	// EvaluationPath overrides the default evaluation path for report phase.
+	// If empty, uses artifacts/runs/<source_run_id>/evaluation/evaluation_result.json.
+	EvaluationPath string `json:"evaluation_path"`
 }
 
 func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
@@ -273,13 +286,31 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if len(req.Models) == 0 {
-		errJSON(w, http.StatusBadRequest, "models is required")
-		return
+
+	phase := req.Phase
+	if phase == "" {
+		phase = "full"
 	}
-	if len(req.Languages) == 0 {
-		errJSON(w, http.StatusBadRequest, "languages is required")
-		return
+
+	// Validate based on phase
+	if phase == "full" || phase == "generate" {
+		if len(req.Models) == 0 {
+			errJSON(w, http.StatusBadRequest, "models is required for generate/full phase")
+			return
+		}
+		if len(req.Languages) == 0 {
+			errJSON(w, http.StatusBadRequest, "languages is required for generate/full phase")
+			return
+		}
+	}
+
+	// For evaluate/report phases, we need a data source
+	if phase == "evaluate" || phase == "report" {
+		// Either source_run_id or explicit path must be provided
+		if req.SourceRunID == "" && req.ManifestPath == "" && req.EvaluationPath == "" {
+			errJSON(w, http.StatusBadRequest, "source_run_id or explicit path is required for evaluate/report phase")
+			return
+		}
 	}
 
 	runID := req.RunID
@@ -321,14 +352,20 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		CreatedAtUTC:    time.Now().UTC(),
 	}
 	opts := orchestrator.Options{
-		Ingest: req.Ingest,
-		DBPath: s.mgr.dbPath,
+		Ingest:         req.Ingest,
+		DBPath:         s.mgr.dbPath,
+		Phase:          phase,
+		SourceRunID:    req.SourceRunID,
+		ManifestPath:   req.ManifestPath,
+		EvaluationPath: req.EvaluationPath,
 	}
 
 	entry := s.mgr.Submit(spec, opts, req.UseDocker)
 	writeJSON(w, http.StatusCreated, map[string]string{
-		"run_id": entry.RunID,
-		"status": string(entry.Status),
+		"run_id":        entry.RunID,
+		"status":        string(entry.Status),
+		"phase":         phase,
+		"source_run_id": req.SourceRunID,
 	})
 }
 

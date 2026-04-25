@@ -362,6 +362,10 @@ func toIntDefault(v any) int {
 }
 
 func formatMutationError(prefix string, runErr error, runOut []byte, exportErr error, exportOut []byte) string {
+	return formatMutationToolError("mutmut", prefix, runErr, runOut, exportErr, exportOut)
+}
+
+func formatMutationToolError(tool, prefix string, runErr error, runOut []byte, exportErr error, exportOut []byte) string {
 	runMsg := ""
 	if runErr != nil {
 		runMsg = runErr.Error()
@@ -371,9 +375,11 @@ func formatMutationError(prefix string, runErr error, runOut []byte, exportErr e
 		exportMsg = exportErr.Error()
 	}
 	return fmt.Sprintf(
-		"%s; mutmut run err=%q; mutmut export err=%q; run_out=%q; export_out=%q",
+		"%s; %s run err=%q; %s export err=%q; run_out=%q; export_out=%q",
 		prefix,
+		tool,
 		runMsg,
+		tool,
 		exportMsg,
 		trimErr(string(runOut), 1200),
 		trimErr(string(exportOut), 1200),

@@ -104,6 +104,8 @@ docker run --rm --env-file .env \
 
 ### 5. 运行评测
 
+评测阶段如果长时间停在最后几个样本，优先看实时日志里的 `[EVAL-WARN]` 行。它会输出仍在运行的 `model/language/sample_id/phase`，用于区分是 compile/test/coverage/mutation 外部工具超时，还是临时工作区清理耗时。当前 evaluator 对 Go、Java、C++、Python 的外部命令都设置了超时和进程组清理，临时目录清理会在后台进行，不再阻塞结果落盘。
+
 **Linux/macOS:**
 
 ```bash

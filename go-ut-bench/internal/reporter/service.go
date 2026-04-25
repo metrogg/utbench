@@ -228,10 +228,11 @@ func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 	eligibleTotal := 0
 	excludedTotal := 0
 	compilePass := 0
-	testPassTotal := 0
-	testTotal := 0
-	fallbackPass := 0
-	fallbackTotal := 0
+	sampleTestPass := 0
+	testCasePassTotal := 0
+	testCaseTotal := 0
+	fallbackCasePass := 0
+	fallbackCaseTotal := 0
 	lineSum := 0.0
 	lineCnt := 0
 	mutationSum := 0.0
@@ -248,13 +249,16 @@ func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 		if row.CompilePass {
 			compilePass++
 		}
+		if row.TestPass != nil && *row.TestPass {
+			sampleTestPass++
+		}
 		if row.TestPassCount != nil && row.TestTotalCount != nil {
-			testPassTotal += *row.TestPassCount
-			testTotal += *row.TestTotalCount
+			testCasePassTotal += *row.TestPassCount
+			testCaseTotal += *row.TestTotalCount
 		} else if row.TestPass != nil {
-			fallbackTotal++
+			fallbackCaseTotal++
 			if *row.TestPass {
-				fallbackPass++
+				fallbackCasePass++
 			}
 		}
 		if row.LineCoverage != nil {
@@ -271,9 +275,9 @@ func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 		}
 	}
 
-	if fallbackTotal > 0 {
-		testPassTotal += fallbackPass
-		testTotal += fallbackTotal
+	if fallbackCaseTotal > 0 {
+		testCasePassTotal += fallbackCasePass
+		testCaseTotal += fallbackCaseTotal
 	}
 
 	return contracts.ReportSummary{
@@ -282,8 +286,12 @@ func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 		ExcludedSamples:     excludedTotal,
 		CompilePassCount:    compilePass,
 		CompilePassRate:     rate(compilePass, eligibleTotal),
-		TestPassCount:       testPassTotal,
-		TestPassRate:        rate(testPassTotal, testTotal),
+		TestPassCount:       sampleTestPass,
+		TestPassRate:        rate(sampleTestPass, eligibleTotal),
+		SampleTestPassCount: sampleTestPass,
+		SampleTestPassRate:  rate(sampleTestPass, eligibleTotal),
+		TestCasePassCount:   testCasePassTotal,
+		TestCasePassRate:    rate(testCasePassTotal, testCaseTotal),
 		AvgLineCoverage:     avg(lineSum, lineCnt),
 		AvgMutationScore:    avg(mutationSum, mutationCnt),
 		AvgAssertionDensity: avg(assertDensitySum, assertDensityCnt),
@@ -331,7 +339,8 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			Provider:            provider,
 			TotalSamples:        agg.count,
 			CompilePassRate:     rate(agg.compilePass, agg.count),
-			AvgTestPassRate:     rate(agg.testPassTotal, agg.testTotal),
+			AvgTestPassRate:     rate(agg.sampleTestPass, agg.count),
+			AvgTestCasePassRate: rate(agg.testPassTotal, agg.testTotal),
 			AvgLineCoverage:     avg(agg.lineSum, agg.lineCnt),
 			AvgBranchCoverage:   avg(agg.branchSum, agg.branchCnt),
 			AvgMutationScore:    avg(agg.mutationSum, agg.mutationCnt),
@@ -346,13 +355,14 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 	var byLanguage []contracts.LanguageDim
 	for _, agg := range langMap {
 		byLanguage = append(byLanguage, contracts.LanguageDim{
-			Language:          agg.key,
-			TotalSamples:      agg.count,
-			CompilePassRate:   rate(agg.compilePass, agg.count),
-			AvgTestPassRate:   rate(agg.testPassTotal, agg.testTotal),
-			AvgLineCoverage:   avg(agg.lineSum, agg.lineCnt),
-			AvgBranchCoverage: avg(agg.branchSum, agg.branchCnt),
-			AvgMutationScore:  avg(agg.mutationSum, agg.mutationCnt),
+			Language:            agg.key,
+			TotalSamples:        agg.count,
+			CompilePassRate:     rate(agg.compilePass, agg.count),
+			AvgTestPassRate:     rate(agg.sampleTestPass, agg.count),
+			AvgTestCasePassRate: rate(agg.testPassTotal, agg.testTotal),
+			AvgLineCoverage:     avg(agg.lineSum, agg.lineCnt),
+			AvgBranchCoverage:   avg(agg.branchSum, agg.branchCnt),
+			AvgMutationScore:    avg(agg.mutationSum, agg.mutationCnt),
 		})
 	}
 	sort.Slice(byLanguage, func(i, j int) bool { return byLanguage[i].Language < byLanguage[j].Language })
@@ -360,16 +370,17 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 	var byScenario []contracts.ScenarioDim
 	for _, agg := range scenarioMap {
 		byScenario = append(byScenario, contracts.ScenarioDim{
-			Scenario:          agg.scenario,
-			Language:          agg.language,
-			TotalSamples:      agg.count,
-			CompilePassRate:   rate(agg.compilePass, agg.count),
-			AvgTestPassRate:   rate(agg.testPassTotal, agg.testTotal),
-			AvgLineCoverage:   avg(agg.lineSum, agg.lineCnt),
-			AvgBranchCoverage: avg(agg.branchSum, agg.branchCnt),
-			AvgMutationScore:  avg(agg.mutationSum, agg.mutationCnt),
-			AvgLatencyMS:      avgFloat(agg.latencySum, agg.latencyCnt),
-			AvgTokens:         avgFloat(agg.totalTokensSum, agg.tokenCnt),
+			Scenario:            agg.scenario,
+			Language:            agg.language,
+			TotalSamples:        agg.count,
+			CompilePassRate:     rate(agg.compilePass, agg.count),
+			AvgTestPassRate:     rate(agg.sampleTestPass, agg.count),
+			AvgTestCasePassRate: rate(agg.testPassTotal, agg.testTotal),
+			AvgLineCoverage:     avg(agg.lineSum, agg.lineCnt),
+			AvgBranchCoverage:   avg(agg.branchSum, agg.branchCnt),
+			AvgMutationScore:    avg(agg.mutationSum, agg.mutationCnt),
+			AvgLatencyMS:        avgFloat(agg.latencySum, agg.latencyCnt),
+			AvgTokens:           avgFloat(agg.totalTokensSum, agg.tokenCnt),
 		})
 	}
 	sort.Slice(byScenario, func(i, j int) bool {
@@ -387,7 +398,8 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			Language:            agg.language,
 			TotalSamples:        agg.count,
 			CompilePassRate:     rate(agg.compilePass, agg.count),
-			AvgTestPassRate:     rate(agg.testPassTotal, agg.testTotal),
+			AvgTestPassRate:     rate(agg.sampleTestPass, agg.count),
+			AvgTestCasePassRate: rate(agg.testPassTotal, agg.testTotal),
 			AvgLineCoverage:     avg(agg.lineSum, agg.lineCnt),
 			AvgBranchCoverage:   avg(agg.branchSum, agg.branchCnt),
 			AvgMutationScore:    avg(agg.mutationSum, agg.mutationCnt),
@@ -420,6 +432,7 @@ type modelAgg struct {
 	key                 string
 	count               int
 	compilePass         int
+	sampleTestPass      int
 	testPassTotal       int
 	testTotal           int
 	lineSum             float64
@@ -442,6 +455,7 @@ type scenarioAgg struct {
 	language            string
 	count               int
 	compilePass         int
+	sampleTestPass      int
 	testPassTotal       int
 	testTotal           int
 	lineSum             float64
@@ -465,6 +479,7 @@ type modelScenarioAgg struct {
 	language            string
 	count               int
 	compilePass         int
+	sampleTestPass      int
 	testPassTotal       int
 	testTotal           int
 	lineSum             float64
@@ -521,6 +536,9 @@ func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
 	if row.CompilePass {
 		a.compilePass++
 	}
+	if row.TestPass != nil && *row.TestPass {
+		a.sampleTestPass++
+	}
 	if row.TestPassCount != nil && row.TestTotalCount != nil {
 		a.testPassTotal += *row.TestPassCount
 		a.testTotal += *row.TestTotalCount
@@ -560,6 +578,9 @@ func mergeScenarioAgg(a *scenarioAgg, row contracts.EvaluationResult, scenario, 
 	a.count++
 	if row.CompilePass {
 		a.compilePass++
+	}
+	if row.TestPass != nil && *row.TestPass {
+		a.sampleTestPass++
 	}
 	if row.TestPassCount != nil && row.TestTotalCount != nil {
 		a.testPassTotal += *row.TestPassCount
@@ -601,6 +622,9 @@ func mergeModelScenarioAgg(a *modelScenarioAgg, row contracts.EvaluationResult, 
 	a.count++
 	if row.CompilePass {
 		a.compilePass++
+	}
+	if row.TestPass != nil && *row.TestPass {
+		a.sampleTestPass++
 	}
 	if row.TestPassCount != nil && row.TestTotalCount != nil {
 		a.testPassTotal += *row.TestPassCount
@@ -684,6 +708,7 @@ func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 			Provider:            m.Provider,
 			CompilePassRate:     m.CompilePassRate,
 			AvgTestPassRate:     m.AvgTestPassRate,
+			AvgTestCasePassRate: m.AvgTestCasePassRate,
 			AvgLineCoverage:     m.AvgLineCoverage,
 			AvgMutationScore:    m.AvgMutationScore,
 			CompositeScore:      m.CompositeScore,
@@ -846,7 +871,7 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			}
 		}
 		if row.MutationError != "" {
-			k := failureKey{stage: "mutation", errType: "mutation_error"}
+			k := failureKey{stage: "mutation", errType: classifyMutationError(row.MutationError)}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
 			if agg.exampleModel == "" {
@@ -870,6 +895,43 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Count > out[j].Count })
 	return out
+}
+
+func classifyMutationError(msg string) string {
+	msg = strings.ToLower(msg)
+	switch {
+	case strings.Contains(msg, "baseline tests failed") ||
+		strings.Contains(msg, "all tests failed") ||
+		strings.Contains(msg, "pass rate") ||
+		strings.Contains(msg, "warmup run failed") ||
+		strings.Contains(msg, "original test failed"):
+		return "mutation_skipped_baseline_failed"
+	case strings.Contains(msg, "generated tests do not import mutation target") ||
+		strings.Contains(msg, "could not find any test case for any mutant"):
+		return "mutation_target_not_exercised"
+	case strings.Contains(msg, "gremlins no results to report") ||
+		strings.Contains(msg, "no gremlins output found") ||
+		strings.Contains(msg, "no results to report"):
+		return "mutation_no_results"
+	case strings.Contains(msg, "no killed/survived") ||
+		strings.Contains(msg, "no_coverage") ||
+		strings.Contains(msg, "no coverage"):
+		return "mutation_no_coverage"
+	case strings.Contains(msg, "produced zero mutants") ||
+		strings.Contains(msg, "did not execute any mutants"):
+		return "mutation_no_effective_mutants"
+	case strings.Contains(msg, "timed out") ||
+		strings.Contains(msg, "timeout"):
+		return "mutation_timeout"
+	case strings.Contains(msg, "parse error") ||
+		strings.Contains(msg, "run incomplete") ||
+		strings.Contains(msg, "stats file not found") ||
+		strings.Contains(msg, "could not run any tests") ||
+		strings.Contains(msg, "junit 5 plugin"):
+		return "mutation_tool_error"
+	default:
+		return "mutation_error"
+	}
 }
 
 func isScoreEligible(row contracts.EvaluationResult) bool {
@@ -1972,9 +2034,9 @@ func buildOverviewSection(payload contracts.ReportPayload, rows []contracts.Eval
       <div class="sub">总体样本 %d 条</div>
     </div>
     <div class="overview-card">
-      <div class="eyebrow">测试通过率</div>
+      <div class="eyebrow">样本测试通过率</div>
       <div class="value status-%s">%.1f%%</div>
-      <div class="sub">适合管理层快速判断稳定性</div>
+      <div class="sub">用例级通过率 %.1f%%，用于观察单个样本内部测试稳定性</div>
     </div>
     <div class="overview-card">
       <div class="eyebrow">平均覆盖率</div>
@@ -1991,8 +2053,9 @@ func buildOverviewSection(payload contracts.ReportPayload, rows []contracts.Eval
 		statusTone(payload.Summary.CompilePassRate, 0.85, 0.65),
 		payload.Summary.CompilePassRate*100,
 		payload.Summary.TotalSamples,
-		statusTone(payload.Summary.TestPassRate, 0.75, 0.5),
-		payload.Summary.TestPassRate*100,
+		statusTone(payload.Summary.SampleTestPassRate, 0.75, 0.5),
+		payload.Summary.SampleTestPassRate*100,
+		payload.Summary.TestCasePassRate*100,
 		payload.Summary.AvgLineCoverage*100,
 		payload.Summary.AvgMutationScore*100,
 		len(scenarioCount))
@@ -2120,7 +2183,7 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
             <span class="val">%.1f%%</span>
           </div>
           <div class="metric">
-            <span class="name">测试</span>
+            <span class="name">样测</span>
             <div class="bar"><span style="width:%d%%;background:#10b981;"></span></div>
             <span class="val">%.1f%%</span>
           </div>
@@ -2173,7 +2236,7 @@ func buildByLanguageSection(thresholds contracts.Thresholds) string {
           <th>语言</th>
           <th>样本数</th>
           <th>编译通过率</th>
-          <th>测试通过率</th>
+          <th>样本测试通过率</th>
           <th>行覆盖率</th>
           <th>分支覆盖率</th>
           <th>变异分数</th>
@@ -2349,7 +2412,7 @@ func buildByScenarioSection() string {
           <th>语言</th>
           <th>样本数</th>
           <th>编译通过率</th>
-          <th>测试通过率</th>
+          <th>样本测试通过率</th>
           <th>行覆盖率</th>
           <th>分支覆盖率</th>
           <th>变异得分率</th>
@@ -3099,16 +3162,12 @@ function aggregateRows(selectedModel, selectedScenario) {
 
   for (const row of filtered) {
     const langKey = row.language || 'unknown';
-    if (!byLanguage.has(langKey)) byLanguage.set(langKey, { language: langKey, total: 0, compilePass: 0, testPass: 0, testTotal: 0, lineSum: 0, lineCnt: 0, branchSum: 0, branchCnt: 0, mutationSum: 0, mutationCnt: 0 });
+    if (!byLanguage.has(langKey)) byLanguage.set(langKey, { language: langKey, total: 0, compilePass: 0, testPass: 0, lineSum: 0, lineCnt: 0, branchSum: 0, branchCnt: 0, mutationSum: 0, mutationCnt: 0 });
     const lang = byLanguage.get(langKey);
     lang.total += 1;
     if (row.compile_pass) lang.compilePass += 1;
-    if (row.test_pass_count !== null && row.test_pass_count !== undefined && row.test_total_count !== null && row.test_total_count !== undefined) {
-      lang.testPass += row.test_pass_count;
-      lang.testTotal += row.test_total_count;
-    } else if (row.test_pass !== null && row.test_pass !== undefined) {
-      lang.testTotal += 1;
-      if (row.test_pass) lang.testPass += 1;
+    if (row.test_pass !== null && row.test_pass !== undefined && row.test_pass) {
+      lang.testPass += 1;
     }
     if (row.line_coverage !== null && row.line_coverage !== undefined) { lang.lineSum += row.line_coverage; lang.lineCnt += 1; }
     if (row.branch_coverage !== null && row.branch_coverage !== undefined) { lang.branchSum += row.branch_coverage; lang.branchCnt += 1; }
@@ -3116,16 +3175,12 @@ function aggregateRows(selectedModel, selectedScenario) {
 
     const scenario = getScenarioFromSample(row.sample_id);
     const scenKey = langKey + '|' + scenario;
-    if (!byScenario.has(scenKey)) byScenario.set(scenKey, { scenario, language: langKey, total: 0, compilePass: 0, testPass: 0, testTotal: 0, lineSum: 0, lineCnt: 0, branchSum: 0, branchCnt: 0, mutationSum: 0, mutationCnt: 0 });
+    if (!byScenario.has(scenKey)) byScenario.set(scenKey, { scenario, language: langKey, total: 0, compilePass: 0, testPass: 0, lineSum: 0, lineCnt: 0, branchSum: 0, branchCnt: 0, mutationSum: 0, mutationCnt: 0 });
     const scen = byScenario.get(scenKey);
     scen.total += 1;
     if (row.compile_pass) scen.compilePass += 1;
-    if (row.test_pass_count !== null && row.test_pass_count !== undefined && row.test_total_count !== null && row.test_total_count !== undefined) {
-      scen.testPass += row.test_pass_count;
-      scen.testTotal += row.test_total_count;
-    } else if (row.test_pass !== null && row.test_pass !== undefined) {
-      scen.testTotal += 1;
-      if (row.test_pass) scen.testPass += 1;
+    if (row.test_pass !== null && row.test_pass !== undefined && row.test_pass) {
+      scen.testPass += 1;
     }
     if (row.line_coverage !== null && row.line_coverage !== undefined) { scen.lineSum += row.line_coverage; scen.lineCnt += 1; }
     if (row.branch_coverage !== null && row.branch_coverage !== undefined) { scen.branchSum += row.branch_coverage; scen.branchCnt += 1; }
@@ -3144,7 +3199,7 @@ function aggregateRows(selectedModel, selectedScenario) {
     language: item.language,
     total: item.total,
     compilePassRate: item.total ? item.compilePass / item.total : 0,
-    testPassRate: item.testTotal ? item.testPass / item.testTotal : 0,
+    testPassRate: item.total ? item.testPass / item.total : 0,
     lineCoverage: item.lineCnt ? item.lineSum / item.lineCnt : 0,
     branchCoverage: item.branchCnt ? item.branchSum / item.branchCnt : 0,
     mutationScore: item.mutationCnt ? item.mutationSum / item.mutationCnt : 0
@@ -3155,7 +3210,7 @@ function aggregateRows(selectedModel, selectedScenario) {
     language: item.language,
     total: item.total,
     compilePassRate: item.total ? item.compilePass / item.total : 0,
-    testPassRate: item.testTotal ? item.testPass / item.testTotal : 0,
+    testPassRate: item.total ? item.testPass / item.total : 0,
     lineCoverage: item.lineCnt ? item.lineSum / item.lineCnt : 0,
     branchCoverage: item.branchCnt ? item.branchSum / item.branchCnt : 0,
     mutationScore: item.mutationCnt ? item.mutationSum / item.mutationCnt : 0
@@ -3221,7 +3276,7 @@ function renderScenarioCharts(items) {
       labels,
       datasets: [
         { label: '编译通过率', data: compileRates, backgroundColor: '#1e40af' },
-        { label: '测试通过率', data: testRates, backgroundColor: '#10b981' }
+        { label: '样本测试通过率', data: testRates, backgroundColor: '#10b981' }
       ]
     },
     options: {
@@ -3301,7 +3356,7 @@ function renderModelCharts() {
     type: 'bar',
     data: { labels: modelNames, datasets: [
       { label: '编译', data: compileRates, backgroundColor: '#3b82f6' },
-      { label: '测试', data: testRates, backgroundColor: '#10b981' },
+      { label: '样测', data: testRates, backgroundColor: '#10b981' },
       { label: '覆盖', data: lineRates, backgroundColor: '#f59e0b' },
       { label: '变异', data: mutationRates, backgroundColor: '#8b5cf6' }
     ]},

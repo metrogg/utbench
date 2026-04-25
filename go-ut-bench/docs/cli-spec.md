@@ -107,6 +107,8 @@ utbench evaluate \
   --mutation-timeout 360
 ```
 
+说明：`evaluate` 会把结构化日志写到 `artifacts/runs/<run-id>/logs/`，便于排查 compile/test/coverage/mutation 卡点。所有语言都必须样本级测试通过后才运行变异测试；基线测试失败的样本变异分记 0，并归入模型问题。
+
 **参数：**
 
 | 参数 | 默认值 | 说明 |
@@ -128,8 +130,23 @@ utbench evaluate \
 **示例：**
 ```bash
 utbench report \
-  --input ./artifacts/runs/<run-id>/evaluation/evaluation_result.json
+  --evaluation ./artifacts/runs/<run-id>/evaluation/evaluation_result.json
 ```
+
+说明：报告中的 `test_pass_rate` / `avg_test_pass_rate` 为样本级口径；`test_case_pass_rate` / `avg_test_case_pass_rate` 为测试用例级口径。
+
+报告的 `failures` 会把变异测试失败拆成更细的类型，避免全部混在 `mutation_error` 中：
+
+| 类型 | 含义 |
+|------|------|
+| `mutation_skipped_baseline_failed` | 基线测试未全部通过，跳过变异测试 |
+| `mutation_target_not_exercised` | 生成测试没有导入/执行被测模块，变异体无法被测试关联 |
+| `mutation_no_results` | 变异工具没有产出可解析结果 |
+| `mutation_no_coverage` | 工具产出结果但没有 killed/survived 有效计分项 |
+| `mutation_no_effective_mutants` | 变异体为 0 或没有执行任何变异体 |
+| `mutation_timeout` | 变异测试超时 |
+| `mutation_tool_error` | 工具解析、报告或插件问题 |
+| `mutation_error` | 未归类的变异测试错误 |
 
 **参数：**
 

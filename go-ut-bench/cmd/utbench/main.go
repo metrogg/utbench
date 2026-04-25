@@ -166,6 +166,11 @@ func runWeb(args []string) error {
 		}
 	}
 
+	// Load .env file into process environment so os.Getenv() can read API keys
+	if err := web.LoadEnvFile(absEnvFile); err != nil {
+		return fmt.Errorf("load env file: %w", err)
+	}
+
 	dockerCfg := web.DockerConfig{
 		ImageName:   *imageName,
 		ProjectRoot: absProjectRoot,
@@ -380,7 +385,8 @@ func runEvaluate(args []string) error {
 	}
 	ensureRunID(&spec)
 
-	logger := obs.NewLogger(*verbose, "")
+	logDir := filepath.Join(spec.OutputRoot, "runs", spec.RunID, "logs")
+	logger := obs.NewLogger(*verbose, logDir)
 	ctx, cancel := withSignal(context.Background())
 	defer cancel()
 
@@ -422,7 +428,8 @@ func runReport(args []string) error {
 	}
 	ensureRunID(&spec)
 
-	logger := obs.NewLogger(*verbose, "")
+	logDir := filepath.Join(spec.OutputRoot, "runs", spec.RunID, "logs")
+	logger := obs.NewLogger(*verbose, logDir)
 	reporterSvc := reporter.NewService(logger)
 	output, err := reporterSvc.Generate(context.Background(), spec, *evaluationPath)
 	if err != nil {
