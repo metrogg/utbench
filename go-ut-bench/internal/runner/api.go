@@ -14,32 +14,18 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-<<<<<<< HEAD
-=======
 	"sync"
->>>>>>> origin/feat/go
 	"time"
 
 	"go-ut-bench/internal/contracts"
 )
 
-<<<<<<< HEAD
-// apiClient is the HTTP transport for OpenAI-compatible / DashScope model
-// providers. Prompt construction is delegated to prompt.go (see BuildPrompt).
-
-=======
->>>>>>> origin/feat/go
 type apiClient struct {
 	client  *http.Client
 	retries int
 	backoff time.Duration
 }
 
-<<<<<<< HEAD
-func newAPIClient() *apiClient {
-	return &apiClient{
-		client:  &http.Client{Timeout: 120 * time.Second},
-=======
 // Global per-model rate limiter: stagger calls to the same model provider/endpoint
 var (
 	globalRateLimiter   sync.Mutex
@@ -51,14 +37,11 @@ var (
 func newAPIClient() *apiClient {
 	return &apiClient{
 		client:  &http.Client{Timeout: 300 * time.Second},
->>>>>>> origin/feat/go
 		retries: 3,
 		backoff: 2 * time.Second,
 	}
 }
 
-<<<<<<< HEAD
-=======
 // waitModelInterval ensures staggered calls to the same model.
 // If the same model was called recently, sleeps until the interval has passed.
 func waitModelInterval(modelName string) {
@@ -86,17 +69,11 @@ func waitModelInterval(modelName string) {
 	globalRateLimiter.Unlock()
 }
 
->>>>>>> origin/feat/go
 func (c *apiClient) generateTest(
 	ctx context.Context,
 	model modelConfig,
 	language string,
-<<<<<<< HEAD
-	samplePath string,
-	sourceCode string,
-=======
 	prompt string,
->>>>>>> origin/feat/go
 ) (string, map[string]any, int, *int, *int, *int, bool, *contracts.ErrorInfo) {
 	apiKey := strings.TrimSpace(os.Getenv(model.APIKeyEnv))
 	if apiKey == "" {
@@ -107,10 +84,6 @@ func (c *apiClient) generateTest(
 		}
 	}
 
-<<<<<<< HEAD
-	prompt := buildPrompt(language, samplePath, sourceCode)
-=======
->>>>>>> origin/feat/go
 	payload := buildPayload(model, prompt)
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -120,23 +93,16 @@ func (c *apiClient) generateTest(
 	endpoint := resolveEndpoint(model)
 	var lastErr *contracts.ErrorInfo
 	var lastTruncated bool
-<<<<<<< HEAD
-=======
 	var allResponses []map[string]any
 	var accumulatedCode strings.Builder
 	var totalPromptTokens, totalCompletionTokens, totalTokens int
 	var tokenCountsSet bool
 	maxContinuationAttempts := 3
 
->>>>>>> origin/feat/go
 	for attempt := 1; attempt <= c.retries; attempt++ {
 		started := time.Now()
 		code, rawResp, p, cm, total, truncated, errInfo := c.doOnce(ctx, endpoint, apiKey, model.Provider, body)
 		latency := int(time.Since(started).Milliseconds())
-<<<<<<< HEAD
-		if errInfo == nil {
-			san := sanitizeModelOutput(code, language)
-=======
 
 		if errInfo != nil {
 			lastErr = errInfo
@@ -165,25 +131,11 @@ func (c *apiClient) generateTest(
 
 		if !truncated {
 			san := sanitizeModelOutput(accumulatedCode.String(), language)
->>>>>>> origin/feat/go
 			extracted := extractCode(san, language)
 			if vErr := validateGeneratedTest(extracted, language); vErr != nil {
 				lastErr = &contracts.ErrorInfo{Kind: "quality_error", Message: vErr.Error(), Retryable: false}
 				break
 			}
-<<<<<<< HEAD
-			return extracted, rawResp, latency, p, cm, total, truncated, nil
-		}
-
-		lastErr = errInfo
-		lastTruncated = truncated
-		if !errInfo.Retryable || attempt >= c.retries {
-			break
-		}
-		sleep := float64(c.backoff) * math.Pow(2, float64(attempt-1))
-		sleep += float64(time.Duration(rand.Int63n(int64(200 * time.Millisecond))))
-		time.Sleep(time.Duration(sleep))
-=======
 			finalTruncated := false
 			return extracted, mergeResponses(allResponses), latency, &totalPromptTokens, &totalCompletionTokens, &totalTokens, finalTruncated, nil
 		}
@@ -209,17 +161,12 @@ func (c *apiClient) generateTest(
 		san := sanitizeModelOutput(accumulatedCode.String(), language)
 		extracted := extractCode(san, language)
 		return extracted, mergeResponses(allResponses), 0, &totalPromptTokens, &totalCompletionTokens, &totalTokens, lastTruncated, nil
->>>>>>> origin/feat/go
 	}
 
 	if lastErr == nil {
 		lastErr = &contracts.ErrorInfo{Kind: "unknown_error", Message: "unknown generation error", Retryable: false}
 	}
-<<<<<<< HEAD
-	return "", nil, 0, nil, nil, nil, lastTruncated, lastErr
-=======
 	return accumulatedCode.String(), mergeResponses(allResponses), 0, &totalPromptTokens, &totalCompletionTokens, &totalTokens, lastTruncated, lastErr
->>>>>>> origin/feat/go
 }
 
 func (c *apiClient) doOnce(
@@ -234,11 +181,7 @@ func (c *apiClient) doOnce(
 		return "", nil, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "request_build_error", Message: err.Error(), Retryable: false}
 	}
 	req.Header.Set("Content-Type", "application/json")
-<<<<<<< HEAD
-	setAuthHeaders(req, provider, apiKey)
-=======
 	req.Header.Set("Authorization", "Bearer "+apiKey)
->>>>>>> origin/feat/go
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -291,18 +234,6 @@ func resolveEndpoint(model modelConfig) string {
 		}
 		return base + "/services/aigc/text-generation/generation"
 	}
-<<<<<<< HEAD
-	if isAnthropicProvider(model.Provider) {
-		if strings.HasSuffix(base, "/messages") {
-			return base
-		}
-		if strings.HasSuffix(base, "/v1") {
-			return base + "/messages"
-		}
-		return base + "/v1/messages"
-	}
-=======
->>>>>>> origin/feat/go
 	return base + "/chat/completions"
 }
 
@@ -319,28 +250,6 @@ func buildPayload(model modelConfig, prompt string) map[string]any {
 			"parameters": params,
 		}
 	}
-<<<<<<< HEAD
-	if isAnthropicProvider(model.Provider) {
-		maxTokens := any(4096)
-		if v, ok := params["max_tokens"]; ok {
-			maxTokens = v
-			delete(params, "max_tokens")
-		}
-		payload := map[string]any{
-			"model":      model.Model,
-			"system":     systemMessage,
-			"max_tokens": maxTokens,
-			"messages": []map[string]any{
-				{"role": "user", "content": prompt},
-			},
-		}
-		for k, v := range params {
-			payload[k] = v
-		}
-		return payload
-	}
-=======
->>>>>>> origin/feat/go
 
 	payload := map[string]any{
 		"model": model.Model,
@@ -356,20 +265,6 @@ func buildPayload(model modelConfig, prompt string) map[string]any {
 	return payload
 }
 
-<<<<<<< HEAD
-func extractResponseText(response map[string]any, provider string) (string, error) {
-	if isAnthropicProvider(provider) {
-		if blocks, ok := response["content"].([]any); ok {
-			var parts []string
-			for _, block := range blocks {
-				item, _ := block.(map[string]any)
-				if text, ok := item["text"].(string); ok && text != "" {
-					parts = append(parts, text)
-				}
-			}
-			if len(parts) > 0 {
-				return strings.Join(parts, "\n"), nil
-=======
 func buildContinuationPayload(model modelConfig, originalPrompt string, generatedSoFar string) map[string]any {
 	continuationPrompt := "Continue generating the unit test code from where you left off. " +
 		"Output only the remaining code without any explanations or markdown fences. " +
@@ -457,13 +352,10 @@ func mergeResponses(responses []map[string]any) map[string]any {
 			}
 			if t, ok := usage["total_tokens"].(float64); ok {
 				totalTokens += int64(t)
->>>>>>> origin/feat/go
 			}
 		}
 	}
 
-<<<<<<< HEAD
-=======
 	return map[string]any{
 		"merged":             true,
 		"continuation_count": continuationCount,
@@ -503,7 +395,6 @@ func extractResponseTextFromAny(response map[string]any) (string, error) {
 }
 
 func extractResponseText(response map[string]any, provider string) (string, error) {
->>>>>>> origin/feat/go
 	if provider == "dashscope" {
 		if output, ok := response["output"].(map[string]any); ok {
 			if text, ok := output["text"].(string); ok && text != "" {
@@ -550,27 +441,10 @@ func extractUsage(response map[string]any) (*int, *int, *int) {
 		c = toIntPtr(usage["output_tokens"])
 	}
 	t := toIntPtr(usage["total_tokens"])
-<<<<<<< HEAD
-	if t == nil && p != nil && c != nil {
-		total := *p + *c
-		t = &total
-	}
-=======
->>>>>>> origin/feat/go
 	return p, c, t
 }
 
 func extractFinishReason(response map[string]any, provider string) bool {
-<<<<<<< HEAD
-	if isAnthropicProvider(provider) {
-		if reason, ok := response["stop_reason"].(string); ok {
-			return reason == "max_tokens"
-		}
-		return false
-	}
-
-=======
->>>>>>> origin/feat/go
 	if provider == "dashscope" {
 		if output, ok := response["output"].(map[string]any); ok {
 			if choices, ok := output["choices"].([]any); ok && len(choices) > 0 {
@@ -594,23 +468,6 @@ func extractFinishReason(response map[string]any, provider string) bool {
 	return false
 }
 
-<<<<<<< HEAD
-func setAuthHeaders(req *http.Request, provider string, apiKey string) {
-	if isAnthropicProvider(provider) {
-		req.Header.Set("x-api-key", apiKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-}
-
-func isAnthropicProvider(provider string) bool {
-	p := strings.ToLower(strings.TrimSpace(provider))
-	return p == "anthropic" || p == "claude"
-}
-
-=======
->>>>>>> origin/feat/go
 func toIntPtr(v any) *int {
 	switch x := v.(type) {
 	case int:
@@ -626,13 +483,6 @@ func toIntPtr(v any) *int {
 	}
 }
 
-<<<<<<< HEAD
-// -----------------------------------------------------------------------------
-// Output post-processing (raw LLM response -> cleaned code string)
-// -----------------------------------------------------------------------------
-
-=======
->>>>>>> origin/feat/go
 func sanitizeModelOutput(content string, language string) string {
 	text := strings.TrimSpace(content)
 	re := regexp.MustCompile(`(?is)<think>.*?</think>`)
@@ -647,11 +497,7 @@ func sanitizeModelOutput(content string, language string) string {
 
 func trimNonCodePrefix(text string) string {
 	lines := strings.Split(text, "\n")
-<<<<<<< HEAD
-	re := regexp.MustCompile(`^\s*(from\s+\w|import\s+\w|def\s+\w|class\s+\w|@|if\s+__name__|#|"""|''')`)
-=======
 	re := regexp.MustCompile(`^\s*(from\s+\w|import\s+\w|def\s+\w|class\s+\w|@|if\s+__name__|#|\"\"\"|''')`)
->>>>>>> origin/feat/go
 	for i, line := range lines {
 		if re.MatchString(line) {
 			return strings.TrimSpace(strings.Join(lines[i:], "\n"))
@@ -738,12 +584,6 @@ func trimText(v string, max int) string {
 	return v[:max]
 }
 
-<<<<<<< HEAD
-// -----------------------------------------------------------------------------
-// Source-analysis helpers (used by prompt.go to enrich prompts with context).
-// Kept here because they are also re-exercised from api_test.go.
-// -----------------------------------------------------------------------------
-=======
 func coverageTargetsText() string {
 	// Keep in sync with benchmark/config/models.yaml default thresholds.
 	line := 0.7
@@ -800,7 +640,6 @@ func parseSampleMeta(sampleID, samplePath string) (string, string) {
 	}
 	return "", ""
 }
->>>>>>> origin/feat/go
 
 func extractDependencies(sourceCode, language string) []string {
 	var deps []string
@@ -827,28 +666,18 @@ func extractDependencies(sourceCode, language string) []string {
 		}
 	case "go":
 		reSingle := regexp.MustCompile(`(?m)^\s*import\s+"([^"]+)"`)
-<<<<<<< HEAD
-		for _, m := range reSingle.FindAllStringSubmatch(sourceCode, -1) {
-=======
 		singleMatches := reSingle.FindAllStringSubmatch(sourceCode, -1)
 		for _, m := range singleMatches {
->>>>>>> origin/feat/go
 			if len(m) > 1 && strings.TrimSpace(m[1]) != "" {
 				deps = append(deps, strings.TrimSpace(m[1]))
 			}
 		}
 		reBlock := regexp.MustCompile(`(?s)import\s*\((.*?)\)`)
-<<<<<<< HEAD
-		if block := reBlock.FindStringSubmatch(sourceCode); len(block) > 1 {
-			reQuoted := regexp.MustCompile(`"([^"]+)"`)
-			for _, m := range reQuoted.FindAllStringSubmatch(block[1], -1) {
-=======
 		block := reBlock.FindStringSubmatch(sourceCode)
 		if len(block) > 1 {
 			reQuoted := regexp.MustCompile(`"([^"]+)"`)
 			quoted := reQuoted.FindAllStringSubmatch(block[1], -1)
 			for _, m := range quoted {
->>>>>>> origin/feat/go
 				if len(m) > 1 && strings.TrimSpace(m[1]) != "" {
 					deps = append(deps, strings.TrimSpace(m[1]))
 				}
@@ -856,12 +685,8 @@ func extractDependencies(sourceCode, language string) []string {
 		}
 	case "cpp":
 		re := regexp.MustCompile(`(?m)^\s*#include\s*[<"]([^>"]+)[>"]`)
-<<<<<<< HEAD
-		for _, m := range re.FindAllStringSubmatch(sourceCode, -1) {
-=======
 		matches := re.FindAllStringSubmatch(sourceCode, -1)
 		for _, m := range matches {
->>>>>>> origin/feat/go
 			if len(m) > 1 && strings.TrimSpace(m[1]) != "" {
 				deps = append(deps, strings.TrimSpace(m[1]))
 			}
@@ -883,49 +708,6 @@ func extractDependencies(sourceCode, language string) []string {
 	return out
 }
 
-<<<<<<< HEAD
-func extractCriticalConditions(sourceCode, language string) []string {
-	switch language {
-	case "python":
-		return extractCriticalConditionsPython(sourceCode)
-	case "go":
-		return extractCriticalConditionsGo(sourceCode)
-	default:
-		return nil
-	}
-}
-
-func extractCriticalConditionsGo(sourceCode string) []string {
-	lines := strings.Split(sourceCode, "\n")
-	candidates := make([]string, 0, 16)
-	seen := map[string]struct{}{}
-	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "//") {
-			continue
-		}
-		if !containsComparator(line) {
-			continue
-		}
-		if strings.HasPrefix(line, "if ") ||
-			strings.HasPrefix(line, "} else if ") ||
-			strings.HasPrefix(line, "case ") ||
-			strings.HasPrefix(line, "for ") ||
-			strings.HasPrefix(line, "return ") {
-			if _, ok := seen[line]; !ok {
-				seen[line] = struct{}{}
-				candidates = append(candidates, line)
-				if len(candidates) >= 12 {
-					break
-				}
-			}
-		}
-	}
-	return candidates
-}
-
-func extractCriticalConditionsPython(sourceCode string) []string {
-=======
 func mockRequirement(sourceCode string) string {
 	lower := strings.ToLower(sourceCode)
 	markers := []string{
@@ -955,7 +737,6 @@ func extractCriticalConditions(sourceCode, language string) []string {
 		return nil
 	}
 
->>>>>>> origin/feat/go
 	lines := strings.Split(sourceCode, "\n")
 	candidates := make([]string, 0, 16)
 	loopLines := map[int]string{}
@@ -1012,22 +793,13 @@ func extractCriticalConditions(sourceCode, language string) []string {
 			break
 		}
 	}
-<<<<<<< HEAD
-=======
-
->>>>>>> origin/feat/go
 	return dedup
 }
 
 func containsComparator(line string) bool {
-<<<<<<< HEAD
-	for _, c := range []string{"<=", ">=", "==", "!=", "<", ">"} {
-		if strings.Contains(line, c) {
-=======
 	comparators := []string{"<=", ">=", "==", "!=", "<", ">"}
 	for _, item := range comparators {
 		if strings.Contains(line, item) {
->>>>>>> origin/feat/go
 			return true
 		}
 	}
@@ -1104,13 +876,6 @@ func extractModuleLevelSymbols(sourceCode, language string) string {
 	return "Module-level symbols available to import: " + strings.Join(symbols, ", ") + "."
 }
 
-<<<<<<< HEAD
-// -----------------------------------------------------------------------------
-// Module-level meta loading (shared between generator and prompt builder)
-// -----------------------------------------------------------------------------
-
-=======
->>>>>>> origin/feat/go
 type moduleLevelMetaForRunner struct {
 	SampleID      string   `json:"sample_id"`
 	ModuleImport  string   `json:"module_import"`

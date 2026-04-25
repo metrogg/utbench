@@ -1,10 +1,7 @@
 package evaluator
 
 import (
-<<<<<<< HEAD
-=======
 	"go-ut-bench/internal/contracts"
->>>>>>> origin/feat/go
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,8 +131,6 @@ func TestAdd(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
-=======
 func TestRewriteGeneratedTestImportsNeutralPythonModules(t *testing.T) {
 	sourcePath := filepath.Join("tmp", "actual_module.py")
 	input := strings.Join([]string{
@@ -191,7 +186,6 @@ func TestClassifyFailureOriginKeepsPureMutationToolErrorExcluded(t *testing.T) {
 	}
 }
 
->>>>>>> origin/feat/go
 func containsAll(s string, subs []string) bool {
 	for _, sub := range subs {
 		if !strings.Contains(s, sub) {

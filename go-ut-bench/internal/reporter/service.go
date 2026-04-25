@@ -4,10 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-<<<<<<< HEAD
-	"math"
-=======
->>>>>>> origin/feat/go
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,10 +12,7 @@ import (
 
 	"go-ut-bench/internal/contracts"
 	"go-ut-bench/internal/obs"
-<<<<<<< HEAD
-=======
 	"go-ut-bench/internal/runner"
->>>>>>> origin/feat/go
 
 	"gopkg.in/yaml.v3"
 )
@@ -35,8 +28,6 @@ type Output struct {
 }
 
 type mutationBreakdown struct {
-<<<<<<< HEAD
-=======
 	Total      int                     `json:"total"`
 	Killed     int                     `json:"killed"`
 	Survived   int                     `json:"survived"`
@@ -49,7 +40,6 @@ type mutationBreakdown struct {
 
 type mutationToolBreakdown struct {
 	Tool       string `json:"tool"`
->>>>>>> origin/feat/go
 	Total      int    `json:"total"`
 	Killed     int    `json:"killed"`
 	Survived   int    `json:"survived"`
@@ -57,10 +47,6 @@ type mutationToolBreakdown struct {
 	Timeouts   int    `json:"timeouts"`
 	Skipped    int    `json:"skipped"`
 	Suspicious int    `json:"suspicious"`
-<<<<<<< HEAD
-	Tool       string `json:"tool,omitempty"`
-=======
->>>>>>> origin/feat/go
 }
 
 type ModelDetail struct {
@@ -69,63 +55,8 @@ type ModelDetail struct {
 	Provider string
 }
 
-<<<<<<< HEAD
-// getPromptTemplate 返回通用的中英双语提示词模板
-func getPromptTemplate() string {
-	return `You are an expert unit testing engineer.
-你是一名资深单元测试工程师。
-Generate high-quality unit tests based on the following specification.
-请基于以下规范生成高质量单元测试。
-
-## Role & Objective（角色与目标）
-- Goal: produce executable tests that match source behavior exactly.
-- 目标：生成可执行且与源码行为严格一致的测试。
-
-## Language & Framework（语言与框架）
-- Language（语言）: {language}
-- Test Framework（测试框架）: {framework}
-
-## Step-by-Step Workflow（分步流程）
-1) Identify callable symbols and input/output contracts from source.
-2) Build a test matrix: normal, boundary, and exception paths.
-3) Derive expected values only from implementation semantics.
-4) Write deterministic, runnable tests with clear assertions.
-5) Self-check syntax/imports/assertions before final output.
-
-## Test Requirements（测试要求）
-- Cover normal paths, boundary conditions, and error/exception behavior.
-- 覆盖正常路径、边界条件和异常行为。
-- Keep tests deterministic and runnable.
-- 保持测试可重复、可执行（避免随机性）。
-- Use clear assertions with meaningful expected values.
-- 使用清晰断言和有意义的期望值。
-- Coverage targets（覆盖率目标，供参考）: {coverage_targets}
-- Mock requirements（Mock 要求）: {mock_requirement}
-
-## Semantic Alignment Hard Rules（语义对齐硬约束）
-- Derive expected values strictly from the given source code behavior.
-- 期望值必须严格依据给定源码行为推导，不要按题型常识脑补。
-- Respect exact comparison semantics in code (<, <=, >, >=, ==).
-- 必须严格遵守源码比较符号语义（尤其阈值边界等于时）。
-- Include explicit boundary-equality assertions when threshold/limit checks exist.
-- 当存在阈值/边界判断时，必须包含"等于边界"的断言样例。
-- If implementation looks counter-intuitive, still assert implementation behavior.
-- 若实现与常识不一致，也必须以源码实现为准。
-- If docstring/comment conflicts with implementation, trust implementation.
-- 若注释/文档示例与实现冲突，以实现为准。
-
-## Output Format（输出格式）
-- Return raw test code only (no Markdown fences).
-- 仅输出原始测试代码，不要 Markdown 代码块。
-- Do not include explanations.
-- 不要输出解释文字。
-
-## Source Code Under Test（被测源码）
-{source_code}`
-=======
 func getPromptTemplate(language string) string {
 	return runner.PromptTemplatePreview(language)
->>>>>>> origin/feat/go
 }
 
 func NewService(logger *obs.Logger) *Service {
@@ -137,10 +68,7 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 	if err != nil {
 		return Output{}, err
 	}
-<<<<<<< HEAD
-=======
 	promptStrategy, promptVersionID, promptSnapshotDir, prompts := loadPromptArtifacts(set.ManifestPath)
->>>>>>> origin/feat/go
 
 	reportRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID, "report")
 	if err := os.MkdirAll(reportRoot, 0o755); err != nil {
@@ -153,24 +81,6 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 	tokenStats := buildTokenStats(set.Results)
 	topModels := buildTopModels(dims.ByModel)
 	failures := buildFailureRows(set.Results)
-<<<<<<< HEAD
-	breakdown := buildMutationBreakdown(set.Results)
-	modelInfos := buildModelInfos(dims.ByModel, modelDetails)
-
-	payload := contracts.ReportPayload{
-		SchemaVersion:    contracts.SchemaVersion,
-		RunID:            spec.RunID,
-		GeneratedAtUTC:   time.Now().UTC(),
-		SourceEvaluation: evaluationPath,
-		Summary:          summary,
-		Dimensions:       dims,
-		TopModels:        topModels,
-		ModelInfos:       modelInfos,
-		ByScenario:       dims.ByScenario,
-		ByModelScenario:  dims.ByModelScenario,
-		TokenStats:       tokenStats,
-		Failures:         failures,
-=======
 	scoreExclusions := buildScoreExclusions(set.Results)
 	breakdown := buildMutationBreakdown(set.Results)
 	modelInfos := buildModelInfos(dims.ByModel, modelDetails)
@@ -193,7 +103,6 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 		TokenStats:        tokenStats,
 		Failures:          failures,
 		ScoreExclusions:   scoreExclusions,
->>>>>>> origin/feat/go
 		Thresholds: contracts.Thresholds{
 			CompilePassRate: 1.0,
 			TestPassRate:    0.7,
@@ -201,38 +110,13 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 			BranchCoverage:  0.6,
 			MutationScore:   0.85,
 		},
-<<<<<<< HEAD
-		Prompts: map[string]string{
-			"python": getPromptTemplate(),
-			"go":     getPromptTemplate(),
-			"java":   getPromptTemplate(),
-			"cpp":    getPromptTemplate(),
-		},
-=======
 		Prompts:         prompts,
 		TruncationStats: truncationStats,
->>>>>>> origin/feat/go
 	}
 
 	jsonPath := filepath.Join(reportRoot, "report_summary.json")
 	htmlPath := filepath.Join(reportRoot, "report.html")
 	summaryJSON := map[string]any{
-<<<<<<< HEAD
-		"schema_version":     payload.SchemaVersion,
-		"run_id":             payload.RunID,
-		"generated_at_utc":   payload.GeneratedAtUTC,
-		"source_evaluation":  payload.SourceEvaluation,
-		"summary":            payload.Summary,
-		"dimensions":         payload.Dimensions,
-		"top_models":         payload.TopModels,
-		"model_infos":        payload.ModelInfos,
-		"by_scenario":        payload.ByScenario,
-		"by_model_scenario":  payload.ByModelScenario,
-		"token_stats":        payload.TokenStats,
-		"failures":           payload.Failures,
-		"mutation_breakdown": breakdown,
-		"thresholds":         payload.Thresholds,
-=======
 		"schema_version":      payload.SchemaVersion,
 		"run_id":              payload.RunID,
 		"generated_at_utc":    payload.GeneratedAtUTC,
@@ -252,7 +136,6 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 		"mutation_breakdown":  breakdown,
 		"thresholds":          payload.Thresholds,
 		"prompts":             payload.Prompts,
->>>>>>> origin/feat/go
 	}
 	if err := contracts.WriteJSON(jsonPath, summaryJSON); err != nil {
 		return Output{}, err
@@ -265,8 +148,6 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 	return Output{Report: payload, ReportJSONPath: jsonPath, ReportHTMLPath: htmlPath}, nil
 }
 
-<<<<<<< HEAD
-=======
 func loadPromptArtifacts(manifestPath string) (string, string, string, map[string]string) {
 	prompts := map[string]string{
 		"python": getPromptTemplate("python"),
@@ -294,7 +175,6 @@ func loadPromptArtifacts(manifestPath string) (string, string, string, map[strin
 	return manifest.PromptStrategy, manifest.PromptVersionID, manifest.PromptSnapshotDir, prompts
 }
 
->>>>>>> origin/feat/go
 func loadModelDetails(configPath string) map[string]ModelDetail {
 	details := map[string]ModelDetail{}
 	raw, err := os.ReadFile(configPath)
@@ -345,11 +225,8 @@ func buildModelInfos(models []contracts.ModelDim, details map[string]ModelDetail
 
 func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 	total := len(rows)
-<<<<<<< HEAD
-=======
 	eligibleTotal := 0
 	excludedTotal := 0
->>>>>>> origin/feat/go
 	compilePass := 0
 	testPassTotal := 0
 	testTotal := 0
@@ -363,14 +240,11 @@ func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 	assertDensityCnt := 0
 
 	for _, row := range rows {
-<<<<<<< HEAD
-=======
 		if !isScoreEligible(row) {
 			excludedTotal++
 			continue
 		}
 		eligibleTotal++
->>>>>>> origin/feat/go
 		if row.CompilePass {
 			compilePass++
 		}
@@ -404,15 +278,10 @@ func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 
 	return contracts.ReportSummary{
 		TotalSamples:        total,
-<<<<<<< HEAD
-		CompilePassCount:    compilePass,
-		CompilePassRate:     rate(compilePass, total),
-=======
 		EligibleSamples:     eligibleTotal,
 		ExcludedSamples:     excludedTotal,
 		CompilePassCount:    compilePass,
 		CompilePassRate:     rate(compilePass, eligibleTotal),
->>>>>>> origin/feat/go
 		TestPassCount:       testPassTotal,
 		TestPassRate:        rate(testPassTotal, testTotal),
 		AvgLineCoverage:     avg(lineSum, lineCnt),
@@ -428,12 +297,9 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 	modelScenarioMap := map[string]*modelScenarioAgg{}
 
 	for _, row := range rows {
-<<<<<<< HEAD
-=======
 		if !isScoreEligible(row) {
 			continue
 		}
->>>>>>> origin/feat/go
 		agg := getOrCreateModelAgg(modelMap, row.Model)
 		mergeModelAgg(agg, row)
 
@@ -459,11 +325,7 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			modelID = detail.ModelID
 			provider = detail.Provider
 		}
-<<<<<<< HEAD
-		dim := contracts.ModelDim{
-=======
 		byModel = append(byModel, contracts.ModelDim{
->>>>>>> origin/feat/go
 			Model:               agg.key,
 			ModelID:             modelID,
 			Provider:            provider,
@@ -477,19 +339,8 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			AvgPromptTokens:     avgFloat(agg.promptTokensSum, agg.tokenCnt),
 			AvgCompletionTokens: avgFloat(agg.completionTokensSum, agg.tokenCnt),
 			AvgTotalTokens:      avgFloat(agg.totalTokensSum, agg.tokenCnt),
-<<<<<<< HEAD
-			PassCount:           agg.passCount,
-			TokensPerPass:       round(avgFloat(agg.completionTokensSum, agg.passCount), 2),
-			MsPerPass:           round(avgFloat(agg.latencySum, agg.passCount), 2),
-		}
-		dim.CompositeScore = round(compositeScore(dim), 6)
-		byModel = append(byModel, dim)
-	}
-	applyEfficiencyBonus(byModel)
-=======
 		})
 	}
->>>>>>> origin/feat/go
 	sort.Slice(byModel, func(i, j int) bool { return byModel[i].Model < byModel[j].Model })
 
 	var byLanguage []contracts.LanguageDim
@@ -569,10 +420,6 @@ type modelAgg struct {
 	key                 string
 	count               int
 	compilePass         int
-<<<<<<< HEAD
-	passCount           int // 编译通过且至少一条测试通过的样本数，用于效率分母
-=======
->>>>>>> origin/feat/go
 	testPassTotal       int
 	testTotal           int
 	lineSum             float64
@@ -674,36 +521,15 @@ func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
 	if row.CompilePass {
 		a.compilePass++
 	}
-<<<<<<< HEAD
-	samplePassed := false
 	if row.TestPassCount != nil && row.TestTotalCount != nil {
 		a.testPassTotal += *row.TestPassCount
 		a.testTotal += *row.TestTotalCount
-		if row.CompilePass && *row.TestPassCount > 0 {
-			samplePassed = true
-		}
-=======
-	if row.TestPassCount != nil && row.TestTotalCount != nil {
-		a.testPassTotal += *row.TestPassCount
-		a.testTotal += *row.TestTotalCount
->>>>>>> origin/feat/go
 	} else if row.TestPass != nil {
 		a.testTotal++
 		if *row.TestPass {
 			a.testPassTotal++
-<<<<<<< HEAD
-			if row.CompilePass {
-				samplePassed = true
-			}
 		}
 	}
-	if samplePassed {
-		a.passCount++
-	}
-=======
-		}
-	}
->>>>>>> origin/feat/go
 	if row.LineCoverage != nil {
 		a.lineSum += *row.LineCoverage
 		a.lineCnt++
@@ -827,73 +653,6 @@ func buildTokenStats(rows []contracts.EvaluationResult) contracts.TokenStats {
 	return stats
 }
 
-<<<<<<< HEAD
-// compositeScore 计算模型综合得分。
-//
-// 权重设计：
-//   - 编译通过率 20%：基础门槛
-//   - 测试通过率 20%：按编译通过率折减（未编译视为 0 贡献）
-//   - 行覆盖率 15%：同样按编译通过率折减
-//   - 变异得分 35%：最能区分模型"测试是否真的有效"的指标，主导排名
-//   - 效率 bonus 10%：基于效率相对排名的加分项（无参照时返回 0）
-//
-// 所有输入均为 [0,1] 小数；返回值亦为 [0,1]。
-func compositeScore(m contracts.ModelDim) float64 {
-	cp := m.CompilePassRate
-	// 编译失败的样本视为测试/覆盖/变异全 0，折减后的"有效指标"
-	effTest := m.AvgTestPassRate * cp
-	effLine := m.AvgLineCoverage * cp
-	effMut := m.AvgMutationScore * cp
-	return cp*0.20 + effTest*0.20 + effLine*0.15 + effMut*0.35
-}
-
-// applyEfficiencyBonus 在一组模型间根据 tokens_per_pass / ms_per_pass 的相对排名
-// 为 composite_score 叠加最多 0.10 的 bonus（最快最便宜的模型得满额，最差得 0）。
-// 需要在所有 ModelDim 都填充完 composite_score 后调用。
-func applyEfficiencyBonus(models []contracts.ModelDim) {
-	if len(models) <= 1 {
-		return
-	}
-	minTok, maxTok := math.Inf(1), math.Inf(-1)
-	minMs, maxMs := math.Inf(1), math.Inf(-1)
-	for _, m := range models {
-		if m.TokensPerPass > 0 {
-			if m.TokensPerPass < minTok {
-				minTok = m.TokensPerPass
-			}
-			if m.TokensPerPass > maxTok {
-				maxTok = m.TokensPerPass
-			}
-		}
-		if m.MsPerPass > 0 {
-			if m.MsPerPass < minMs {
-				minMs = m.MsPerPass
-			}
-			if m.MsPerPass > maxMs {
-				maxMs = m.MsPerPass
-			}
-		}
-	}
-	tokSpan := maxTok - minTok
-	msSpan := maxMs - minMs
-	for i := range models {
-		var tokScore, msScore float64
-		if tokSpan > 0 && models[i].TokensPerPass > 0 {
-			tokScore = 1 - (models[i].TokensPerPass-minTok)/tokSpan
-		}
-		if msSpan > 0 && models[i].MsPerPass > 0 {
-			msScore = 1 - (models[i].MsPerPass-minMs)/msSpan
-		}
-		bonus := (tokScore + msScore) / 2 * 0.10
-		models[i].CompositeScore = round(models[i].CompositeScore+bonus, 6)
-	}
-}
-
-// buildTopModels 基于 buildDimensions 已计算好的 CompositeScore 生成排名。
-// 不再重复计算，确保与 by_model 中的 composite_score 一致（含 efficiency bonus）。
-func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
-	sorted := append([]contracts.ModelDim(nil), models...)
-=======
 func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 	var sorted []contracts.ModelDim
 	for _, m := range models {
@@ -902,7 +661,6 @@ func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 		m.CompositeScore = round(composite, 6)
 		sorted = append(sorted, m)
 	}
->>>>>>> origin/feat/go
 	// 按综合得分降序排序
 	sort.Slice(sorted, func(i, j int) bool {
 		if sorted[i].CompositeScore != sorted[j].CompositeScore {
@@ -933,19 +691,11 @@ func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 			AvgPromptTokens:     m.AvgPromptTokens,
 			AvgCompletionTokens: m.AvgCompletionTokens,
 			AvgTotalTokens:      m.AvgTotalTokens,
-<<<<<<< HEAD
-			TokensPerPass:       m.TokensPerPass,
-			MsPerPass:           m.MsPerPass,
-			PassCount:           m.PassCount,
-=======
->>>>>>> origin/feat/go
 		})
 	}
 	return out
 }
 
-<<<<<<< HEAD
-=======
 func buildTruncationStats(rows []contracts.EvaluationResult) contracts.TruncationStats {
 	totalTruncated := 0
 	modelStats := map[string]*truncationAgg{}
@@ -1051,7 +801,6 @@ type truncationAgg struct {
 	completionTokensCount int
 }
 
->>>>>>> origin/feat/go
 func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow {
 	m := map[failureKey]*failureAgg{}
 
@@ -1060,10 +809,6 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "generate", errType: "truncated"}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
-<<<<<<< HEAD
-			agg.byModel[row.Model]++
-=======
->>>>>>> origin/feat/go
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -1074,10 +819,6 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "compile", errType: classifyError(row.CompileError)}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
-<<<<<<< HEAD
-			agg.byModel[row.Model]++
-=======
->>>>>>> origin/feat/go
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -1088,10 +829,6 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "test", errType: classifyError(row.TestError)}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
-<<<<<<< HEAD
-			agg.byModel[row.Model]++
-=======
->>>>>>> origin/feat/go
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -1102,10 +839,6 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "coverage", errType: "coverage_error"}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
-<<<<<<< HEAD
-			agg.byModel[row.Model]++
-=======
->>>>>>> origin/feat/go
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -1116,10 +849,6 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "mutation", errType: "mutation_error"}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
-<<<<<<< HEAD
-			agg.byModel[row.Model]++
-=======
->>>>>>> origin/feat/go
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -1134,10 +863,6 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			Stage:          k.stage,
 			ErrorType:      k.errType,
 			Count:          agg.count,
-<<<<<<< HEAD
-			ByModel:        agg.byModel,
-=======
->>>>>>> origin/feat/go
 			ExampleModel:   agg.exampleModel,
 			ExampleSample:  agg.exampleSample,
 			ExampleMessage: agg.exampleMessage,
@@ -1147,8 +872,6 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 	return out
 }
 
-<<<<<<< HEAD
-=======
 func isScoreEligible(row contracts.EvaluationResult) bool {
 	if row.ScoreEligible == nil {
 		return true
@@ -1217,7 +940,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
->>>>>>> origin/feat/go
 type failureKey struct {
 	stage, errType string
 }
@@ -1225,10 +947,6 @@ type failureKey struct {
 type failureAgg struct {
 	key            failureKey
 	count          int
-<<<<<<< HEAD
-	byModel        map[string]int
-=======
->>>>>>> origin/feat/go
 	exampleModel   string
 	exampleSample  string
 	exampleMessage string
@@ -1238,11 +956,7 @@ func getOrCreateFailureAgg(m map[failureKey]*failureAgg, k failureKey) *failureA
 	if a, ok := m[k]; ok {
 		return a
 	}
-<<<<<<< HEAD
-	a := &failureAgg{key: k, byModel: map[string]int{}}
-=======
 	a := &failureAgg{key: k}
->>>>>>> origin/feat/go
 	m[k] = a
 	return a
 }
@@ -1280,33 +994,6 @@ func shortErrText(v string) string {
 
 func buildMutationBreakdown(rows []contracts.EvaluationResult) mutationBreakdown {
 	out := mutationBreakdown{}
-<<<<<<< HEAD
-	for _, row := range rows {
-		if row.MutationTotal != nil {
-			out.Total += *row.MutationTotal
-		}
-		if row.MutationKilled != nil {
-			out.Killed += *row.MutationKilled
-		}
-		if row.MutationSurvived != nil {
-			out.Survived += *row.MutationSurvived
-		}
-		if row.MutationNoTests != nil {
-			out.NoTests += *row.MutationNoTests
-		}
-		if row.MutationTimeouts != nil {
-			out.Timeouts += *row.MutationTimeouts
-		}
-		if row.MutationSkipped != nil {
-			out.Skipped += *row.MutationSkipped
-		}
-		if row.MutationSuspicious != nil {
-			out.Suspicious += *row.MutationSuspicious
-		}
-		if row.MutationTool != "" && out.Tool == "" {
-			out.Tool = row.MutationTool
-		}
-=======
 	byTool := map[string]*mutationToolBreakdown{}
 	for _, row := range rows {
 		tool := strings.TrimSpace(row.MutationTool)
@@ -1369,7 +1056,6 @@ func buildMutationBreakdown(rows []contracts.EvaluationResult) mutationBreakdown
 	sort.Strings(tools)
 	for _, tool := range tools {
 		out.ByTool = append(out.ByTool, *byTool[tool])
->>>>>>> origin/feat/go
 	}
 	return out
 }
@@ -1417,15 +1103,6 @@ func effectiveKillRate(b mutationBreakdown) float64 {
 func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, rows []contracts.EvaluationResult) string {
 	var b strings.Builder
 
-<<<<<<< HEAD
-	b.WriteString(`<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ut-bench 可视化评测报告</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-=======
 	heroModels := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string { return r.Model }))
 	heroLangs := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string { return r.Language }))
 	heroTypes := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string { return extractScenario(r.SampleID) }))
@@ -1436,7 +1113,6 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ut-bench 可视化评测报告</title>
->>>>>>> origin/feat/go
 <style>
 :root {
   --bg: #f3efe7;
@@ -1459,22 +1135,11 @@ body {
   margin: 0; 
   color: var(--text); 
   background:
-<<<<<<< HEAD
-    radial-gradient(circle at top left, rgba(15,118,110,0.08), transparent 24%),
-    radial-gradient(circle at top right, rgba(217,119,6,0.10), transparent 26%),
-    linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 18%, #f8f5ee 100%);
-=======
 	background: #f8fafc;
->>>>>>> origin/feat/go
   font-family: "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 20px 40px; }
 
-<<<<<<< HEAD
-/* 紧凑Hero样式 */
-.hero-compact {
-  background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 50%, #3d7ab5 100%);
-=======
 /* Runtime banner (e.g. Chart.js load failure) */
 .runtime-banner {
   display: none;
@@ -1491,7 +1156,6 @@ body {
 /* 紧凑Hero样式 */
 .hero-compact {
   background: #1e3a5f;
->>>>>>> origin/feat/go
   border-radius: 16px;
   padding: 16px 20px;
   margin-bottom: 16px;
@@ -1516,11 +1180,7 @@ body {
 }
 .hero-compact-stats {
   display: grid;
-<<<<<<< HEAD
-  grid-template-columns: repeat(7, 1fr);
-=======
   grid-template-columns: repeat(3, 1fr);
->>>>>>> origin/feat/go
   gap: 10px;
 }
 .hc-stat {
@@ -1834,18 +1494,11 @@ tr:last-child td {
   padding: 14px; 
 }
 .prompt-compact { 
-<<<<<<< HEAD
-  background: linear-gradient(135deg, #0f172a 0%, #102a43 100%); 
-  color: #e2e8f0; 
-  border: none; 
-}
-=======
   background: rgba(255,255,255,0.86); 
   color: #e2e8f0; 
   border: none; 
 }
 
->>>>>>> origin/feat/go
 .prompt-compact h2 { 
   color: #f8fafc; 
   font-size: 18px; 
@@ -1862,39 +1515,23 @@ tr:last-child td {
   align-items: center; 
   padding: 5px 10px; 
   border-radius: 999px; 
-<<<<<<< HEAD
-  background: rgba(255,255,255,0.10); 
-  color: #f8fafc; 
-  font-size: 12px; 
-  border: 1px solid rgba(255,255,255,0.12); 
-=======
   background: rgba(30,64,175,0.08); 
   color: #1e3a8a; 
   font-size: 12px; 
   border: 1px solid rgba(30,64,175,0.18); 
->>>>>>> origin/feat/go
 }
 .prompt-compact .prompt-bullets { 
   margin: 0; 
   padding-left: 18px; 
   line-height: 1.8; 
   font-size: 13px; 
-<<<<<<< HEAD
-  color: rgba(241,245,249,0.92); 
-=======
   color: var(--text); 
->>>>>>> origin/feat/go
 }
 .prompt-compact details { 
   margin-top: 14px; 
   border-radius: 14px; 
-<<<<<<< HEAD
-  background: rgba(2,6,23,0.35); 
-  border: 1px solid rgba(148,163,184,0.18); 
-=======
   background: var(--card); 
   border: 1px solid rgba(148,163,184,0.20); 
->>>>>>> origin/feat/go
   overflow: hidden; 
 }
 .prompt-compact details > summary { 
@@ -1902,11 +1539,7 @@ tr:last-child td {
   cursor: pointer; 
   padding: 10px 14px; 
   font-size: 13px; 
-<<<<<<< HEAD
-  color: #bae6fd; 
-=======
   color: #1e40af; 
->>>>>>> origin/feat/go
   display: flex; 
   align-items: center; 
   justify-content: space-between; 
@@ -1917,11 +1550,7 @@ tr:last-child td {
 .prompt-compact details > summary::after { 
   content: '查看原文 ▼'; 
   font-size: 12px; 
-<<<<<<< HEAD
-  color: #7dd3fc; 
-=======
   color: #3b82f6; 
->>>>>>> origin/feat/go
 }
 .prompt-compact details[open] > summary::after { 
   content: '收起原文 ▲'; 
@@ -1929,18 +1558,10 @@ tr:last-child td {
 .prompt-compact .prompt-template-box { 
   margin: 0; 
   padding: 14px; 
-<<<<<<< HEAD
-  border-radius: 0; 
-  background: rgba(2,6,23,0.52); 
-  border: none; 
-  border-top: 1px solid rgba(148,163,184,0.22); 
-  color: #e2e8f0; 
-=======
   border-radius: 14px; 
   background: var(--card-strong); 
   border: 1px solid rgba(148,163,184,0.20); 
   color: var(--text); 
->>>>>>> origin/feat/go
   overflow: auto; 
   white-space: pre-wrap; 
   word-break: break-word; 
@@ -2012,8 +1633,6 @@ details.accordion-item[open] > summary::after {
 .accordion-body { 
   padding: 12px; 
 }
-<<<<<<< HEAD
-=======
 .metric-row {
   display: flex;
   gap: 16px;
@@ -2225,15 +1844,11 @@ tbody tr:nth-child(even) {
   background: #dbeafe;
 }
 html { scroll-behavior: smooth; }
->>>>>>> origin/feat/go
 @media (max-width: 900px) {
   .hero-top { flex-direction: column; }
   .hero-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-2 { grid-template-columns: 1fr; }
-<<<<<<< HEAD
-=======
   .chart-grid-2, .chart-grid-3, .overview-grid, .insight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
->>>>>>> origin/feat/go
   .wrap { padding: 14px; }
   .hero h1 { font-size: 32px; }
   .chart-box { height: 260px; }
@@ -2241,22 +1856,16 @@ html { scroll-behavior: smooth; }
   .kpi-mini-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bar { width: 90px; }
 }
-<<<<<<< HEAD
-=======
 @media (max-width: 640px) {
   .chart-grid-2, .chart-grid-3, .overview-grid, .insight-grid { grid-template-columns: 1fr; }
   th, td { font-size: 13px; }
   .section h2 { font-size: 24px; }
 }
->>>>>>> origin/feat/go
 </style>
 </head>
 <body>
 <div class="wrap">
-<<<<<<< HEAD
-=======
 <div id="runtime-banner" class="runtime-banner" role="alert"></div>
->>>>>>> origin/feat/go
 `)
 
 	// Hero Section - 紧凑版本
@@ -2267,89 +1876,42 @@ html { scroll-behavior: smooth; }
     <div class="hero-compact-meta">%s · 共%d个样本</div>
   </div>
   <div class="hero-compact-stats">
-<<<<<<< HEAD
-    <div class="hc-stat"><div class="hc-label">编译通过率</div><div class="hc-value">%.1f%%</div></div>
-    <div class="hc-stat"><div class="hc-label">测试通过率</div><div class="hc-value">%.1f%%</div></div>
-    <div class="hc-stat"><div class="hc-label">覆盖率</div><div class="hc-value">%.1f%%</div></div>
-    <div class="hc-stat"><div class="hc-label">变异得分率</div><div class="hc-value">%.1f%%</div></div>
-    <div class="hc-stat"><div class="hc-label">平均耗时</div><div class="hc-value">%dms</div></div>
-    <div class="hc-stat"><div class="hc-label">Token消耗</div><div class="hc-value">%.1fk</div></div>
-    <div class="hc-stat"><div class="hc-label">断言密度</div><div class="hc-value">%.2f</div></div>
-=======
     <div class="hc-stat"><div class="hc-label">本次模型</div><div class="hc-value">%s</div></div>
     <div class="hc-stat"><div class="hc-label">语言</div><div class="hc-value">%s</div></div>
     <div class="hc-stat"><div class="hc-label">样本类型</div><div class="hc-value">%s</div></div>
->>>>>>> origin/feat/go
   </div>
 </div>
 `, payload.GeneratedAtUTC.Format("2006-01-02 15:04"),
 		payload.Summary.TotalSamples,
-<<<<<<< HEAD
-		payload.Summary.CompilePassRate*100,
-		payload.Summary.TestPassRate*100,
-		payload.Summary.AvgLineCoverage*100,
-		payload.Summary.AvgMutationScore*100,
-		getAvgLatency(payload.TopModels),
-		getAvgTokens(payload.TopModels)/1000,
-		payload.Summary.AvgAssertionDensity))
-=======
 		escapeHTML(summarizeList(heroModels, 5)),
 		escapeHTML(summarizeList(heroLangs, 4)),
 		escapeHTML(summarizeList(heroTypes, 4))))
->>>>>>> origin/feat/go
 
 	// Navigation
 	b.WriteString(`
 <div class="jump-nav">
-<<<<<<< HEAD
-  <a href="#leaderboard">模型排名</a>
-  <a href="#by-language">按语言统计</a>
-  <a href="#by-scenario">按场景统计</a>
-  <a href="#error-analysis">错误分析</a>
-  <a href="#details">图表分析</a>
-=======
   <a href="#details">图表分析</a>
   <a href="#analysis-controls">筛选与导出</a>
   <a href="#by-language">按语言统计</a>
   <a href="#by-scenario">按场景统计</a>  <a href="#score-exclusions">计分剔除</a>
   <a href="#error-analysis">错误分析</a>
   <a href="#dataset-browser">评测集</a>
->>>>>>> origin/feat/go
   <a href="#raw-data">原始数据</a>
 </div>
 `)
 
 	// Leaderboard Section - 模型排名（重点）
 	b.WriteString(buildLeaderboardHTMLNew(payload.TopModels))
-<<<<<<< HEAD
-
-	// By Language Section - 按语言统计
-	if len(payload.Dimensions.ByLanguage) > 0 {
-		b.WriteString(buildByLanguageSection(payload.Dimensions.ByLanguage, payload.Thresholds))
-=======
 	b.WriteString(buildChartsSection(payload.TopModels))
 	b.WriteString(buildAnalysisControls(payload.TopModels))
 
 	// By Language Section - 按语言统计
 	if len(payload.Dimensions.ByLanguage) > 0 {
 		b.WriteString(buildByLanguageSection(payload.Thresholds))
->>>>>>> origin/feat/go
 	}
 
 	// By Scenario Section - 按场景统计（新增）
 	if len(payload.ByScenario) > 0 {
-<<<<<<< HEAD
-		b.WriteString(buildByScenarioSection(payload.ByScenario))
-	}
-
-	// Error Analysis Section - 错误分析（新增）
-	if len(payload.Failures) > 0 {
-		b.WriteString(buildErrorAnalysisSection(payload.Failures))
-	}
-
-	// Charts Section - 图表分析
-	b.WriteString(buildChartsSection(payload.TopModels))
-=======
 		b.WriteString(buildByScenarioSection())
 	}
 
@@ -2367,23 +1929,12 @@ html { scroll-behavior: smooth; }
 
 	// Charts Section - 图表分析
 	b.WriteString(buildDatasetSection(rows))
->>>>>>> origin/feat/go
 
 	// Raw Data Section - 原始数据（可展开收起）
 	b.WriteString(buildRawDataSection(rows))
 
 	// Prompt Section
 	if len(payload.Prompts) > 0 {
-<<<<<<< HEAD
-		b.WriteString(buildPromptHTMLNew(payload.Prompts))
-	}
-
-	// Chart Scripts
-	b.WriteString(buildChartScripts(payload.TopModels))
-
-	b.WriteString(`
-</div>
-=======
 		b.WriteString(buildPromptHTMLNew(payload.PromptStrategy, payload.PromptVersionID, payload.Prompts))
 	}
 
@@ -2393,7 +1944,6 @@ html { scroll-behavior: smooth; }
 	b.WriteString(`
 </div>
 <button id="back-to-top" class="back-to-top" aria-label="返回顶部">↑</button>
->>>>>>> origin/feat/go
 </body>
 </html>`)
 
@@ -2410,8 +1960,6 @@ func buildCard(label, value, hint string) string {
 		escapeHTML(label), escapeHTML(value), hintHTML)
 }
 
-<<<<<<< HEAD
-=======
 func buildOverviewSection(payload contracts.ReportPayload, rows []contracts.EvaluationResult) string {
 	scenarioCount := map[string]struct{}{}
 	for _, row := range rows {
@@ -2527,7 +2075,6 @@ func buildScenarioInsightsSection(rows []contracts.EvaluationResult) string {
 		escapeHTML(interfaceAdvice))
 }
 
->>>>>>> origin/feat/go
 // buildLeaderboardHTMLNew 生成新的 Leaderboard HTML
 func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
 	if len(models) == 0 {
@@ -2617,11 +2164,7 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
 }
 
 // buildByLanguageSection 生成按语言统计的 HTML
-<<<<<<< HEAD
-func buildByLanguageSection(languages []contracts.LanguageDim, thresholds contracts.Thresholds) string {
-=======
 func buildByLanguageSection(thresholds contracts.Thresholds) string {
->>>>>>> origin/feat/go
 	var b strings.Builder
 	b.WriteString(`<div class="section" id="by-language">
   <h2>按语言统计 By Language</h2>
@@ -2638,28 +2181,6 @@ func buildByLanguageSection(thresholds contracts.Thresholds) string {
           <th>变异分数</th>
         </tr>
       </thead>
-<<<<<<< HEAD
-      <tbody>`)
-
-	for _, l := range languages {
-		b.WriteString(fmt.Sprintf(`
-        <tr>
-          <td><strong>%s</strong></td>
-          <td>%d</td>
-          <td>%s</td>
-          <td>%s</td>
-          <td>%s</td>
-          <td>%s</td>
-          <td>%s</td>
-        </tr>`,
-			strings.ToUpper(l.Language[:1])+l.Language[1:],
-			l.TotalSamples,
-			progressBarNew(l.CompilePassRate, thresholds.CompilePassRate),
-			progressBarNew(l.AvgTestPassRate, thresholds.TestPassRate),
-			progressBarNew(l.AvgLineCoverage, thresholds.LineCoverage),
-			progressBarNew(l.AvgBranchCoverage, thresholds.BranchCoverage),
-			progressBarNew(l.AvgMutationScore, thresholds.MutationScore)))
-=======
       <tbody id="by-language-body"></tbody>
     </table>
   </div>
@@ -2809,7 +2330,6 @@ func buildDatasetSection(rows []contracts.EvaluationResult) string {
 			escapeHTML(strings.ToUpper(entry.Language)),
 			escapeHTML(getScenarioLabel(entry.Scenario)),
 			escapeHTML(sourcePath)))
->>>>>>> origin/feat/go
 	}
 	b.WriteString(`
       </tbody>
@@ -2820,18 +2340,8 @@ func buildDatasetSection(rows []contracts.EvaluationResult) string {
 }
 
 // buildByScenarioSection 生成按场景统计的 HTML
-<<<<<<< HEAD
-func buildByScenarioSection(scenarios []contracts.ScenarioDim) string {
-	if len(scenarios) == 0 {
-		return ""
-	}
-
-	var b strings.Builder
-	b.WriteString(`<div class="section" id="by-scenario">
-=======
 func buildByScenarioSection() string {
 	return `<div class="section" id="by-scenario">
->>>>>>> origin/feat/go
   <h2>按场景统计 By Scenario</h2>
   <div class="table-wrap">
     <table>
@@ -2847,55 +2357,6 @@ func buildByScenarioSection() string {
           <th>变异得分率</th>
         </tr>
       </thead>
-<<<<<<< HEAD
-      <tbody>`)
-
-	for _, s := range scenarios {
-		b.WriteString(fmt.Sprintf(`
-        <tr>
-          <td><strong>%s</strong></td>
-          <td>%s</td>
-          <td>%d</td>
-          <td>%s</td>
-          <td>%s</td>
-          <td>%s</td>
-          <td>%s</td>
-          <td>%s</td>
-        </tr>`,
-			escapeHTML(getScenarioLabel(s.Scenario)),
-			escapeHTML(strings.ToUpper(s.Language)),
-			s.TotalSamples,
-			progressBarNew(s.CompilePassRate, 0.7),
-			progressBarNew(s.AvgTestPassRate, 0.7),
-			progressBarNew(s.AvgLineCoverage, 0.7),
-			progressBarNew(s.AvgBranchCoverage, 0.6),
-			progressBarNew(s.AvgMutationScore, 0.5)))
-	}
-	b.WriteString(`
-      </tbody>
-    </table>
-  </div>
-</div>`)
-	return b.String()
-}
-
-// buildErrorAnalysisSection 生成错误分析部分的 HTML
-func buildErrorAnalysisSection(failures []contracts.FailureRow) string {
-	if len(failures) == 0 {
-		return ""
-	}
-
-	// 统计错误类型分布
-	errorTypes := make(map[string]int)
-	stageTypes := make(map[string]int)
-	for _, f := range failures {
-		errorTypes[f.ErrorType] += f.Count
-		stageTypes[f.Stage] += f.Count
-	}
-
-	var b strings.Builder
-	b.WriteString(`<div class="section" id="error-analysis">
-=======
       <tbody id="by-scenario-body"></tbody>
     </table>
   </div>
@@ -2908,10 +2369,9 @@ func buildErrorAnalysisSection(failures []contracts.FailureRow) string {
 	return `<div class="section" id="error-analysis">
 
 	// 统计错误类型分布
-  
->>>>>>> origin/feat/go
+
   <h2>错误分析 Error Analysis</h2>
-  
+
   <div class="grid-2">
     <div class="panel">
       <h3>错误类型分布</h3>
@@ -2922,7 +2382,7 @@ func buildErrorAnalysisSection(failures []contracts.FailureRow) string {
       <div class="chart-box" style="height:220px"><canvas id="stageChart"></canvas></div>
     </div>
   </div>
-  
+
   <h3 style="margin-top:20px">失败案例统计</h3>
   <div class="table-wrap">
     <table>
@@ -2935,33 +2395,12 @@ func buildErrorAnalysisSection(failures []contracts.FailureRow) string {
           <th>示例样本</th>
         </tr>
       </thead>
-<<<<<<< HEAD
-      <tbody>`)
-
-	for _, f := range failures {
-		b.WriteString(fmt.Sprintf(`
-        <tr>
-          <td><span class="badge badge-%s">%s</span></td>
-          <td>%s</td>
-          <td>%d</td>
-          <td>%s</td>
-          <td>%s</td>
-        </tr>`,
-			getStageClass(f.Stage),
-			escapeHTML(f.Stage),
-			escapeHTML(f.ErrorType),
-			f.Count,
-			escapeHTML(f.ExampleModel),
-			escapeHTML(f.ExampleSample)))
-	}
-=======
       <tbody id="error-analysis-body"></tbody>
     </table>
   </div>
   <div id="error-analysis-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有错误记录。</div>
 </div>`
 
->>>>>>> origin/feat/go
 	b.WriteString(`
       </tbody>
     </table>
@@ -2973,8 +2412,6 @@ func buildErrorAnalysisSection(failures []contracts.FailureRow) string {
 	return b.String()
 }
 
-<<<<<<< HEAD
-=======
 */
 func buildErrorAnalysisSection() string {
 	return `<div class="section" id="error-analysis">
@@ -3050,8 +2487,6 @@ func buildScoreExclusionsSection(rows []contracts.ScoreExclusionRow) string {
 	return b.String()
 }
 
-
->>>>>>> origin/feat/go
 // buildRawDataSection 生成原始数据部分（可展开收起）
 func buildRawDataSection(rows []contracts.EvaluationResult) string {
 	var b strings.Builder
@@ -3246,8 +2681,6 @@ func getStageClass(stage string) string {
 	}
 }
 
-<<<<<<< HEAD
-=======
 // buildTruncationAnalysisSection 生成截断分析区域 HTML
 func buildTruncationAnalysisSection(stats contracts.TruncationStats) string {
 	var b strings.Builder
@@ -3478,7 +2911,6 @@ func getTruncationExplanation(rate float64) string {
 	return "所有样本都完整生成，无需担心截断问题。"
 }
 
->>>>>>> origin/feat/go
 // buildChartsSection 生成图表区域 HTML
 func buildChartsSection(models []contracts.ModelRank) string {
 	if len(models) == 0 {
@@ -3486,16 +2918,6 @@ func buildChartsSection(models []contracts.ModelRank) string {
 	}
 	return `<div class="section" id="details">
   <h2>图表分析 Charts</h2>
-<<<<<<< HEAD
-  <div class="grid-2">
-    <div class="panel">
-      <h3>模型指标对比</h3>
-      <div class="chart-box"><canvas id="modelBarChart"></canvas></div>
-    </div>
-    <div class="panel">
-      <h3>多维雷达图</h3>
-      <div class="chart-box"><canvas id="radarChart"></canvas></div>
-=======
   <div class="chart-grid-2">
     <div class="panel">
       <h3>模型指标对比</h3>
@@ -3524,18 +2946,13 @@ func buildChartsSection(models []contracts.ModelRank) string {
     <div class="panel">
       <h3>变异分数热力图</h3>
       <div id="mutationHeatmap" class="chart-box heatmap-box"></div>
->>>>>>> origin/feat/go
     </div>
   </div>
 </div>`
 }
 
 // buildPromptHTMLNew 生成新的 Prompt 展示区域
-<<<<<<< HEAD
-func buildPromptHTMLNew(prompts map[string]string) string {
-=======
 func buildPromptHTMLNew(strategy, versionID string, prompts map[string]string) string {
->>>>>>> origin/feat/go
 	var b strings.Builder
 	b.WriteString(`<div class="section prompt-compact" id="prompt">
   <h2>Prompt 策略</h2>
@@ -3568,8 +2985,6 @@ func buildPromptHTMLNew(strategy, versionID string, prompts map[string]string) s
 }
 
 // buildChartScripts 生成图表脚本
-<<<<<<< HEAD
-=======
 func buildInteractiveScripts(payload contracts.ReportPayload, rows []contracts.EvaluationResult) string {
 	topModelsJSON := marshalJSONSimple(payload.TopModels)
 	rowsJSON := marshalJSONSimple(rows)
@@ -3954,7 +3369,6 @@ function renderFilteredSections() {
 `, topModelsJSON, rowsJSON)
 }
 
->>>>>>> origin/feat/go
 func buildChartScripts(models []contracts.ModelRank) string {
 	if len(models) == 0 {
 		return ""
@@ -3963,10 +3377,6 @@ func buildChartScripts(models []contracts.ModelRank) string {
 	modelNames, compileRates, testRates, lineCovs, mutScores := extractChartDataSimple(models)
 
 	return fmt.Sprintf(`
-<<<<<<< HEAD
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-=======
->>>>>>> origin/feat/go
 <script>
 const modelNames = %s;
 const compileRates = %s;
@@ -4055,8 +3465,6 @@ new Chart(document.getElementById('radarChart'), {
 `, modelNames, compileRates, testRates, lineCovs, mutScores)
 }
 
-<<<<<<< HEAD
-=======
 func stringsFromRows(rows []contracts.EvaluationResult, get func(contracts.EvaluationResult) string) []string {
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
@@ -4096,7 +3504,6 @@ func summarizeList(values []string, max int) string {
 	return strings.Join(values[:max], ", ") + fmt.Sprintf(" 等%d项", len(values))
 }
 
->>>>>>> origin/feat/go
 // progressBarNew 生成新的进度条 HTML
 func progressBarNew(value, threshold float64) string {
 	if value == 0 {
@@ -4111,8 +3518,6 @@ func progressBarNew(value, threshold float64) string {
 		pct, fillClass, pct)
 }
 
-<<<<<<< HEAD
-=======
 func statusTone(rate, successThreshold, warningThreshold float64) string {
 	if rate >= successThreshold {
 		return "success"
@@ -4123,7 +3528,6 @@ func statusTone(rate, successThreshold, warningThreshold float64) string {
 	return "error"
 }
 
->>>>>>> origin/feat/go
 func kpiCard(label string, value float64, valueClass string, subValue string) string {
 	displayValue := fmt.Sprintf("%.1f%%", value*100)
 	if value > 100 {
@@ -4213,8 +3617,6 @@ func marshalJSONSimple(v interface{}) string {
 	return string(b)
 }
 
-<<<<<<< HEAD
-=======
 func max(a, b int) int {
 	if a > b {
 		return a
@@ -4222,7 +3624,6 @@ func max(a, b int) int {
 	return b
 }
 
->>>>>>> origin/feat/go
 func escapeHTML(v string) string {
 	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
 	return replacer.Replace(v)

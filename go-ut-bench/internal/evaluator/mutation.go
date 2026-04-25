@@ -10,10 +10,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-<<<<<<< HEAD
-)
-
-=======
 
 	"go-ut-bench/internal/obs"
 )
@@ -30,7 +26,6 @@ func logMutation(level, msg string, fields ...any) {
 	}
 }
 
->>>>>>> origin/feat/go
 func collectPythonMutation(ctx context.Context, workdir, testName string, mutationTargets []string, timeoutSeconds int, testOutput string) (float64, mutationStats, string) {
 	if len(mutationTargets) == 0 {
 		return 0, mutationStats{}, "missing mutation targets"
@@ -38,21 +33,6 @@ func collectPythonMutation(ctx context.Context, workdir, testName string, mutati
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 120
 	}
-<<<<<<< HEAD
-	failingTests := collectFailingTestsByRerun(ctx, workdir, testName)
-	if len(failingTests) == 0 {
-		failingTests = collectFailingTestsFromPytestOutput(testOutput)
-	}
-
-	pyprojectPath := filepath.Join(workdir, "pyproject.toml")
-	if err := os.WriteFile(pyprojectPath, []byte(buildMutmutPyproject(mutationTargets, testName, failingTests)), 0o644); err != nil {
-		return 0, mutationStats{}, err.Error()
-	}
-	env, envErr := buildMutmutEnv(workdir)
-	if envErr != nil {
-		return 0, mutationStats{}, envErr.Error()
-	}
-=======
 
 	fmt.Printf("        [MUTATION] Python mutmut 开始 | 目标: %v | 超时: %ds | 测试文件: %s\n", mutationTargets, timeoutSeconds, testName)
 	logMutation("DEBUG-1", "mutation_start", "workdir", workdir, "test_name", testName, "targets", mutationTargets, "timeout_seconds", timeoutSeconds)
@@ -97,25 +77,11 @@ func collectPythonMutation(ctx context.Context, workdir, testName string, mutati
 	}
 	logMutation("DEBUG-2", "mutation_step_done", "step", "build_env")
 	fmt.Printf("        [MUTATION] 步骤3完成\n")
->>>>>>> origin/feat/go
 
 	py := pythonExecutable()
 	mutantsDir := filepath.Join(workdir, "mutants")
 	_ = os.RemoveAll(mutantsDir)
 
-<<<<<<< HEAD
-	if err := preCreateMutantsDirectory(workdir, mutantsDir, mutationTargets, testName); err != nil {
-		return 0, mutationStats{}, "failed to pre-create mutants directory: " + err.Error()
-	}
-
-	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
-	defer cancelRun()
-	runOut, runErr := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "mutmut", "run"}, workdir, env)
-
-	exportCtx, cancelExport := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelExport()
-	exportOut, exportErr := runCommandWithProcessGroupKill(exportCtx, py, []string{"-m", "mutmut", "export-cicd-stats"}, workdir, env)
-=======
 	// Step 4: 创建 mutants 目录
 	fmt.Printf("        [MUTATION] 步骤4: 创建 mutants 目录结构...\n")
 	logMutation("DEBUG-2", "mutation_step", "step", "pre_create_mutants_dir", "targets", mutationTargets)
@@ -152,7 +118,6 @@ func collectPythonMutation(ctx context.Context, workdir, testName string, mutati
 	exportOut, exportErr := runCommandWithProcessGroupKill(exportCtx, py, []string{"-m", "mutmut", "export-cicd-stats"}, workdir, env)
 	logMutation("DEBUG-2", "mutation_step_done", "step", "mutmut_export", "export_err", exportErr)
 	fmt.Printf("        [MUTATION] 步骤6完成\n")
->>>>>>> origin/feat/go
 
 	statsFile := filepath.Join(workdir, "mutants", "mutmut-cicd-stats.json")
 	raw, err := os.ReadFile(statsFile)
@@ -502,23 +467,15 @@ func collectFailingTestsFromPytestOutput(output string) []string {
 	return out
 }
 
-<<<<<<< HEAD
-func collectFailingTestsByRerun(ctx context.Context, workdir, testName string) []string {
-=======
 func collectFailingTestsByRerun(ctx context.Context, workdir, testName string) ([]string, string) {
->>>>>>> origin/feat/go
 	py := pythonExecutable()
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	out, _ := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "pytest", testName, "-q", "--tb=no", "--maxfail=9999"}, workdir, nil)
-<<<<<<< HEAD
-	return collectFailingTestsFromPytestOutput(string(out))
-=======
 	if runCtx.Err() != nil {
 		return nil, "pytest timed out after 30s"
 	}
 	return collectFailingTestsFromPytestOutput(string(out)), ""
->>>>>>> origin/feat/go
 }
 
 func extractMetaMutationStats(workdir string, mutationTargets []string) (mutationStats, bool) {

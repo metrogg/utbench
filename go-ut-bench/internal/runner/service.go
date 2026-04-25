@@ -17,10 +17,7 @@ import (
 	"time"
 
 	"go-ut-bench/internal/contracts"
-<<<<<<< HEAD
 	"go-ut-bench/internal/ctrl"
-=======
->>>>>>> origin/feat/go
 	"go-ut-bench/internal/obs"
 )
 
@@ -82,23 +79,17 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	genRoot := filepath.Join(runRoot, "generated")
 	testRoot := filepath.Join(genRoot, "tests")
 	metaRoot := filepath.Join(genRoot, "metadata")
-<<<<<<< HEAD
-=======
 	promptRoot := filepath.Join(genRoot, "prompts")
->>>>>>> origin/feat/go
 	if err := os.MkdirAll(testRoot, 0o755); err != nil {
 		return Output{}, err
 	}
 	if err := os.MkdirAll(metaRoot, 0o755); err != nil {
 		return Output{}, err
 	}
-<<<<<<< HEAD
-=======
 	promptCatalog, err := WritePromptCatalog(promptRoot)
 	if err != nil {
 		return Output{}, err
 	}
->>>>>>> origin/feat/go
 
 	// 处理checkpoint
 	checkpointPath := buildCheckpointPath(spec, modelConfigs)
@@ -112,24 +103,13 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 
 	// 输出配置信息
 	totalTasks := len(modelConfigs) * len(samples)
-<<<<<<< HEAD
-	fmt.Fprintf(os.Stderr, "\n[Runner] Starting test generation for %d models × %d samples = %d tasks\n",
-		len(modelConfigs), len(samples), totalTasks)
-	fmt.Fprintf(os.Stderr, "[Runner] Models: %s\n", strings.Join(getModelNames(modelConfigs), ", "))
-	fmt.Fprintf(os.Stderr, "[Runner] Languages: %s\n", getLanguagesFromSamples(samples))
-=======
->>>>>>> origin/feat/go
 	workerCount := spec.Workers
 	if workerCount <= 0 {
 		workerCount = min(16, max(2, runtime.NumCPU()))
 	}
-<<<<<<< HEAD
-	fmt.Fprintf(os.Stderr, "[Runner] Workers: %d | Mode: %s\n\n", workerCount, spec.Mode)
-=======
 	progress := obs.NewProgressReporter(totalTasks, "generate")
 	progress.PrintStageStart("生成测试", fmt.Sprintf("模型: %s | 样本: %d | Workers: %d",
 		strings.Join(getModelNames(modelConfigs), ", "), len(samples), workerCount))
->>>>>>> origin/feat/go
 
 	// 创建worker池
 	tasks := make(chan task)
@@ -141,15 +121,11 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		go func() {
 			defer wg.Done()
 			for t := range tasks {
-<<<<<<< HEAD
-				// 任务级暂停闸门：当 web 层请求暂停时在此阻塞，不影响已在进行的 API 调用。
+				// Web-triggered pause gate; it blocks before starting the next API call.
 				if err := ctrl.Wait(ctx); err != nil {
 					return
 				}
-				item := s.generateOne(ctx, spec, testRoot, metaRoot, t.model, t.sample)
-=======
 				item := s.generateOne(ctx, spec, testRoot, metaRoot, promptRoot, promptCatalog.VersionID, t.model, t.sample)
->>>>>>> origin/feat/go
 				select {
 				case <-ctx.Done():
 					return
@@ -223,8 +199,6 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	for item := range results {
 		completedCount++
 		cases = append(cases, item)
-<<<<<<< HEAD
-=======
 
 		var tokens int
 		if item.TotalTokens != nil {
@@ -244,7 +218,6 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		}
 		progress.OnTaskDone(taskResult)
 
->>>>>>> origin/feat/go
 		status := "OK"
 		if item.Truncated {
 			status = "TRUNC"
@@ -258,11 +231,6 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 				status = "FAIL(truncated)"
 			}
 		}
-<<<<<<< HEAD
-		fmt.Fprintf(os.Stderr, "[%d/%d] %s | %s | %s | %s | %dms\n",
-			completedCount, totalTasks-skippedByCheckpoint, item.Model, item.Language, item.SampleID, status,
-			item.LatencyMS)
-=======
 
 		extra := ""
 		if tokens > 0 {
@@ -273,7 +241,6 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		if completedCount%5 == 0 {
 			progress.PrintStats()
 		}
->>>>>>> origin/feat/go
 
 		if spec.Mode == contracts.RunModeIncremental && item.Success {
 			key := taskKey(item.Model, item.Language, item.SampleID)
@@ -291,8 +258,6 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		fmt.Fprintf(os.Stderr, "\n[Runner] Skipped %d tasks (already completed in checkpoint)\n", skippedByCheckpoint)
 	}
 
-<<<<<<< HEAD
-=======
 	progress.PrintStats()
 	progress.PrintStageDone("生成测试", obs.StageStats{
 		Total:    totalTasks - skippedByCheckpoint,
@@ -300,7 +265,6 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		Duration: time.Since(progress.GetStartTime()),
 	})
 
->>>>>>> origin/feat/go
 	sort.Slice(cases, func(i, j int) bool {
 		if cases[i].Model == cases[j].Model {
 			if cases[i].Language == cases[j].Language {
@@ -312,13 +276,6 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	})
 
 	manifest := contracts.GeneratedManifest{
-<<<<<<< HEAD
-		SchemaVersion: contracts.SchemaVersion,
-		RunID:         spec.RunID,
-		CreatedAtUTC:  time.Now().UTC(),
-		Spec:          spec,
-		Cases:         cases,
-=======
 		SchemaVersion:     contracts.SchemaVersion,
 		RunID:             spec.RunID,
 		CreatedAtUTC:      time.Now().UTC(),
@@ -327,7 +284,6 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		PromptVersionID:   promptCatalog.VersionID,
 		PromptSnapshotDir: promptRoot,
 		Cases:             cases,
->>>>>>> origin/feat/go
 	}
 	manifestPath := filepath.Join(genRoot, "generated_manifest.json")
 	if err := contracts.WriteJSON(manifestPath, manifest); err != nil {
@@ -346,26 +302,19 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	return Output{Manifest: manifest, ManifestPath: manifestPath}, nil
 }
 
-<<<<<<< HEAD
-func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testRoot, metaRoot string, modelCfg modelConfig, sample contracts.SampleRef) contracts.GeneratedCase {
-=======
 func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testRoot, metaRoot, promptRoot, promptVersionID string, modelCfg modelConfig, sample contracts.SampleRef) contracts.GeneratedCase {
->>>>>>> origin/feat/go
 	model := modelCfg.Name
 	started := time.Now()
 	ext := languageExt(sample.Language)
 	testRel := filepath.Join(model, sample.Language, fmt.Sprintf("%s.test%s", sample.ID, ext))
 	testPath := filepath.Join(testRoot, testRel)
 	respPath := filepath.Join(metaRoot, fmt.Sprintf("%s_%s_%s.response.json", model, sample.Language, sample.ID))
-<<<<<<< HEAD
-=======
 	promptPath := ""
 	promptPathCandidate := filepath.Join(promptRoot, "rendered", model, sample.Language, fmt.Sprintf("%s.prompt.txt", sample.ID))
 	promptMode := string(PromptModeFullFile)
 	if loadModuleLevelMetaForRunner(sample.Path) != nil {
 		promptMode = string(PromptModeModuleLevel)
 	}
->>>>>>> origin/feat/go
 
 	if spec.Mode == contracts.RunModeIncremental {
 		if _, err := os.Stat(testPath); err == nil {
@@ -378,11 +327,8 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				Language:          sample.Language,
 				SampleID:          sample.ID,
 				SamplePath:        sample.Path,
-<<<<<<< HEAD
-=======
 				PromptVersionID:   promptVersionID,
 				PromptMode:        promptMode,
->>>>>>> origin/feat/go
 				GeneratedTestPath: testPath,
 				ResponsePath:      respPath,
 				MetadataPath:      "",
@@ -399,11 +345,8 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 			Language:          sample.Language,
 			SampleID:          sample.ID,
 			SamplePath:        sample.Path,
-<<<<<<< HEAD
-=======
 			PromptVersionID:   promptVersionID,
 			PromptMode:        promptMode,
->>>>>>> origin/feat/go
 			GeneratedTestPath: testPath,
 			ResponsePath:      "",
 			GeneratedAtUTC:    time.Now().UTC(),
@@ -423,10 +366,7 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 	var totalTokens *int
 	var truncated bool
 	latencyMS := 0
-<<<<<<< HEAD
-=======
 	renderedPrompt := ""
->>>>>>> origin/feat/go
 
 	if spec.DryRun {
 		content = buildPlaceholderTest(sample.Language, sample.ID)
@@ -438,11 +378,8 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				Language:          sample.Language,
 				SampleID:          sample.ID,
 				SamplePath:        sample.Path,
-<<<<<<< HEAD
-=======
 				PromptVersionID:   promptVersionID,
 				PromptMode:        promptMode,
->>>>>>> origin/feat/go
 				GeneratedTestPath: testPath,
 				GeneratedAtUTC:    time.Now().UTC(),
 				Success:           false,
@@ -453,10 +390,6 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				},
 			}
 		}
-<<<<<<< HEAD
-
-		client := newAPIClient()
-=======
 		renderedPrompt = buildPrompt(sample.Language, sample.Path, string(sourceCode))
 		if err := os.MkdirAll(filepath.Dir(promptPathCandidate), 0o755); err == nil {
 			if err := os.WriteFile(promptPathCandidate, []byte(renderedPrompt), 0o644); err == nil {
@@ -466,17 +399,11 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 
 		client := newAPIClient()
 		waitModelInterval(modelCfg.Name) // stagger calls to the same model
->>>>>>> origin/feat/go
 		generated, response, latency, pTok, cTok, tTok, isTruncated, genErr := client.generateTest(
 			ctx,
 			modelCfg,
 			sample.Language,
-<<<<<<< HEAD
-			sample.Path,
-			string(sourceCode),
-=======
 			renderedPrompt,
->>>>>>> origin/feat/go
 		)
 		truncated = isTruncated
 		if genErr != nil {
@@ -486,12 +413,9 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				Language:          sample.Language,
 				SampleID:          sample.ID,
 				SamplePath:        sample.Path,
-<<<<<<< HEAD
-=======
 				PromptVersionID:   promptVersionID,
 				PromptMode:        promptMode,
 				PromptPath:        promptPath,
->>>>>>> origin/feat/go
 				GeneratedTestPath: testPath,
 				ResponsePath:      respPath,
 				GeneratedAtUTC:    time.Now().UTC(),
@@ -506,8 +430,6 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		completionTokens = cTok
 		totalTokens = tTok
 		latencyMS = latency
-<<<<<<< HEAD
-=======
 
 		s.logger.LogAPIRequest(model, sample.Language, sample.ID, 0, latencyMS)
 		s.logger.LogAPIResponse(model, sample.Language, sample.ID, genErr == nil, truncated, errorMsgSafe(genErr))
@@ -522,7 +444,6 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 			"truncated", truncated,
 			"success", genErr == nil,
 		)
->>>>>>> origin/feat/go
 	}
 
 	if err := os.WriteFile(testPath, []byte(content), 0o644); err != nil {
@@ -553,13 +474,10 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		"language":            sample.Language,
 		"sample_id":           sample.ID,
 		"sample_path":         sample.Path,
-<<<<<<< HEAD
-=======
 		"prompt_strategy":     PromptStrategy(),
 		"prompt_version_id":   promptVersionID,
 		"prompt_mode":         promptMode,
 		"prompt_path":         promptPath,
->>>>>>> origin/feat/go
 		"scenario":            sample.Scenario,
 		"generated_test_path": testPath,
 		"response_path":       respPath,
@@ -586,12 +504,9 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		Language:          sample.Language,
 		SampleID:          sample.ID,
 		SamplePath:        sample.Path,
-<<<<<<< HEAD
-=======
 		PromptVersionID:   promptVersionID,
 		PromptMode:        promptMode,
 		PromptPath:        promptPath,
->>>>>>> origin/feat/go
 		GeneratedTestPath: testPath,
 		ResponsePath:      respPath,
 		MetadataPath:      metadataPath,
@@ -759,8 +674,6 @@ func trimErrorMsg(msg string, max int) string {
 	}
 	return msg[:max] + "..."
 }
-<<<<<<< HEAD
-=======
 
 func errorMsgSafe(err *contracts.ErrorInfo) string {
 	if err == nil {
@@ -768,4 +681,3 @@ func errorMsgSafe(err *contracts.ErrorInfo) string {
 	}
 	return trimErrorMsg(err.Message, 100)
 }
->>>>>>> origin/feat/go

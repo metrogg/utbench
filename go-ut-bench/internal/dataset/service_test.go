@@ -191,8 +191,6 @@ func TestDiscoverSamplesManifestMaxSamplesPerLanguageScenario(t *testing.T) {
 		}
 	}
 }
-<<<<<<< HEAD
-=======
 
 func TestValidateReadinessFindsCountsErrorsAndRiskWarnings(t *testing.T) {
 	root := t.TempDir()
@@ -245,4 +243,3 @@ func hasValidationCode(items []ValidationIssue, code string) bool {
 	}
 	return false
 }
->>>>>>> origin/feat/go

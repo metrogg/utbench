@@ -209,12 +209,9 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 		timeoutSeconds = 120
 	}
 
-<<<<<<< HEAD
-=======
 	fmt.Printf("        [MUTATION] Go gremlins 开始 | 目标: %s | 超时: %ds\n", sourceBase, timeoutSeconds)
 	logMutation("DEBUG-1", "mutation_start", "language", "go", "tool", "gremlins", "source_base", sourceBase, "timeout_seconds", timeoutSeconds)
 
->>>>>>> origin/feat/go
 	minPassRate := GetMinPassRateForTool("gremlins")
 	passed := 0
 	total := 0
@@ -231,36 +228,20 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 
 	checkResult := CheckTestPassRate(passed, total, "gremlins", minPassRate)
 	if !checkResult.ShouldRun {
-<<<<<<< HEAD
-=======
 		fmt.Printf("        [MUTATION] 跳过: %s\n", checkResult.Message)
 		logMutation("DEBUG-2", "mutation_skip", "reason", checkResult.Message)
->>>>>>> origin/feat/go
 		return 0, mutationStats{}, checkResult.Message
 	}
 
 	targetPath := filepath.Join(workdir, sourceBase)
 	if _, err := os.Stat(targetPath); err != nil {
-<<<<<<< HEAD
-=======
 		fmt.Printf("        [MUTATION] 错误: 目标文件不存在\n")
 		logMutation("ERROR", "mutation_error", "error", "target file not found", "source_base", sourceBase)
->>>>>>> origin/feat/go
 		return 0, mutationStats{}, fmt.Sprintf("target file not found: %s", sourceBase)
 	}
 
 	gremlinsPath := findGremlins()
 	if gremlinsPath == "" {
-<<<<<<< HEAD
-		return 0, mutationStats{}, "gremlins not installed. Install: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest"
-	}
-
-	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
-	defer cancelRun()
-
-	// gremlins 不支持 --quiet 参数，直接运行 unleash 命令
-	runOut, runErr := runCommandWithProcessGroupKill(runCtx, gremlinsPath, []string{"unleash"}, workdir, nil)
-=======
 		fmt.Printf("        [MUTATION] 错误: gremlins 未安装\n")
 		logMutation("ERROR", "mutation_error", "error", "gremlins not installed")
 		return 0, mutationStats{}, "gremlins not installed. Install: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest"
@@ -296,7 +277,6 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 	} else {
 		fmt.Printf("        [MUTATION] 步骤1完成 | 耗时: %dms\n", mutmutRunElapsed.Milliseconds())
 	}
->>>>>>> origin/feat/go
 
 	stats, parseErr := parseGremlinsOutput(string(runOut))
 	if parseErr != "" {

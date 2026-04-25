@@ -5,13 +5,6 @@ package evaluator
 
 import (
 	"context"
-<<<<<<< HEAD
-	"os/exec"
-	"syscall"
-)
-
-func runCommandWithProcessGroupKill(ctx context.Context, name string, args []string, workdir string, env []string) ([]byte, error) {
-=======
 	"fmt"
 	"os/exec"
 	"syscall"
@@ -21,7 +14,6 @@ func runCommandWithProcessGroupKill(ctx context.Context, name string, args []str
 func runCommandWithProcessGroupKill(ctx context.Context, name string, args []string, workdir string, env []string) ([]byte, error) {
 	logMutation("DEBUG-3", "run_command_start", "name", name, "args", args, "workdir", workdir)
 
->>>>>>> origin/feat/go
 	cmd := exec.Command(name, args...)
 	cmd.Dir = workdir
 	if len(env) > 0 {
@@ -39,26 +31,15 @@ func runCommandWithProcessGroupKill(ctx context.Context, name string, args []str
 	done := make(chan result, 1)
 
 	go func() {
-<<<<<<< HEAD
-		out, err := cmd.CombinedOutput()
-=======
 		startTime := time.Now()
 		out, err := cmd.CombinedOutput()
 		elapsed := time.Since(startTime)
 		logMutation("DEBUG-3", "run_command_goroutine_done", "elapsed_ms", elapsed.Milliseconds(), "err", err)
->>>>>>> origin/feat/go
 		done <- result{out: out, err: err}
 	}()
 
 	select {
 	case <-ctx.Done():
-<<<<<<< HEAD
-		if cmd.Process != nil {
-			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil, ctx.Err()
-	case r := <-done:
-=======
 		// 超时或取消
 		if cmd.Process != nil {
 			pid := cmd.Process.Pid
@@ -89,7 +70,6 @@ func runCommandWithProcessGroupKill(ctx context.Context, name string, args []str
 		return nil, ctx.Err()
 	case r := <-done:
 		logMutation("DEBUG-3", "run_command_result", "out_len", len(r.out), "err", r.err)
->>>>>>> origin/feat/go
 		return r.out, r.err
 	}
 }

@@ -1,11 +1,8 @@
 package runner
 
 import (
-<<<<<<< HEAD
-=======
 	"os"
 	"path/filepath"
->>>>>>> origin/feat/go
 	"strings"
 	"testing"
 )
@@ -26,16 +23,6 @@ func TestBuildPrompt_PythonIncludesHardRequirements(t *testing.T) {
 	prompt := buildPrompt("python", "/tmp/boundary_001.py", source)
 
 	checks := []string{
-<<<<<<< HEAD
-		"You are an expert unit testing engineer.",
-		"你是一名资深单元测试工程师。",
-		"MUST import target symbols from local module `boundary_001`",
-		"if x <= 0:",
-		"Error Prevention Checklist（错误预防清单，仅内部执行）",
-		"No placeholder tests like `assert True`.",
-		"Dependencies detected（检测到依赖）: math",
-		"Return raw test code only (no Markdown fences).",
-=======
 		"Task: Generate one complete test file for the provided source code.",
 		"Mode: full_file",
 		"Framework: pytest",
@@ -46,15 +33,12 @@ func TestBuildPrompt_PythonIncludesHardRequirements(t *testing.T) {
 		"- if x <= 0:",
 		"Output raw code only.",
 		"```python",
->>>>>>> origin/feat/go
 	}
 	for _, item := range checks {
 		if !strings.Contains(prompt, item) {
 			t.Fatalf("prompt missing expected content: %q", item)
 		}
 	}
-<<<<<<< HEAD
-=======
 
 	forbidden := []string{
 		"nearest_pair",
@@ -69,7 +53,6 @@ func TestBuildPrompt_PythonIncludesHardRequirements(t *testing.T) {
 			t.Fatalf("prompt should not contain benchmark-specific or duplicated guidance: %q", item)
 		}
 	}
->>>>>>> origin/feat/go
 }
 
 func TestExtractDependencies_GoImportBlock(t *testing.T) {
@@ -81,8 +64,6 @@ func TestExtractDependencies_GoImportBlock(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
-=======
 func TestPromptTemplatePreview_UsesSharedStructure(t *testing.T) {
 	preview := PromptTemplatePreview("go")
 	checks := []string{
@@ -157,7 +138,6 @@ func TestPromptCatalog_WriteAndLoad(t *testing.T) {
 	}
 }
 
->>>>>>> origin/feat/go
 func TestExtractFinishReason_OpenAIFormat(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -244,45 +224,3 @@ func TestExtractFinishReason_OpenAIFormat(t *testing.T) {
 		})
 	}
 }
-<<<<<<< HEAD
-
-func TestAnthropicProtocolHelpers(t *testing.T) {
-	model := modelConfig{
-		Provider: "anthropic",
-		Endpoint: "https://api.anthropic.com/v1",
-		Model:    "claude-sonnet-4-6",
-		Params:   map[string]any{"max_tokens": 128, "temperature": 0.2},
-	}
-	if got := resolveEndpoint(model); got != "https://api.anthropic.com/v1/messages" {
-		t.Fatalf("unexpected anthropic endpoint: %s", got)
-	}
-
-	payload := buildPayload(model, "hello")
-	if _, ok := payload["system"].(string); !ok {
-		t.Fatalf("anthropic payload missing system")
-	}
-	if payload["max_tokens"] != 128 {
-		t.Fatalf("anthropic max_tokens not preserved: %#v", payload["max_tokens"])
-	}
-	if _, ok := payload["stream"]; ok {
-		t.Fatalf("anthropic payload should not include stream")
-	}
-}
-
-func TestExtractResponseText_Anthropic(t *testing.T) {
-	resp := map[string]any{
-		"content": []any{
-			map[string]any{"type": "text", "text": "hello"},
-			map[string]any{"type": "text", "text": "world"},
-		},
-	}
-	got, err := extractResponseText(resp, "anthropic")
-	if err != nil {
-		t.Fatalf("extractResponseText returned error: %v", err)
-	}
-	if got != "hello\nworld" {
-		t.Fatalf("unexpected anthropic text: %q", got)
-	}
-}
-=======
->>>>>>> origin/feat/go

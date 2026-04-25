@@ -1,15 +1,10 @@
 package evaluator
 
 import (
-<<<<<<< HEAD
-	"context"
-	"fmt"
-=======
 	"bytes"
 	"context"
 	"fmt"
 	"math"
->>>>>>> origin/feat/go
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,9 +113,6 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 		return "", "", "", "", fmt.Sprintf("failed to write source: %s", err)
 	}
 
-<<<<<<< HEAD
-	modifiedTestSource := forceSourceInclude(testSource, sourceBase)
-=======
 	headerPattern := regexp.MustCompile(`#include\s+"([^"]+)"`)
 	headerMatches := headerPattern.FindAllStringSubmatch(string(testSource), -1)
 	for _, match := range headerMatches {
@@ -164,7 +156,6 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 			[]byte("#include <source.cpp>"),
 			[]byte("#include \""+sourceBase+"\""))
 	}
->>>>>>> origin/feat/go
 
 	if err := os.WriteFile(filepath.Join(workdir, testFileName), modifiedTestSource, 0644); err != nil {
 		_ = os.RemoveAll(workdir)
@@ -233,13 +224,6 @@ func parseCppTestCounts(output string) (*int, *int) {
 	if match := passedPattern2.FindStringSubmatch(output); match != nil && len(match) > 1 {
 		total := parseIntOrZero(match[1])
 		if total > 0 {
-<<<<<<< HEAD
-			failedPattern2 := regexp.MustCompile(`(\d+)\s+FAILED`)
-			failedMatch := failedPattern2.FindStringSubmatch(output)
-			failedCount := 0
-			if failedMatch != nil && len(failedMatch) > 1 {
-				failedCount = parseIntOrZero(failedMatch[1])
-=======
 			failedCount := 0
 			failedPattern2 := regexp.MustCompile(`\[  FAILED  \]\s*(\d+)\s*tests?`)
 			if match2 := failedPattern2.FindStringSubmatch(output); match2 != nil && len(match2) > 1 {
@@ -249,7 +233,6 @@ func parseCppTestCounts(output string) (*int, *int) {
 				if match3 := failedPattern3.FindStringSubmatch(output); match3 != nil && len(match3) > 1 {
 					failedCount = parseIntOrZero(match3[1])
 				}
->>>>>>> origin/feat/go
 			}
 			passedCount := total - failedCount
 			if passedCount < 0 {
@@ -436,13 +419,6 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 		passed = testPassed
 		total = testTotal
 	} else if testPassRate != nil {
-<<<<<<< HEAD
-		total = 1
-		passed = int(*testPassRate * float64(total))
-		if passed == 0 && *testPassRate > 0 {
-			passed = 1
-		}
-=======
 		total = 100
 		passed = int(math.Round(*testPassRate * float64(total)))
 		if passed == 0 && *testPassRate > 0 {
@@ -451,7 +427,6 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 		if passed > total {
 			passed = total
 		}
->>>>>>> origin/feat/go
 	}
 
 	checkResult := CheckTestPassRate(passed, total, "Mull", minPassRate)
@@ -762,8 +737,6 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, data, 0644)
 }
 
-<<<<<<< HEAD
-=======
 func isSystemProvidedCppHeader(headerName string) bool {
 	return strings.HasPrefix(headerName, "gtest/") || strings.HasPrefix(headerName, "gmock/")
 }
@@ -773,7 +746,6 @@ func generatePlaceholderHeader(headerName string) string {
 	return fmt.Sprintf("#ifndef %s\n#define %s\n\n#endif\n", guard, guard)
 }
 
->>>>>>> origin/feat/go
 // parseFloatOrZero 解析字符串为 float64，失败返回 0
 func parseFloatOrZero(s string) float64 {
 	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
@@ -1193,22 +1165,3 @@ func removeSourceInclude(testContent []byte, sourceBase string) []byte {
 
 	return []byte(code)
 }
-<<<<<<< HEAD
-
-func forceSourceInclude(testContent []byte, sourceBase string) []byte {
-	code := string(removeSourceInclude(testContent, sourceBase))
-	code = removeLocalHeaderIncludes(code)
-	code = strings.TrimLeft(code, "\r\n")
-	return []byte("#include \"" + sourceBase + "\"\n" + code)
-}
-
-func removeLocalHeaderIncludes(code string) string {
-	quotedHeaderPattern := regexp.MustCompile(`(?m)^\s*#include\s*"[^"]+\.(?:h|hpp|hh|hxx)"\s*\n?`)
-	code = quotedHeaderPattern.ReplaceAllString(code, "")
-
-	angleLocalHeaderPattern := regexp.MustCompile(`(?m)^\s*#include\s*<[A-Z][^>/]*\.(?:h|hpp|hh|hxx)>\s*\n?`)
-	code = angleLocalHeaderPattern.ReplaceAllString(code, "")
-	return code
-}
-=======
->>>>>>> origin/feat/go

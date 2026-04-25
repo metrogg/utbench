@@ -12,9 +12,6 @@
       "type": "array",
       "items": {
         "type": "object",
-<<<<<<< HEAD
-        "required": ["model", "language", "sample_id", "compile_pass"]
-=======
         "required": ["model", "language", "sample_id", "compile_pass"],
         "properties": {
           "failure_origin": {
@@ -24,7 +21,6 @@
           "score_eligible": { "type": "boolean" },
           "score_exclusion_reason": { "type": "string" }
         }
->>>>>>> origin/feat/go
       }
     }
   }

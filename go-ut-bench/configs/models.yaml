@@ -1,130 +1,28 @@
-<<<<<<< HEAD
-benchmark:
-    parallel:
-        max_concurrent_models: 6
-        max_concurrent_samples: 8
-    thresholds:
-        branch_coverage: 0.6
-        compile_rate: 0.7
-        execution_rate: 0.7
-        function_coverage: 0.8
-        line_coverage: 0.7
-        mutation_score: 0.7
-    timeouts:
-        api_call: 120000
-        compilation: 60000
-        mutation_test: 120000
-        test_execution: 30000
-languages:
-    cpp:
-        compiler: g++
-        coverage_tool: gcov
-        mutation_tool: mull
-        source_dir: src
-        test_dir: tests
-        test_framework: gtest
-    go:
-        compiler: go build
-        coverage_tool: go tool cover
-        mutation_tool: gremlins
-        source_dir: .
-        test_dir: .
-        test_framework: go test
-    java:
-        compiler: javac
-        coverage_tool: jacoco
-        mutation_tool: pitest
-        source_dir: src/main/java
-        test_dir: src/test/java
-        test_framework: junit
-        test_framework_version: "4.13"
-    python:
-        compiler: pylint
-        coverage_tool: coverage
-        mutation_tool: mutmut
-        source_dir: src
-        test_dir: tests
-        test_framework: pytest
 models:
-    GPT-5.4:
-        config:
-            api_endpoint: https://api.univibe.cc/openai/v1
-            api_key_env: GPT_5.4_API_KEY
-            model: gpt-5.4
-            parameters:
-                max_tokens: 4096
-                temperature: 0.7
-                top_p: 0.9
-        enabled: true
-        provider: openai
-    deepseek:
-        config:
-            api_endpoint: https://api.deepseek.com/v1
-            api_key_env: DEEPSEEK_API_KEY
-            model: deepseek-v4-flash
-            parameters:
-                max_tokens: 4096
-                temperature: 0.7
-                top_p: 0.9
-        enabled: true
-        provider: deepseek
-    doubao-seed:
-        config:
-            api_endpoint: https://ark.cn-beijing.volces.com/api/coding/v3
-            api_key_env: VOLCENGINE_API_KEY
-            model: doubao-seed-2.0-pro
-            parameters:
-                max_tokens: 4096
-                temperature: 0.7
-                top_p: 0.9
-        enabled: true
-        provider: volcengine
-    glm-4.7:
-        config:
-            api_endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
-            api_key_env: ARK_API_KEY
-            model: glm-5.1
-            parameters:
-                max_tokens: 4096
-                temperature: 0.7
-                top_p: 0.9
-        enabled: true
-        provider: volcengine
-    kimi-k2.6:
-        config:
-            api_endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
-            api_key_env: KIMI_K2.6_API_KEY
-            model: kimi-k2.6
-            parameters:
-                max_tokens: 4096
-                temperature: 0.7
-                top_p: 0.9
-        enabled: true
-        provider: moonshot
-    minimax:
-        config:
-            api_endpoint: https://api.minimax.chat/v1
-            api_key_env: MINIMAX_API_KEY
-            model: MiniMax-M2.7
-            parameters:
-                max_tokens: 4096
-                temperature: 0.7
-                top_p: 0.9
-        enabled: true
-        provider: minimax
-    qwen:
-        config:
-            api_endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
-            api_key_env: DASHSCOPE_API_KEY
-            model: qwen3.6-plus
-            parameters:
-                max_tokens: 4096
-                temperature: 0.7
-                top_p: 0.9
-        enabled: true
-        provider: dashscope
-=======
-models:
+  GPT-5.4:
+    enabled: true
+    provider: openai
+    config:
+      api_endpoint: "https://api.univibe.cc/openai/v1"
+      model: "gpt-5.4"
+      api_key_env: "GPT_5_4_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  kimi-k2.6:
+    enabled: true
+    provider: moonshot
+    config:
+      api_endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      model: "kimi-k2.6"
+      api_key_env: "KIMI_K2_6_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
   qwen:
     enabled: true
     provider: dashscope
@@ -142,7 +40,7 @@ models:
     provider: deepseek
     config:
       api_endpoint: "https://api.deepseek.com/v1"
-      model: "deepseek-chat"
+      model: "deepseek-v4-flash"
       api_key_env: "DEEPSEEK_API_KEY"
       parameters:
         temperature: 0.7
@@ -273,4 +171,3 @@ languages:
     mutation_tool: "mull"
     source_dir: "src"
     test_dir: "tests"
->>>>>>> origin/feat/go

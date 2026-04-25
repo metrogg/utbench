@@ -27,18 +27,12 @@ func TestBuildMutationBreakdown(t *testing.T) {
 			MutationTimeouts:   &timeouts1,
 			MutationSkipped:    &skipped1,
 			MutationSuspicious: &suspicious1,
-<<<<<<< HEAD
-=======
 			MutationTool:       "mutmut",
->>>>>>> origin/feat/go
 		},
 		{
 			MutationTotal:  &total2,
 			MutationKilled: &killed2,
-<<<<<<< HEAD
-=======
 			MutationTool:   "mull",
->>>>>>> origin/feat/go
 		},
 	}
 
@@ -46,8 +40,6 @@ func TestBuildMutationBreakdown(t *testing.T) {
 	if b.Total != 15 || b.Killed != 9 || b.Survived != 2 || b.NoTests != 1 || b.Suspicious != 1 {
 		t.Fatalf("unexpected breakdown: %+v", b)
 	}
-<<<<<<< HEAD
-=======
 	if len(b.ByTool) != 2 {
 		t.Fatalf("expected two tool breakdowns, got %+v", b.ByTool)
 	}
@@ -57,7 +49,6 @@ func TestBuildMutationBreakdown(t *testing.T) {
 	if b.ByTool[1].Tool != "mutmut" || b.ByTool[1].Total != 10 || b.ByTool[1].Killed != 6 {
 		t.Fatalf("unexpected second tool breakdown: %+v", b.ByTool[1])
 	}
->>>>>>> origin/feat/go
 }
 
 func TestBuildSummaryUsesSampleLevelTestPassRateWhenCountsMissing(t *testing.T) {
@@ -91,8 +82,6 @@ func TestBuildSummaryUsesSampleLevelTestPassRateWhenCountsMissing(t *testing.T) 
 		t.Fatalf("expected test pass rate 0.5, got %v", s.TestPassRate)
 	}
 }
-<<<<<<< HEAD
-=======
 
 func TestScoreEligibilityExcludesNonModelFailuresFromRanking(t *testing.T) {
 	pass := true
@@ -138,4 +127,3 @@ func TestScoreEligibilityExcludesNonModelFailuresFromRanking(t *testing.T) {
 		t.Fatalf("unexpected exclusions: %+v", exclusions)
 	}
 }
->>>>>>> origin/feat/go

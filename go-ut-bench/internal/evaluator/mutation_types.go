@@ -101,19 +101,11 @@ func GetMinPassRateForTool(toolName string) float64 {
 	case "mull", "cpp":
 		return 1.0
 	case "gremlins", "go-mutesting", "go":
-<<<<<<< HEAD
-		return 0.8
-	case "pitest", "java":
-		return 0.5
-	case "mutmut", "python":
-		return 0.0
-=======
 		return 1.0
 	case "pitest", "java":
 		return 0.5
 	case "mutmut", "python":
 		return 0.8
->>>>>>> origin/feat/go
 	default:
 		return 0.8
 	}

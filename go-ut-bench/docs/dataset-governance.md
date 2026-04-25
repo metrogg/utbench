@@ -32,11 +32,7 @@ MVP 当前按两层组织：
 
 1. `dataset_index.json`：统一样本索引
 2. `manifest_l1.json`：明确 L1 样本清单
-<<<<<<< HEAD
-3. 更严格的 `dataset validate --strict` 仍是后续规划；当前仓库实际可用的校验命令是 `dataset stats`
-=======
 3. `dataset validate --strict`：校验命名、重复 ID、分类一致性
->>>>>>> origin/feat/go
 
 ## 5. 当前实现
 
@@ -53,14 +49,6 @@ MVP 当前按两层组织：
 3. 执行 `utbench dataset manifest` 产出 L1/L2 清单
 4. `run/generate/evaluate` 固定使用 manifest，避免目录扫描口径漂移
 
-<<<<<<< HEAD
-当前补充说明：
-
-- 现有 CLI 没有 `dataset validate` 子命令
-- `utbench dataset stats --dataset-root ./datasets` 会先做布局校验，再尝试扫描依赖
-
-=======
->>>>>>> origin/feat/go
 备注：
 
 - `dataset_index.json` 为中间产物，通常不作为长期维护文件。

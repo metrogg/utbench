@@ -8,26 +8,19 @@
     "run_id": { "type": "string" },
     "created_at_utc": { "type": "string" },
     "spec": { "type": "object" },
-<<<<<<< HEAD
-=======
     "prompt_strategy": { "type": "string" },
     "prompt_version_id": { "type": "string" },
     "prompt_snapshot_dir": { "type": "string" },
->>>>>>> origin/feat/go
     "cases": {
       "type": "array",
       "items": {
         "type": "object",
-<<<<<<< HEAD
-        "required": ["model", "language", "sample_id", "sample_path", "generated_test_path", "success"]
-=======
         "required": ["model", "language", "sample_id", "sample_path", "generated_test_path", "success"],
         "properties": {
           "prompt_version_id": { "type": "string" },
           "prompt_mode": { "type": "string" },
           "prompt_path": { "type": "string" }
         }
->>>>>>> origin/feat/go
       }
     }
   }
