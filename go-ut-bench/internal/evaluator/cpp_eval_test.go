@@ -236,6 +236,25 @@ func TestMullConfigTemplate(t *testing.T) {
 	t.Logf("📋 Mull 配置模板:\n%s", cppMullConfigTemplate)
 }
 
+func TestGeneratePlaceholderHeader(t *testing.T) {
+	got := generatePlaceholderHeader("gtest/custom/header.h")
+	if !contains(got, "#ifndef GTEST_CUSTOM_HEADER_H") {
+		t.Fatalf("unexpected header guard: %s", got)
+	}
+	if !contains(got, "#define GTEST_CUSTOM_HEADER_H") {
+		t.Fatalf("expected define in placeholder header: %s", got)
+	}
+}
+
+func TestIsSystemProvidedCppHeader(t *testing.T) {
+	if !isSystemProvidedCppHeader("gtest/gtest.h") {
+		t.Fatalf("expected gtest header to be treated as system provided")
+	}
+	if isSystemProvidedCppHeader("source.h") {
+		t.Fatalf("did not expect local project header to be treated as system provided")
+	}
+}
+
 // 辅助函数
 func contains(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsSubstring(s, substr)))

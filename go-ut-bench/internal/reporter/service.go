@@ -12,6 +12,7 @@ import (
 
 	"go-ut-bench/internal/contracts"
 	"go-ut-bench/internal/obs"
+	"go-ut-bench/internal/runner"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,6 +28,18 @@ type Output struct {
 }
 
 type mutationBreakdown struct {
+	Total      int                     `json:"total"`
+	Killed     int                     `json:"killed"`
+	Survived   int                     `json:"survived"`
+	NoTests    int                     `json:"no_tests"`
+	Timeouts   int                     `json:"timeouts"`
+	Skipped    int                     `json:"skipped"`
+	Suspicious int                     `json:"suspicious"`
+	ByTool     []mutationToolBreakdown `json:"by_tool,omitempty"`
+}
+
+type mutationToolBreakdown struct {
+	Tool       string `json:"tool"`
 	Total      int    `json:"total"`
 	Killed     int    `json:"killed"`
 	Survived   int    `json:"survived"`
@@ -34,7 +47,6 @@ type mutationBreakdown struct {
 	Timeouts   int    `json:"timeouts"`
 	Skipped    int    `json:"skipped"`
 	Suspicious int    `json:"suspicious"`
-	Tool       string `json:"tool,omitempty"`
 }
 
 type ModelDetail struct {
@@ -43,58 +55,8 @@ type ModelDetail struct {
 	Provider string
 }
 
-// getPromptTemplate 返回通用的中英双语提示词模板
-func getPromptTemplate() string {
-	return `You are an expert unit testing engineer.
-你是一名资深单元测试工程师。
-Generate high-quality unit tests based on the following specification.
-请基于以下规范生成高质量单元测试。
-
-## Role & Objective（角色与目标）
-- Goal: produce executable tests that match source behavior exactly.
-- 目标：生成可执行且与源码行为严格一致的测试。
-
-## Language & Framework（语言与框架）
-- Language（语言）: {language}
-- Test Framework（测试框架）: {framework}
-
-## Step-by-Step Workflow（分步流程）
-1) Identify callable symbols and input/output contracts from source.
-2) Build a test matrix: normal, boundary, and exception paths.
-3) Derive expected values only from implementation semantics.
-4) Write deterministic, runnable tests with clear assertions.
-5) Self-check syntax/imports/assertions before final output.
-
-## Test Requirements（测试要求）
-- Cover normal paths, boundary conditions, and error/exception behavior.
-- 覆盖正常路径、边界条件和异常行为。
-- Keep tests deterministic and runnable.
-- 保持测试可重复、可执行（避免随机性）。
-- Use clear assertions with meaningful expected values.
-- 使用清晰断言和有意义的期望值。
-- Coverage targets（覆盖率目标，供参考）: {coverage_targets}
-- Mock requirements（Mock 要求）: {mock_requirement}
-
-## Semantic Alignment Hard Rules（语义对齐硬约束）
-- Derive expected values strictly from the given source code behavior.
-- 期望值必须严格依据给定源码行为推导，不要按题型常识脑补。
-- Respect exact comparison semantics in code (<, <=, >, >=, ==).
-- 必须严格遵守源码比较符号语义（尤其阈值边界等于时）。
-- Include explicit boundary-equality assertions when threshold/limit checks exist.
-- 当存在阈值/边界判断时，必须包含"等于边界"的断言样例。
-- If implementation looks counter-intuitive, still assert implementation behavior.
-- 若实现与常识不一致，也必须以源码实现为准。
-- If docstring/comment conflicts with implementation, trust implementation.
-- 若注释/文档示例与实现冲突，以实现为准。
-
-## Output Format（输出格式）
-- Return raw test code only (no Markdown fences).
-- 仅输出原始测试代码，不要 Markdown 代码块。
-- Do not include explanations.
-- 不要输出解释文字。
-
-## Source Code Under Test（被测源码）
-{source_code}`
+func getPromptTemplate(language string) string {
+	return runner.PromptTemplatePreview(language)
 }
 
 func NewService(logger *obs.Logger) *Service {
@@ -106,6 +68,7 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 	if err != nil {
 		return Output{}, err
 	}
+	promptStrategy, promptVersionID, promptSnapshotDir, prompts := loadPromptArtifacts(set.ManifestPath)
 
 	reportRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID, "report")
 	if err := os.MkdirAll(reportRoot, 0o755); err != nil {
@@ -118,23 +81,28 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 	tokenStats := buildTokenStats(set.Results)
 	topModels := buildTopModels(dims.ByModel)
 	failures := buildFailureRows(set.Results)
+	scoreExclusions := buildScoreExclusions(set.Results)
 	breakdown := buildMutationBreakdown(set.Results)
 	modelInfos := buildModelInfos(dims.ByModel, modelDetails)
 	truncationStats := buildTruncationStats(set.Results)
 
 	payload := contracts.ReportPayload{
-		SchemaVersion:    contracts.SchemaVersion,
-		RunID:            spec.RunID,
-		GeneratedAtUTC:   time.Now().UTC(),
-		SourceEvaluation: evaluationPath,
-		Summary:          summary,
-		Dimensions:       dims,
-		TopModels:        topModels,
-		ModelInfos:       modelInfos,
-		ByScenario:       dims.ByScenario,
-		ByModelScenario:  dims.ByModelScenario,
-		TokenStats:       tokenStats,
-		Failures:         failures,
+		SchemaVersion:     contracts.SchemaVersion,
+		RunID:             spec.RunID,
+		GeneratedAtUTC:    time.Now().UTC(),
+		SourceEvaluation:  evaluationPath,
+		PromptStrategy:    promptStrategy,
+		PromptVersionID:   promptVersionID,
+		PromptSnapshotDir: promptSnapshotDir,
+		Summary:           summary,
+		Dimensions:        dims,
+		TopModels:         topModels,
+		ModelInfos:        modelInfos,
+		ByScenario:        dims.ByScenario,
+		ByModelScenario:   dims.ByModelScenario,
+		TokenStats:        tokenStats,
+		Failures:          failures,
+		ScoreExclusions:   scoreExclusions,
 		Thresholds: contracts.Thresholds{
 			CompilePassRate: 1.0,
 			TestPassRate:    0.7,
@@ -142,32 +110,32 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 			BranchCoverage:  0.6,
 			MutationScore:   0.85,
 		},
-		Prompts: map[string]string{
-			"python": getPromptTemplate(),
-			"go":     getPromptTemplate(),
-			"java":   getPromptTemplate(),
-			"cpp":    getPromptTemplate(),
-		},
+		Prompts:         prompts,
 		TruncationStats: truncationStats,
 	}
 
 	jsonPath := filepath.Join(reportRoot, "report_summary.json")
 	htmlPath := filepath.Join(reportRoot, "report.html")
 	summaryJSON := map[string]any{
-		"schema_version":     payload.SchemaVersion,
-		"run_id":             payload.RunID,
-		"generated_at_utc":   payload.GeneratedAtUTC,
-		"source_evaluation":  payload.SourceEvaluation,
-		"summary":            payload.Summary,
-		"dimensions":         payload.Dimensions,
-		"top_models":         payload.TopModels,
-		"model_infos":        payload.ModelInfos,
-		"by_scenario":        payload.ByScenario,
-		"by_model_scenario":  payload.ByModelScenario,
-		"token_stats":        payload.TokenStats,
-		"failures":           payload.Failures,
-		"mutation_breakdown": breakdown,
-		"thresholds":         payload.Thresholds,
+		"schema_version":      payload.SchemaVersion,
+		"run_id":              payload.RunID,
+		"generated_at_utc":    payload.GeneratedAtUTC,
+		"source_evaluation":   payload.SourceEvaluation,
+		"prompt_strategy":     payload.PromptStrategy,
+		"prompt_version_id":   payload.PromptVersionID,
+		"prompt_snapshot_dir": payload.PromptSnapshotDir,
+		"summary":             payload.Summary,
+		"dimensions":          payload.Dimensions,
+		"top_models":          payload.TopModels,
+		"model_infos":         payload.ModelInfos,
+		"by_scenario":         payload.ByScenario,
+		"by_model_scenario":   payload.ByModelScenario,
+		"token_stats":         payload.TokenStats,
+		"failures":            payload.Failures,
+		"score_exclusions":    payload.ScoreExclusions,
+		"mutation_breakdown":  breakdown,
+		"thresholds":          payload.Thresholds,
+		"prompts":             payload.Prompts,
 	}
 	if err := contracts.WriteJSON(jsonPath, summaryJSON); err != nil {
 		return Output{}, err
@@ -178,6 +146,33 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 
 	s.logger.Info("report generated", "run_id", spec.RunID, "summary", jsonPath, "html", htmlPath)
 	return Output{Report: payload, ReportJSONPath: jsonPath, ReportHTMLPath: htmlPath}, nil
+}
+
+func loadPromptArtifacts(manifestPath string) (string, string, string, map[string]string) {
+	prompts := map[string]string{
+		"python": getPromptTemplate("python"),
+		"go":     getPromptTemplate("go"),
+		"java":   getPromptTemplate("java"),
+		"cpp":    getPromptTemplate("cpp"),
+	}
+	if strings.TrimSpace(manifestPath) == "" {
+		return runner.PromptStrategy(), runner.PromptVersionID(), "", prompts
+	}
+
+	manifest, err := contracts.ReadGeneratedManifest(manifestPath)
+	if err != nil {
+		return runner.PromptStrategy(), runner.PromptVersionID(), "", prompts
+	}
+	if strings.TrimSpace(manifest.PromptSnapshotDir) != "" {
+		if catalog, err := runner.LoadPromptCatalog(manifest.PromptSnapshotDir); err == nil {
+			loaded := make(map[string]string, len(catalog.Templates))
+			for language, modeTemplates := range catalog.Templates {
+				loaded[language] = modeTemplates[runner.PromptModeFullFile]
+			}
+			return catalog.Strategy, catalog.VersionID, manifest.PromptSnapshotDir, loaded
+		}
+	}
+	return manifest.PromptStrategy, manifest.PromptVersionID, manifest.PromptSnapshotDir, prompts
 }
 
 func loadModelDetails(configPath string) map[string]ModelDetail {
@@ -230,6 +225,8 @@ func buildModelInfos(models []contracts.ModelDim, details map[string]ModelDetail
 
 func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 	total := len(rows)
+	eligibleTotal := 0
+	excludedTotal := 0
 	compilePass := 0
 	testPassTotal := 0
 	testTotal := 0
@@ -243,6 +240,11 @@ func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 	assertDensityCnt := 0
 
 	for _, row := range rows {
+		if !isScoreEligible(row) {
+			excludedTotal++
+			continue
+		}
+		eligibleTotal++
 		if row.CompilePass {
 			compilePass++
 		}
@@ -276,8 +278,10 @@ func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 
 	return contracts.ReportSummary{
 		TotalSamples:        total,
+		EligibleSamples:     eligibleTotal,
+		ExcludedSamples:     excludedTotal,
 		CompilePassCount:    compilePass,
-		CompilePassRate:     rate(compilePass, total),
+		CompilePassRate:     rate(compilePass, eligibleTotal),
 		TestPassCount:       testPassTotal,
 		TestPassRate:        rate(testPassTotal, testTotal),
 		AvgLineCoverage:     avg(lineSum, lineCnt),
@@ -293,6 +297,9 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 	modelScenarioMap := map[string]*modelScenarioAgg{}
 
 	for _, row := range rows {
+		if !isScoreEligible(row) {
+			continue
+		}
 		agg := getOrCreateModelAgg(modelMap, row.Model)
 		mergeModelAgg(agg, row)
 
@@ -865,6 +872,74 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 	return out
 }
 
+func isScoreEligible(row contracts.EvaluationResult) bool {
+	if row.ScoreEligible == nil {
+		return true
+	}
+	return *row.ScoreEligible
+}
+
+func buildScoreExclusions(rows []contracts.EvaluationResult) []contracts.ScoreExclusionRow {
+	type key struct {
+		origin string
+		reason string
+	}
+	type agg struct {
+		row contracts.ScoreExclusionRow
+	}
+	m := map[key]*agg{}
+	for _, row := range rows {
+		if isScoreEligible(row) {
+			continue
+		}
+		origin := strings.TrimSpace(row.FailureOrigin)
+		if origin == "" {
+			origin = "unknown"
+		}
+		reason := strings.TrimSpace(row.ScoreExclusionReason)
+		if reason == "" {
+			reason = "non-model failure"
+		}
+		k := key{origin: origin, reason: reason}
+		item, ok := m[k]
+		if !ok {
+			item = &agg{row: contracts.ScoreExclusionRow{
+				Origin:         origin,
+				Reason:         reason,
+				ExampleModel:   row.Model,
+				ExampleSample:  row.SampleID,
+				ExampleMessage: firstNonEmpty(row.CompileError, row.TestError, row.CoverageError, row.MutationError, reason),
+			}}
+			m[k] = item
+		}
+		item.row.Count++
+	}
+	out := make([]contracts.ScoreExclusionRow, 0, len(m))
+	for _, item := range m {
+		item.row.ExampleMessage = shortErrText(item.row.ExampleMessage)
+		out = append(out, item.row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		if out[i].Origin != out[j].Origin {
+			return out[i].Origin < out[j].Origin
+		}
+		return out[i].Reason < out[j].Reason
+	})
+	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 type failureKey struct {
 	stage, errType string
 }
@@ -919,31 +994,68 @@ func shortErrText(v string) string {
 
 func buildMutationBreakdown(rows []contracts.EvaluationResult) mutationBreakdown {
 	out := mutationBreakdown{}
+	byTool := map[string]*mutationToolBreakdown{}
 	for _, row := range rows {
+		tool := strings.TrimSpace(row.MutationTool)
+		var toolBreakdown *mutationToolBreakdown
+		if tool != "" {
+			var ok bool
+			toolBreakdown, ok = byTool[tool]
+			if !ok {
+				toolBreakdown = &mutationToolBreakdown{Tool: tool}
+				byTool[tool] = toolBreakdown
+			}
+		}
 		if row.MutationTotal != nil {
 			out.Total += *row.MutationTotal
+			if toolBreakdown != nil {
+				toolBreakdown.Total += *row.MutationTotal
+			}
 		}
 		if row.MutationKilled != nil {
 			out.Killed += *row.MutationKilled
+			if toolBreakdown != nil {
+				toolBreakdown.Killed += *row.MutationKilled
+			}
 		}
 		if row.MutationSurvived != nil {
 			out.Survived += *row.MutationSurvived
+			if toolBreakdown != nil {
+				toolBreakdown.Survived += *row.MutationSurvived
+			}
 		}
 		if row.MutationNoTests != nil {
 			out.NoTests += *row.MutationNoTests
+			if toolBreakdown != nil {
+				toolBreakdown.NoTests += *row.MutationNoTests
+			}
 		}
 		if row.MutationTimeouts != nil {
 			out.Timeouts += *row.MutationTimeouts
+			if toolBreakdown != nil {
+				toolBreakdown.Timeouts += *row.MutationTimeouts
+			}
 		}
 		if row.MutationSkipped != nil {
 			out.Skipped += *row.MutationSkipped
+			if toolBreakdown != nil {
+				toolBreakdown.Skipped += *row.MutationSkipped
+			}
 		}
 		if row.MutationSuspicious != nil {
 			out.Suspicious += *row.MutationSuspicious
+			if toolBreakdown != nil {
+				toolBreakdown.Suspicious += *row.MutationSuspicious
+			}
 		}
-		if row.MutationTool != "" && out.Tool == "" {
-			out.Tool = row.MutationTool
-		}
+	}
+	tools := make([]string, 0, len(byTool))
+	for tool := range byTool {
+		tools = append(tools, tool)
+	}
+	sort.Strings(tools)
+	for _, tool := range tools {
+		out.ByTool = append(out.ByTool, *byTool[tool])
 	}
 	return out
 }
@@ -1571,7 +1683,7 @@ details.accordion-item[open] > summary::after {
 <div class="hero-compact">
   <div class="hero-compact-main">
     <h1>模型评测报告</h1>
-    <div class="hero-compact-meta">%s · 共%d个样本</div>
+    <div class="hero-compact-meta">%s · 共%d个样本 · 有效%d个 · 剔除%d个</div>
   </div>
   <div class="hero-compact-stats">
     <div class="hc-stat"><div class="hc-label">编译通过率</div><div class="hc-value">%.1f%%</div></div>
@@ -1585,6 +1697,8 @@ details.accordion-item[open] > summary::after {
 </div>
 `, payload.GeneratedAtUTC.Format("2006-01-02 15:04"),
 		payload.Summary.TotalSamples,
+		payload.Summary.EligibleSamples,
+		payload.Summary.ExcludedSamples,
 		payload.Summary.CompilePassRate*100,
 		payload.Summary.TestPassRate*100,
 		payload.Summary.AvgLineCoverage*100,
@@ -1600,6 +1714,7 @@ details.accordion-item[open] > summary::after {
   <a href="#by-language">按语言统计</a>
   <a href="#by-scenario">按场景统计</a>
   <a href="#truncation-analysis">截断分析</a>
+  <a href="#score-exclusions">计分剔除</a>
   <a href="#error-analysis">错误分析</a>
   <a href="#details">图表分析</a>
   <a href="#raw-data">原始数据</a>
@@ -1622,6 +1737,10 @@ details.accordion-item[open] > summary::after {
 	// Truncation Analysis Section - 截断分析（新增）
 	b.WriteString(buildTruncationAnalysisSection(payload.TruncationStats))
 
+	if len(payload.ScoreExclusions) > 0 {
+		b.WriteString(buildScoreExclusionsSection(payload.ScoreExclusions))
+	}
+
 	// Error Analysis Section - 错误分析（新增）
 	if len(payload.Failures) > 0 {
 		b.WriteString(buildErrorAnalysisSection(payload.Failures))
@@ -1635,7 +1754,7 @@ details.accordion-item[open] > summary::after {
 
 	// Prompt Section
 	if len(payload.Prompts) > 0 {
-		b.WriteString(buildPromptHTMLNew(payload.Prompts))
+		b.WriteString(buildPromptHTMLNew(payload.PromptStrategy, payload.PromptVersionID, payload.Prompts))
 	}
 
 	// Chart Scripts
@@ -1915,6 +2034,48 @@ func buildErrorAnalysisSection(failures []contracts.FailureRow) string {
 
 	// 添加错误分布图表脚本
 	b.WriteString(buildErrorChartScripts(errorTypes, stageTypes))
+	return b.String()
+}
+
+func buildScoreExclusionsSection(rows []contracts.ScoreExclusionRow) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="section" id="score-exclusions">
+  <h2>计分剔除 Score Exclusions</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>归因</th>
+          <th>原因</th>
+          <th>数量</th>
+          <th>示例模型</th>
+          <th>示例样本</th>
+        </tr>
+      </thead>
+      <tbody>`)
+	for _, row := range rows {
+		b.WriteString(fmt.Sprintf(`
+        <tr>
+          <td><span class="badge badge-warning">%s</span></td>
+          <td>%s</td>
+          <td>%d</td>
+          <td>%s</td>
+          <td>%s</td>
+        </tr>`,
+			escapeHTML(row.Origin),
+			escapeHTML(row.Reason),
+			row.Count,
+			escapeHTML(row.ExampleModel),
+			escapeHTML(row.ExampleSample)))
+	}
+	b.WriteString(`
+      </tbody>
+    </table>
+  </div>
+</div>`)
 	return b.String()
 }
 
@@ -2363,25 +2524,39 @@ func buildChartsSection(models []contracts.ModelRank) string {
 }
 
 // buildPromptHTMLNew 生成新的 Prompt 展示区域
-func buildPromptHTMLNew(prompts map[string]string) string {
+func buildPromptHTMLNew(strategy, versionID string, prompts map[string]string) string {
 	var b strings.Builder
 	b.WriteString(`<div class="section prompt-compact" id="prompt">
   <h2>Prompt 策略</h2>
   <div class="prompt-tags">
-    <span class="prompt-tag">双语提示</span>
+    <span class="prompt-tag">结构化模板</span>
     <span class="prompt-tag">跨模型一致</span>
-    <span class="prompt-tag">语义对齐</span>
+    <span class="prompt-tag">版本可追踪</span>
     <span class="prompt-tag">多语言支持</span>
   </div>
-  <ul class="prompt-bullets">
-    <li>Generate high-quality unit tests based on the following specification</li>
-    <li>覆盖正常路径、边界条件和异常行为</li>
-    <li>保持测试可重复、可执行（避免随机性）</li>
-    <li>使用清晰断言和有意义的期望值</li>
+`)
+	if strings.TrimSpace(strategy) != "" || strings.TrimSpace(versionID) != "" {
+		b.WriteString(`<ul class="prompt-bullets">`)
+		if strings.TrimSpace(strategy) != "" {
+			b.WriteString(fmt.Sprintf(`<li>Prompt strategy: %s</li>`, escapeHTML(strategy)))
+		}
+		if strings.TrimSpace(versionID) != "" {
+			b.WriteString(fmt.Sprintf(`<li>Prompt version: %s</li>`, escapeHTML(versionID)))
+		}
+		b.WriteString(`<li>System prompt and user prompt are separated for more stable cross-model comparison.</li>
+    <li>Rendered prompt snapshots are stored with run artifacts for replay and audit.</li>
+    <li>Templates stay generic and avoid sample-specific hint leakage.</li>
   </ul>`)
+	}
 
 	// 显示第一个语言的 prompt 作为示例
-	for lang, prompt := range prompts {
+	keys := make([]string, 0, len(prompts))
+	for lang := range prompts {
+		keys = append(keys, lang)
+	}
+	sort.Strings(keys)
+	for _, lang := range keys {
+		prompt := prompts[lang]
 		b.WriteString(fmt.Sprintf(`
   <details>
     <summary>查看 %s Prompt 原文</summary>

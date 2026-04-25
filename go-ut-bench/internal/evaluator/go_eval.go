@@ -209,6 +209,9 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 		timeoutSeconds = 120
 	}
 
+	fmt.Printf("        [MUTATION] Go gremlins 开始 | 目标: %s | 超时: %ds\n", sourceBase, timeoutSeconds)
+	logMutation("DEBUG-1", "mutation_start", "language", "go", "tool", "gremlins", "source_base", sourceBase, "timeout_seconds", timeoutSeconds)
+
 	minPassRate := GetMinPassRateForTool("gremlins")
 	passed := 0
 	total := 0
@@ -225,24 +228,41 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 
 	checkResult := CheckTestPassRate(passed, total, "gremlins", minPassRate)
 	if !checkResult.ShouldRun {
+		fmt.Printf("        [MUTATION] 跳过: %s\n", checkResult.Message)
+		logMutation("DEBUG-2", "mutation_skip", "reason", checkResult.Message)
 		return 0, mutationStats{}, checkResult.Message
 	}
 
 	targetPath := filepath.Join(workdir, sourceBase)
 	if _, err := os.Stat(targetPath); err != nil {
+		fmt.Printf("        [MUTATION] 错误: 目标文件不存在\n")
+		logMutation("ERROR", "mutation_error", "error", "target file not found", "source_base", sourceBase)
 		return 0, mutationStats{}, fmt.Sprintf("target file not found: %s", sourceBase)
 	}
 
 	gremlinsPath := findGremlins()
 	if gremlinsPath == "" {
+		fmt.Printf("        [MUTATION] 错误: gremlins 未安装\n")
+		logMutation("ERROR", "mutation_error", "error", "gremlins not installed")
 		return 0, mutationStats{}, "gremlins not installed. Install: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest"
 	}
 
+	fmt.Printf("        [MUTATION] 步骤1: 运行 gremlins unleash (超时=%ds)...\n", timeoutSeconds)
+	logMutation("DEBUG-1", "mutation_step", "step", "gremlins_unleash", "gremlins_path", gremlinsPath)
+	mutmutRunStart := time.Now()
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
 	// gremlins 不支持 --quiet 参数，直接运行 unleash 命令
 	runOut, runErr := runCommandWithProcessGroupKill(runCtx, gremlinsPath, []string{"unleash"}, workdir, nil)
+	mutmutRunElapsed := time.Since(mutmutRunStart)
+	logMutation("DEBUG-1", "mutation_step_done", "step", "gremlins_unleash", "elapsed_ms", mutmutRunElapsed.Milliseconds(), "run_err", runErr)
+
+	if runErr != nil {
+		fmt.Printf("        [MUTATION] 步骤1完成(有错误) | 耗时: %dms | 错误: %v\n", mutmutRunElapsed.Milliseconds(), runErr)
+	} else {
+		fmt.Printf("        [MUTATION] 步骤1完成 | 耗时: %dms\n", mutmutRunElapsed.Milliseconds())
+	}
 
 	stats, parseErr := parseGremlinsOutput(string(runOut))
 	if parseErr != "" {

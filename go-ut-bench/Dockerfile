@@ -34,6 +34,8 @@ RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     python3-pip \
     python3-dev \
     python3-pytest \
+    python3-six \
+    python3-dateutil \
     python3-venv \
     openjdk-21-jdk \
     maven \

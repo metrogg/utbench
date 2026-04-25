@@ -66,6 +66,7 @@ export DEEPSEEK_API_KEY="sk-xxx"
 | `utbench report` | 生成评测报告 |
 | `utbench ingest` | 结果导入 SQLite |
 | `utbench dataset` | 数据集管理 |
+| `utbench doctor` | 检查评测工具链并运行 canary 自检 |
 
 ## 输出结构
 
@@ -84,6 +85,17 @@ artifacts/runs/<run-id>/
 - **截断统计分析**：报告中显示截断率、续写统计、调优建议
 - **增量运行**：支持 checkpoint 断点续跑
 - **变异测试**：可选启用变异测试评估测试质量
+- **评测自检**：`utbench doctor` 检查工具版本并运行临时 canary 样本
+- **数据集审计**：`utbench dataset validate` 统计样本并标记外部 I/O、非确定性和复杂度风险
+
+## 数据集说明
+
+当前仓库内置数据集实际为 `self_contained`：Python、Go、Java、C++ 各 4 个场景，每个场景 50 个样本。正式运行请显式使用 `--class self_contained`，避免旧文档中的 module-level 说明造成样本集合不一致。
+
+```bash
+./utbench doctor --langs python,go,java,cpp --mutation-enabled --mutation-timeout 120
+./utbench dataset validate --dataset-root ./datasets --langs python,go,java,cpp --class self_contained --strict
+```
 
 ## 文档
 

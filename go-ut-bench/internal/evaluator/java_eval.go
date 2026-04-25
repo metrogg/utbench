@@ -453,6 +453,9 @@ func collectJavaMutation(ctx context.Context, workdir, className string, timeout
 		timeoutSeconds = 120
 	}
 
+	fmt.Printf("        [MUTATION] Java PITest 开始 | 类名: %s | 超时: %ds\n", className, timeoutSeconds)
+	logMutation("DEBUG-1", "mutation_start", "language", "java", "tool", "pitest", "class_name", className, "timeout_seconds", timeoutSeconds)
+
 	minPassRate := GetMinPassRateForTool("pitest")
 	passed := 0
 	total := 0
@@ -472,13 +475,26 @@ func collectJavaMutation(ctx context.Context, workdir, className string, timeout
 
 	checkResult := CheckTestPassRate(passed, total, "PITest", minPassRate)
 	if !checkResult.ShouldRun {
+		fmt.Printf("        [MUTATION] 跳过: %s\n", checkResult.Message)
+		logMutation("DEBUG-2", "mutation_skip", "reason", checkResult.Message)
 		return 0, mutationStats{}, checkResult.Message
 	}
 
+	fmt.Printf("        [MUTATION] 步骤1: 运行 mvn pitest (超时=%ds)...\n", timeoutSeconds)
+	logMutation("DEBUG-1", "mutation_step", "step", "mvn_pitest")
+	mutmutRunStart := time.Now()
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
 	runOut, runErr := runCommandWithProcessGroupKill(runCtx, "mvn", []string{"org.pitest:pitest-maven:mutationCoverage", "-q"}, workdir, nil)
+	mutmutRunElapsed := time.Since(mutmutRunStart)
+	logMutation("DEBUG-1", "mutation_step_done", "step", "mvn_pitest", "elapsed_ms", mutmutRunElapsed.Milliseconds(), "run_err", runErr)
+
+	if runErr != nil {
+		fmt.Printf("        [MUTATION] 步骤1完成(有错误) | 耗时: %dms | 错误: %v\n", mutmutRunElapsed.Milliseconds(), runErr)
+	} else {
+		fmt.Printf("        [MUTATION] 步骤1完成 | 耗时: %dms\n", mutmutRunElapsed.Milliseconds())
+	}
 
 	stats, parseErr := parsePitXML(workdir)
 	if parseErr != "" {

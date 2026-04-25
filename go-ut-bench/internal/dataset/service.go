@@ -71,7 +71,7 @@ func (s *Service) ValidateSpec(spec contracts.RunSpec) error {
 	}
 	if spec.MutationPolicy != "" {
 		policy := strings.ToLower(strings.TrimSpace(spec.MutationPolicy))
-		if policy != "warn" && policy != "fail" {
+		if policy != "warn" && policy != "fail" && policy != "skip" {
 			return fmt.Errorf("unsupported mutation policy: %s", spec.MutationPolicy)
 		}
 	}

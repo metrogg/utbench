@@ -120,10 +120,17 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 			continue
 		}
 		headerName := match[1]
+		if isSystemProvidedCppHeader(headerName) {
+			continue
+		}
 		headerPath := filepath.Join(workdir, headerName)
 		if _, err := os.Stat(headerPath); os.IsNotExist(err) {
 			if strings.HasSuffix(headerName, ".h") || strings.HasSuffix(headerName, ".hpp") {
-				declHeader := generateDeclarationsHeader(string(sourceData), strings.TrimSuffix(headerName, filepath.Ext(headerName)))
+				if err := os.MkdirAll(filepath.Dir(headerPath), 0o755); err != nil {
+					_ = os.RemoveAll(workdir)
+					return "", "", "", "", fmt.Sprintf("failed to create header dir for %s: %s", headerName, err)
+				}
+				declHeader := generatePlaceholderHeader(headerName)
 				if err := os.WriteFile(headerPath, []byte(declHeader), 0644); err != nil {
 					_ = os.RemoveAll(workdir)
 					return "", "", "", "", fmt.Sprintf("failed to write header %s: %s", headerName, err)
@@ -728,6 +735,15 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, 0644)
+}
+
+func isSystemProvidedCppHeader(headerName string) bool {
+	return strings.HasPrefix(headerName, "gtest/") || strings.HasPrefix(headerName, "gmock/")
+}
+
+func generatePlaceholderHeader(headerName string) string {
+	guard := strings.ToUpper(strings.NewReplacer("/", "_", ".", "_", "-", "_").Replace(headerName))
+	return fmt.Sprintf("#ifndef %s\n#define %s\n\n#endif\n", guard, guard)
 }
 
 // parseFloatOrZero 解析字符串为 float64，失败返回 0

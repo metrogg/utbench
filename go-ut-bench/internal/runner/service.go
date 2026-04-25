@@ -78,10 +78,15 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	genRoot := filepath.Join(runRoot, "generated")
 	testRoot := filepath.Join(genRoot, "tests")
 	metaRoot := filepath.Join(genRoot, "metadata")
+	promptRoot := filepath.Join(genRoot, "prompts")
 	if err := os.MkdirAll(testRoot, 0o755); err != nil {
 		return Output{}, err
 	}
 	if err := os.MkdirAll(metaRoot, 0o755); err != nil {
+		return Output{}, err
+	}
+	promptCatalog, err := WritePromptCatalog(promptRoot)
+	if err != nil {
 		return Output{}, err
 	}
 
@@ -115,7 +120,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		go func() {
 			defer wg.Done()
 			for t := range tasks {
-				item := s.generateOne(ctx, spec, testRoot, metaRoot, t.model, t.sample)
+				item := s.generateOne(ctx, spec, testRoot, metaRoot, promptRoot, promptCatalog.VersionID, t.model, t.sample)
 				select {
 				case <-ctx.Done():
 					return
@@ -266,11 +271,14 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	})
 
 	manifest := contracts.GeneratedManifest{
-		SchemaVersion: contracts.SchemaVersion,
-		RunID:         spec.RunID,
-		CreatedAtUTC:  time.Now().UTC(),
-		Spec:          spec,
-		Cases:         cases,
+		SchemaVersion:     contracts.SchemaVersion,
+		RunID:             spec.RunID,
+		CreatedAtUTC:      time.Now().UTC(),
+		Spec:              spec,
+		PromptStrategy:    promptCatalog.Strategy,
+		PromptVersionID:   promptCatalog.VersionID,
+		PromptSnapshotDir: promptRoot,
+		Cases:             cases,
 	}
 	manifestPath := filepath.Join(genRoot, "generated_manifest.json")
 	if err := contracts.WriteJSON(manifestPath, manifest); err != nil {
@@ -289,13 +297,19 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	return Output{Manifest: manifest, ManifestPath: manifestPath}, nil
 }
 
-func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testRoot, metaRoot string, modelCfg modelConfig, sample contracts.SampleRef) contracts.GeneratedCase {
+func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testRoot, metaRoot, promptRoot, promptVersionID string, modelCfg modelConfig, sample contracts.SampleRef) contracts.GeneratedCase {
 	model := modelCfg.Name
 	started := time.Now()
 	ext := languageExt(sample.Language)
 	testRel := filepath.Join(model, sample.Language, fmt.Sprintf("%s.test%s", sample.ID, ext))
 	testPath := filepath.Join(testRoot, testRel)
 	respPath := filepath.Join(metaRoot, fmt.Sprintf("%s_%s_%s.response.json", model, sample.Language, sample.ID))
+	promptPath := ""
+	promptPathCandidate := filepath.Join(promptRoot, "rendered", model, sample.Language, fmt.Sprintf("%s.prompt.txt", sample.ID))
+	promptMode := string(PromptModeFullFile)
+	if loadModuleLevelMetaForRunner(sample.Path) != nil {
+		promptMode = string(PromptModeModuleLevel)
+	}
 
 	if spec.Mode == contracts.RunModeIncremental {
 		if _, err := os.Stat(testPath); err == nil {
@@ -308,6 +322,8 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				Language:          sample.Language,
 				SampleID:          sample.ID,
 				SamplePath:        sample.Path,
+				PromptVersionID:   promptVersionID,
+				PromptMode:        promptMode,
 				GeneratedTestPath: testPath,
 				ResponsePath:      respPath,
 				MetadataPath:      "",
@@ -324,6 +340,8 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 			Language:          sample.Language,
 			SampleID:          sample.ID,
 			SamplePath:        sample.Path,
+			PromptVersionID:   promptVersionID,
+			PromptMode:        promptMode,
 			GeneratedTestPath: testPath,
 			ResponsePath:      "",
 			GeneratedAtUTC:    time.Now().UTC(),
@@ -343,6 +361,7 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 	var totalTokens *int
 	var truncated bool
 	latencyMS := 0
+	renderedPrompt := ""
 
 	if spec.DryRun {
 		content = buildPlaceholderTest(sample.Language, sample.ID)
@@ -354,6 +373,8 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				Language:          sample.Language,
 				SampleID:          sample.ID,
 				SamplePath:        sample.Path,
+				PromptVersionID:   promptVersionID,
+				PromptMode:        promptMode,
 				GeneratedTestPath: testPath,
 				GeneratedAtUTC:    time.Now().UTC(),
 				Success:           false,
@@ -364,14 +385,19 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				},
 			}
 		}
+		renderedPrompt = buildPrompt(sample.Language, sample.Path, string(sourceCode))
+		if err := os.MkdirAll(filepath.Dir(promptPathCandidate), 0o755); err == nil {
+			if err := os.WriteFile(promptPathCandidate, []byte(renderedPrompt), 0o644); err == nil {
+				promptPath = promptPathCandidate
+			}
+		}
 
 		client := newAPIClient()
 		generated, response, latency, pTok, cTok, tTok, isTruncated, genErr := client.generateTest(
 			ctx,
 			modelCfg,
 			sample.Language,
-			sample.Path,
-			string(sourceCode),
+			renderedPrompt,
 		)
 		truncated = isTruncated
 		if genErr != nil {
@@ -381,6 +407,9 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				Language:          sample.Language,
 				SampleID:          sample.ID,
 				SamplePath:        sample.Path,
+				PromptVersionID:   promptVersionID,
+				PromptMode:        promptMode,
+				PromptPath:        promptPath,
 				GeneratedTestPath: testPath,
 				ResponsePath:      respPath,
 				GeneratedAtUTC:    time.Now().UTC(),
@@ -439,6 +468,10 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		"language":            sample.Language,
 		"sample_id":           sample.ID,
 		"sample_path":         sample.Path,
+		"prompt_strategy":     PromptStrategy(),
+		"prompt_version_id":   promptVersionID,
+		"prompt_mode":         promptMode,
+		"prompt_path":         promptPath,
 		"scenario":            sample.Scenario,
 		"generated_test_path": testPath,
 		"response_path":       respPath,
@@ -465,6 +498,9 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		Language:          sample.Language,
 		SampleID:          sample.ID,
 		SamplePath:        sample.Path,
+		PromptVersionID:   promptVersionID,
+		PromptMode:        promptMode,
+		PromptPath:        promptPath,
 		GeneratedTestPath: testPath,
 		ResponsePath:      respPath,
 		MetadataPath:      metadataPath,

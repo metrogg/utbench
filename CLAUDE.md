@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The primary codebase is `go-ut-bench/` (Go CLI). Root `README.md`, `docker-compose.yml`, and `docker.sh` are **obsolete** — ignore them and work from `go-ut-bench/`.
 
+**Important**: there is an unintegrated duplicate of `internal/runner/` at the repository root (`runner/api.go`, `runner/prompt.go`, etc.). This was added in a recent commit but is **outside the Go module** and not imported by the build. Always edit files under `go-ut-bench/internal/runner/` instead.
+
 ## Build and Run
 
 All commands run from `go-ut-bench/`:
@@ -44,13 +46,13 @@ go test -v ./internal/evaluator/... -run TestPythonEval
 ./utbench generate --models deepseek --langs python --max-samples 5
 
 # Evaluate an existing manifest
-./utbench evaluate --input ./artifacts/runs/<run-id>/generated/generated_manifest.json
+./utbench evaluate --manifest ./artifacts/runs/<run-id>/generated/generated_manifest.json
 
 # Generate report
-./utbench report --input ./artifacts/runs/<run-id>/evaluation/evaluation_result.json
+./utbench report --evaluation ./artifacts/runs/<run-id>/evaluation/evaluation_result.json
 
 # Ingest into SQLite
-./utbench ingest --input ./artifacts/runs/<run-id>/evaluation/evaluation_result.json --db ./storage/utbench.db
+./utbench ingest --evaluation ./artifacts/runs/<run-id>/evaluation/evaluation_result.json --db-path ./storage/utbench.db
 ```
 
 ### Docker (recommended when running evaluation toolchains)
@@ -78,6 +80,18 @@ docker run --rm --env-file .env `
   utbench:latest run --models deepseek --langs python --max-samples 2
 ```
 
+### Helper scripts
+
+Pre-built convenience wrappers for Docker runs:
+
+```bash
+# Linux / WSL
+./run_bench.sh [models] [langs] [max-samples] [mutation]
+
+# Windows PowerShell
+.\run_bench.ps1 [models] [langs] [max-samples] [mutation]
+```
+
 ### Dataset management
 
 ```bash
@@ -92,9 +106,6 @@ docker run --rm --env-file .env `
   --level l1 \
   --limit-per-scenario 20 \
   --output ./configs/dataset_l1.json
-
-# Validate dataset layout and Python dependencies
-./utbench dataset validate --dataset-root ./datasets --langs python
 ```
 
 ## Architecture
@@ -109,7 +120,12 @@ Five-stage pipeline orchestrated by `internal/orchestrator/service.go`:
 
 ### Data contracts
 
-`internal/contracts/` is the single source of truth for all cross-stage types: `RunSpec`, `SampleRef`, `GeneratedManifest`, `EvaluationResultSet`, `ReportPayload`. Schema version: `v0.1.0`. JSON read/write helpers live here.
+`internal/contracts/` is the single source of truth for all cross-stage types. Key files:
+- `spec.go` — `RunSpec`, `SampleRef`, `ModuleLevelMeta`
+- `constants.go` — `SchemaVersion = "v0.1.0"`, `DatasetClass`, `RunMode`
+- `results.go` — `GeneratedManifest`, `EvaluationResultSet`, `ReportPayload`
+
+JSON read/write helpers live in `internal/contracts/`.
 
 ### Checkpoint mechanism
 
@@ -124,7 +140,7 @@ Runner in incremental mode hashes `(dataset_root + classes + level + manifest + 
 - **Default `--class` is `self_contained`**: Python and Go datasets are entirely `module_level`. Use `--class module_level` for those languages.
 - **Module-level samples** require `meta.json` with `workspace_root` and `module_import`; the evaluator does not clean up their workspaces (reused in-place).
 - **Checkpoint invalidation**: changing any of models, langs, class, level, manifest, max-samples, or dataset-root changes the hash and starts a fresh run.
-- **Windows mutation testing**: `mutmut` (Python) is validated on Linux only; use Docker on Windows.
+- **Mutation testing tools**: Python uses `mutmut`, Go uses `gremlins` (`go install github.com/go-gremlins/gremlins/cmd/gremlins@latest`). Windows mutation testing for Python is validated on Linux only; use Docker on Windows.
 - **Line endings on Windows**: normalize with `git add --renormalize .`
 
 ## Code Style
@@ -138,7 +154,7 @@ Runner in incremental mode hashes `(dataset_root + classes + level + manifest + 
 
 ## Environment Setup
 
-Copy `go-ut-bench/.env.example` to `go-ut-bench/.env` and fill in:
+Copy `.env.example` (at repo root) or create `go-ut-bench/.env` and fill in:
 
 | Variable | Provider |
 |---|---|
@@ -147,3 +163,21 @@ Copy `go-ut-bench/.env.example` to `go-ut-bench/.env` and fill in:
 | `MINIMAX_API_KEY` | MiniMax |
 | `VOLCENGINE_API_KEY` | doubao-seed (original) |
 | `ARK_API_KEY` | doubao-seed-2.0-lite/1.6/2.0-pro-v2, glm-4.7 |
+
+# Prompt System
+
+The runner uses three prompt modes (`internal/runner/prompt.go`):
+- `full_file` — default for self-contained samples; full source + instructions
+- `completion` — for continuation after truncation
+- `module_level` — for samples with workspace context and module imports
+
+Prompt strategy: `structured-v1`. System message emphasizes runnable tests only, no explanations or placeholders. Use `BuildPromptCatalog()` to inspect templates.
+
+# Key Files to Read First
+
+- `go-ut-bench/cmd/utbench/main.go` — CLI entry point, command routing
+- `go-ut-bench/internal/orchestrator/service.go` — pipeline orchestration logic
+- `go-ut-bench/internal/contracts/spec.go` — core data structures (RunSpec, SampleRef)
+- `go-ut-bench/internal/contracts/constants.go` — SchemaVersion, DatasetClass, RunMode
+- `go-ut-bench/internal/runner/prompt.go` — prompt construction
+- `go-ut-bench/internal/evaluator/service.go` — evaluation pipeline per language

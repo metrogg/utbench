@@ -8,7 +8,8 @@ utbench generate     仅生成单元测试
 utbench evaluate     评测已生成的单元测试
 utbench report       生成评测报告
 utbench ingest       结果导入 SQLite
-utbench dataset      数据集管理 (index, manifest, stats)
+utbench dataset      数据集管理 (index, manifest, stats, validate)
+utbench doctor       评测工具链自检
 ```
 
 ---
@@ -195,19 +196,64 @@ utbench dataset stats \
 |------|--------|------|
 | `--manifest` | `./configs/dataset_index.json` | 数据集索引文件路径 |
 
+### dataset validate
+
+检查数据集 readiness，统计 language/class/scenario 分布并标记高风险样本。
+
+```bash
+utbench dataset validate \
+  --dataset-root ./datasets \
+  --langs python,go,java,cpp \
+  --class self_contained \
+  --strict
+```
+
+**参数：**
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--dataset-root` | `./datasets` | 数据集根目录 |
+| `--langs` | 全部 | 语言列表 |
+| `--class` | 全部 | 数据集类别过滤 |
+| `--scenario` | 全部 | 场景过滤 |
+| `--strict` | `false` | 存在错误时返回非 0 |
+| `--json` | 空 | 写出 JSON 报告 |
+
+---
+
+## 7. doctor
+
+检查评测环境是否能正常编译、运行测试、收集覆盖率和执行变异测试。
+
+```bash
+utbench doctor \
+  --langs python,go,java,cpp \
+  --mutation-enabled \
+  --mutation-timeout 120
+```
+
+**参数：**
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--langs` | `python,go,java,cpp` | 要检查的语言 |
+| `--mutation-enabled` | `true` | 是否运行变异测试 canary |
+| `--mutation-timeout` | `120` | 变异测试超时（秒） |
+| `--test-timeout` | `60` | canary 测试超时（秒） |
+| `--json` | 空 | 写出 JSON 报告 |
+
 ---
 
 ## 数据集类别说明
 
 | 类别 | 说明 | 适用语言 |
 |------|------|---------|
-| `self_contained` | 自包含代码，无外部依赖 | Java, C++ |
-| `module_level` | 模块级别，有外部依赖 | Python, Go |
+| `self_contained` | 自包含代码，无外部依赖 | Python, Go, Java, C++ |
+| `module_level` | 模块级别，有外部依赖 | 预留/旧数据 |
 
-**注意**：Python 和 Go 数据集全部是 `module_level`，使用时需指定：
+**注意**：当前仓库内置数据集实际为 `self_contained`，正式运行建议显式指定：
 ```bash
---class module_level  # Python/Go
---class self_contained  # Java/C++
+--class self_contained
 ```
 
 ---

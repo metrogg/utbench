@@ -105,7 +105,7 @@ func GetMinPassRateForTool(toolName string) float64 {
 	case "pitest", "java":
 		return 0.5
 	case "mutmut", "python":
-		return 0.0
+		return 0.8
 	default:
 		return 0.8
 	}

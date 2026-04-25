@@ -1,5 +1,5 @@
 # Build artifacts
-utbench
+/utbench
 
 # Runtime artifacts
 artifacts/*

@@ -46,6 +46,7 @@ type evalTask struct {
 // 返回值:
 //   - *Service: 新的服务实例
 func NewService(logger *obs.Logger) *Service {
+	SetMutationLogger(logger)
 	return &Service{logger: logger}
 }
 
@@ -235,7 +236,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 	return Output{Result: set, ResultPath: resultPath}, nil
 }
 
-func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item contracts.GeneratedCase) contracts.EvaluationResult {
+func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item contracts.GeneratedCase) (result contracts.EvaluationResult) {
 	start := time.Now()
 	row := contracts.EvaluationResult{
 		Model:             item.Model,
@@ -248,6 +249,10 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		TotalTokens:       item.TotalTokens,
 		Truncated:         item.Truncated,
 	}
+	defer func() {
+		finalizeEvaluationResult(&row, start)
+		result = row
+	}()
 
 	if !item.Success {
 		row.CompilePass = false
@@ -256,8 +261,6 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		} else {
 			row.CompileError = "generation failed"
 		}
-		rt := int(time.Since(start).Milliseconds())
-		row.RuntimeMS = &rt
 		return row
 	}
 
@@ -292,13 +295,18 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			return row
 		}
 
+		testTimeout := spec.TestTimeout
+		if testTimeout <= 0 {
+			testTimeout = defaultTestTimeoutSeconds
+		}
+
 		var pass bool
 		var testErr string
 		var runtimeMs int
 		if isModuleLevel {
-			pass, testErr, runtimeMs = executePythonTestsInWorkspace(workdir, testName, packageName)
+			pass, testErr, runtimeMs = executePythonTestsInWorkspace(workdir, testName, packageName, testTimeout)
 		} else {
-			pass, testErr, runtimeMs = executePythonTests(workdir, testName)
+			pass, testErr, runtimeMs = executePythonTests(workdir, testName, testTimeout)
 		}
 		row.TestPass = &pass
 		if !pass && testErr != "" {
@@ -318,6 +326,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
 			row.TestPassRate = &rate
 		}
+		ensureTestCountsFromPass(&row)
 
 		assertCnt, testCnt, density := estimateAssertionDensity(filepath.Join(workdir, testName), item.Language)
 		row.AssertionCount = &assertCnt
@@ -335,7 +344,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 
 		if isModuleLevel {
 			if packageName != "" {
-				lineCov, branchCov, covErr := collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile)
+				lineCov, branchCov, covErr := collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile, testTimeout)
 				if covErr != "" && pass {
 					row.CoverageError = covErr
 				} else if covErr == "" {
@@ -344,7 +353,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 				}
 			}
 		} else if sourceBase != "" {
-			lineCov, branchCov, covErr := collectPythonCoverage(workdir, testName, sourceBase, sourceStem, targets)
+			lineCov, branchCov, covErr := collectPythonCoverage(workdir, testName, sourceBase, sourceStem, targets, testTimeout)
 			if covErr != "" && pass {
 				row.CoverageError = covErr
 			} else if covErr == "" {
@@ -353,48 +362,62 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			}
 		}
 
-		if spec.MutationEnabled {
+		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
 			mutationTargets := targets
 			if len(mutationTargets) == 0 && sourceBase != "" {
 				mutationTargets = []string{sourceBase}
 			}
-			mutationStart := time.Now()
-			mutationScore, mutationStats, mutationErr := collectPythonMutation(ctx, workdir, testName, mutationTargets, spec.MutationTimeout, testErr)
-			mutationElapsed := time.Since(mutationStart)
-			s.logger.ToFile("evaluator").Trace("mutation_result",
-				"model", item.Model,
-				"language", item.Language,
-				"sample_id", item.SampleID,
-				"tool", "mutmut",
-				"score", mutationScore,
-				"total", mutationStats.Total,
-				"killed", mutationStats.Killed,
-				"survived", mutationStats.Survived,
-				"elapsed_seconds", int(mutationElapsed.Seconds()),
-				"error", mutationErr,
-			)
-			if mutationErr != "" {
-				row.MutationError = mutationErr
+			testPassed := 0
+			if row.TestPassCount != nil {
+				testPassed = *row.TestPassCount
+			}
+			testTotal := 0
+			if row.TestTotalCount != nil {
+				testTotal = *row.TestTotalCount
+			}
+			checkResult := CheckTestPassRate(testPassed, testTotal, "mutmut", GetMinPassRateForTool("mutmut"))
+			if !checkResult.ShouldRun {
+				row.MutationError = checkResult.Message
+				row.MutationTool = "mutmut"
 			} else {
-				row.MutationScore = &mutationScore
+				mutationStart := time.Now()
+				mutationScore, mutationStats, mutationErr := collectPythonMutation(ctx, workdir, testName, mutationTargets, spec.MutationTimeout, testErr)
+				mutationElapsed := time.Since(mutationStart)
+				s.logger.ToFile("evaluator").Trace("mutation_result",
+					"model", item.Model,
+					"language", item.Language,
+					"sample_id", item.SampleID,
+					"tool", "mutmut",
+					"score", mutationScore,
+					"total", mutationStats.Total,
+					"killed", mutationStats.Killed,
+					"survived", mutationStats.Survived,
+					"elapsed_seconds", int(mutationElapsed.Seconds()),
+					"error", mutationErr,
+				)
+				if mutationErr != "" {
+					row.MutationError = mutationErr
+				} else {
+					row.MutationScore = &mutationScore
+				}
+				if mutationStats.Total > 0 {
+					total := mutationStats.Total
+					killed := mutationStats.Killed
+					survived := mutationStats.Survived
+					noTests := mutationStats.NoTests
+					timeouts := mutationStats.Timeout
+					skipped := mutationStats.Skipped
+					suspicious := mutationStats.Suspicious
+					row.MutationTotal = &total
+					row.MutationKilled = &killed
+					row.MutationSurvived = &survived
+					row.MutationNoTests = &noTests
+					row.MutationTimeouts = &timeouts
+					row.MutationSkipped = &skipped
+					row.MutationSuspicious = &suspicious
+				}
+				row.MutationTool = "mutmut"
 			}
-			if mutationStats.Total > 0 {
-				total := mutationStats.Total
-				killed := mutationStats.Killed
-				survived := mutationStats.Survived
-				noTests := mutationStats.NoTests
-				timeouts := mutationStats.Timeout
-				skipped := mutationStats.Skipped
-				suspicious := mutationStats.Suspicious
-				row.MutationTotal = &total
-				row.MutationKilled = &killed
-				row.MutationSurvived = &survived
-				row.MutationNoTests = &noTests
-				row.MutationTimeouts = &timeouts
-				row.MutationSkipped = &skipped
-				row.MutationSuspicious = &suspicious
-			}
-			row.MutationTool = "mutmut"
 		}
 	} else if strings.EqualFold(item.Language, "go") {
 		workdir, testName, sourceBase, _ := prepareGoWorkspace(item.GeneratedTestPath, item.SamplePath)
@@ -436,6 +459,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
 			row.TestPassRate = &rate
 		}
+		ensureTestCountsFromPass(&row)
 
 		assertCnt, testCnt, density := estimateAssertionDensity(filepath.Join(workdir, testName), item.Language)
 		row.AssertionCount = &assertCnt
@@ -452,7 +476,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			}
 		}
 
-		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
 			mutationStart := time.Now()
 			mutationScore, mutationStats, mutationErr := collectGoMutation(ctx, workdir, testName, sourceBase, spec.MutationTimeout, row.TestPassRate, 0, 0)
 			mutationElapsed := time.Since(mutationStart)
@@ -526,6 +550,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
 			row.TestPassRate = &rate
 		}
+		ensureTestCountsFromPass(&row)
 
 		assertCnt, testCnt, density := estimateAssertionDensity(filepath.Join(workdir, "src", "test", "java", testName), item.Language)
 		row.AssertionCount = &assertCnt
@@ -542,7 +567,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			}
 		}
 
-		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
 			mutationStart := time.Now()
 			testPassed := 0
 			if row.TestPassCount != nil {
@@ -620,6 +645,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
 			row.TestPassRate = &rate
 		}
+		ensureTestCountsFromPass(&row)
 
 		assertCnt, testCnt, density := estimateCppAssertionDensity(filepath.Join(workdir, testName))
 		row.AssertionCount = &assertCnt
@@ -636,7 +662,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			}
 		}
 
-		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
 			mutationStart := time.Now()
 			testPassed := 0
 			if row.TestPassCount != nil {
@@ -692,11 +718,128 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		row.AssertionDensity = &density
 	}
 
+	return row
+}
+
+func finalizeEvaluationResult(row *contracts.EvaluationResult, start time.Time) {
 	if row.RuntimeMS == nil {
 		rt := int(time.Since(start).Milliseconds())
 		row.RuntimeMS = &rt
 	}
-	return row
+	origin, reason := classifyFailureOrigin(*row)
+	if origin == "" {
+		origin = "none"
+	}
+	row.FailureOrigin = origin
+	eligible := origin == "none" || origin == "model"
+	row.ScoreEligible = &eligible
+	if !eligible {
+		row.ScoreExclusionReason = reason
+	}
+}
+
+func ensureTestCountsFromPass(row *contracts.EvaluationResult) {
+	if row.TestPass == nil || row.TestPassCount != nil || row.TestTotalCount != nil {
+		return
+	}
+	total := 1
+	passed := 0
+	if *row.TestPass {
+		passed = 1
+	}
+	rateValue := float64(passed)
+	row.TestPassCount = &passed
+	row.TestTotalCount = &total
+	row.TestPassRate = &rateValue
+}
+
+func classifyFailureOrigin(row contracts.EvaluationResult) (string, string) {
+	if row.CompileError == "" && row.TestError == "" && row.CoverageError == "" && row.MutationError == "" && !row.Truncated {
+		return "none", ""
+	}
+	for _, msg := range []string{row.CompileError, row.TestError, row.CoverageError, row.MutationError} {
+		if msg == "" {
+			continue
+		}
+		if isDatasetFailureMessage(msg) {
+			return "dataset", shortFailureReason(msg)
+		}
+		if isEnvironmentFailureMessage(msg) {
+			return "environment", shortFailureReason(msg)
+		}
+	}
+	if generatedTestDidNotPass(row) {
+		return "model", ""
+	}
+	for _, msg := range []string{row.CompileError, row.TestError, row.CoverageError, row.MutationError} {
+		if msg == "" {
+			continue
+		}
+		if isToolFailureMessage(msg) {
+			return "tool", shortFailureReason(msg)
+		}
+	}
+	return "model", ""
+}
+
+func generatedTestDidNotPass(row contracts.EvaluationResult) bool {
+	if row.CompilePass == false && row.CompileError != "" {
+		return true
+	}
+	if row.TestPass != nil && !*row.TestPass {
+		return true
+	}
+	if row.TestPassRate != nil && *row.TestPassRate < 1.0 {
+		return true
+	}
+	return false
+}
+
+func isDatasetFailureMessage(msg string) bool {
+	msg = strings.ToLower(msg)
+	return strings.Contains(msg, "dataset root") ||
+		strings.Contains(msg, "source file not found") ||
+		strings.Contains(msg, "target file not found") ||
+		strings.Contains(msg, "module_level sample missing metadata") ||
+		strings.Contains(msg, "module_level workspace not found") ||
+		strings.Contains(msg, "module_level workspace_root not set") ||
+		strings.Contains(msg, "failed to read source")
+}
+
+func isEnvironmentFailureMessage(msg string) bool {
+	msg = strings.ToLower(msg)
+	return strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "access is denied") ||
+		strings.Contains(msg, "executable file not found") ||
+		strings.Contains(msg, "no such file or directory") ||
+		strings.Contains(msg, "not installed") ||
+		strings.Contains(msg, "command not found")
+}
+
+func isToolFailureMessage(msg string) bool {
+	msg = strings.ToLower(msg)
+	if strings.Contains(msg, "pass rate") ||
+		strings.Contains(msg, "all tests failed") ||
+		strings.Contains(msg, "no tests found, skipping mutation") ||
+		strings.Contains(msg, "pytest timed out") ||
+		strings.Contains(msg, "coverage run timed out") {
+		return false
+	}
+	return strings.Contains(msg, "coverage json failed") ||
+		strings.Contains(msg, "coverage files empty") ||
+		strings.Contains(msg, "stats file not found") ||
+		strings.Contains(msg, "parse error") ||
+		strings.Contains(msg, "produced zero mutants") ||
+		strings.Contains(msg, "did not execute any mutants") ||
+		strings.Contains(msg, "run incomplete")
+}
+
+func shortFailureReason(msg string) string {
+	msg = trimErr(msg, 240)
+	if msg == "" {
+		return "non-model failure"
+	}
+	return msg
 }
 
 func preparePythonWorkspace(testPath string, sourcePath string) (string, string, string, string, string) {
@@ -835,23 +978,25 @@ func preparePythonModuleLevelWorkspace(testPath string, samplePath string) (stri
 	return workspaceRoot, testName, meta.PackageName, meta.TargetFile, ""
 }
 
-func executePythonTestsInWorkspace(workdir, testName, packageName string) (bool, string, int) {
+func executePythonTestsInWorkspace(workdir, testName, packageName string, timeoutSeconds int) (bool, string, int) {
 	py := pythonExecutable()
-	cmd := exec.Command(py, "-m", "pytest", testName, "-q", "--maxfail=9999")
-	cmd.Dir = workdir
 	env := os.Environ()
 	env = append(env, "PYTHONPATH="+workdir)
-	cmd.Env = env
+	runCtx, cancel := context.WithTimeout(context.Background(), normalizedTimeout(timeoutSeconds))
+	defer cancel()
 	started := time.Now()
-	output, err := cmd.CombinedOutput()
+	output, err := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "pytest", testName, "-q", "--maxfail=9999"}, workdir, env)
 	latency := int(time.Since(started).Milliseconds())
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("pytest timed out after %ds", timeoutSeconds), latency
+	}
 	if err == nil {
 		return true, string(output), latency
 	}
 	return false, trimErr(string(output), 4000), latency
 }
 
-func collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile string) (float64, float64, string) {
+func collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile string, timeoutSeconds int) (float64, float64, string) {
 	if packageName == "" {
 		return 0, 0, "missing package name for module_level coverage"
 	}
@@ -861,20 +1006,21 @@ func collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile
 		return 0, 0, "failed to get absolute path: " + err.Error()
 	}
 	jsonPath := filepath.Join(absWorkdir, ".coverage.utbench.json")
-	runCmd := exec.Command(py, "-m", "coverage", "run", "--branch", "--source", packageName, "-m", "pytest", testName, "-q", "--maxfail=9999")
-	runCmd.Dir = absWorkdir
 	env := os.Environ()
 	env = append(env, "PYTHONPATH="+absWorkdir)
 	env = append(env, "COVERAGE_FILE="+filepath.Join(absWorkdir, ".coverage.utbench"))
-	runCmd.Env = env
-	runOut, runErr := runCmd.CombinedOutput()
+	runCtx, cancelRun := context.WithTimeout(context.Background(), normalizedTimeout(timeoutSeconds))
+	defer cancelRun()
+	runOut, runErr := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "coverage", "run", "--branch", "--source", packageName, "-m", "pytest", testName, "-q", "--maxfail=9999"}, absWorkdir, env)
+	if runCtx.Err() != nil {
+		return 0, 0, fmt.Sprintf("coverage run timed out after %ds", timeoutSeconds)
+	}
 	if runErr != nil {
 		return 0, 0, "coverage run failed: " + trimErr(string(runOut), 800)
 	}
-	jsonCmd := exec.Command(py, "-m", "coverage", "json", "-o", jsonPath)
-	jsonCmd.Dir = absWorkdir
-	jsonCmd.Env = append(env, "COVERAGE_FILE="+filepath.Join(absWorkdir, ".coverage.utbench"))
-	if out, err := jsonCmd.CombinedOutput(); err != nil {
+	jsonCtx, cancelJSON := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelJSON()
+	if out, err := runCommandWithProcessGroupKill(jsonCtx, py, []string{"-m", "coverage", "json", "-o", jsonPath}, absWorkdir, env); err != nil {
 		return 0, 0, "coverage json failed: " + trimErr(string(out), 800)
 	}
 	raw, err := os.ReadFile(jsonPath)
@@ -930,20 +1076,23 @@ func pythonCompileCheck(path string) (bool, string) {
 	return true, ""
 }
 
-func executePythonTests(workdir, filename string) (bool, string, int) {
+func executePythonTests(workdir, filename string, timeoutSeconds int) (bool, string, int) {
 	py := pythonExecutable()
-	cmd := exec.Command(py, "-m", "pytest", filename, "-q", "--maxfail=9999")
-	cmd.Dir = workdir
+	runCtx, cancel := context.WithTimeout(context.Background(), normalizedTimeout(timeoutSeconds))
+	defer cancel()
 	started := time.Now()
-	output, err := cmd.CombinedOutput()
+	output, err := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "pytest", filename, "-q", "--maxfail=9999"}, workdir, nil)
 	latency := int(time.Since(started).Milliseconds())
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("pytest timed out after %ds", timeoutSeconds), latency
+	}
 	if err == nil {
 		return true, string(output), latency
 	}
 	return false, trimErr(string(output), 4000), latency
 }
 
-func collectPythonCoverage(workdir, filename, sourceBase, sourceStem string, aliases []string) (float64, float64, string) {
+func collectPythonCoverage(workdir, filename, sourceBase, sourceStem string, aliases []string, timeoutSeconds int) (float64, float64, string) {
 	if sourceBase == "" {
 		return 0, 0, "missing source path"
 	}
@@ -961,13 +1110,16 @@ func collectPythonCoverage(workdir, filename, sourceBase, sourceStem string, ali
 		aliasSet[stem] = struct{}{}
 	}
 
-	runCmd := exec.Command(py, "-m", "coverage", "run", "--branch", "-m", "pytest", filename, "-q", "--maxfail=9999")
-	runCmd.Dir = workdir
-	_, _ = runCmd.CombinedOutput()
+	runCtx, cancelRun := context.WithTimeout(context.Background(), normalizedTimeout(timeoutSeconds))
+	defer cancelRun()
+	_, _ = runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "coverage", "run", "--branch", "-m", "pytest", filename, "-q", "--maxfail=9999"}, workdir, nil)
+	if runCtx.Err() != nil {
+		return 0, 0, fmt.Sprintf("coverage run timed out after %ds", timeoutSeconds)
+	}
 
-	jsonCmd := exec.Command(py, "-m", "coverage", "json", "-o", jsonPath)
-	jsonCmd.Dir = workdir
-	if out, err := jsonCmd.CombinedOutput(); err != nil {
+	jsonCtx, cancelJSON := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelJSON()
+	if out, err := runCommandWithProcessGroupKill(jsonCtx, py, []string{"-m", "coverage", "json", "-o", jsonPath}, workdir, nil); err != nil {
 		return 0, 0, "coverage json failed: " + trimErr(string(out), 800)
 	}
 
@@ -1016,7 +1168,15 @@ func rewriteGeneratedTestImports(source string, sourcePath string) string {
 	lines := strings.Split(source, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "from solution import") || strings.HasPrefix(trimmed, "from your_module import") || strings.HasPrefix(trimmed, "from module_name import") || strings.HasPrefix(trimmed, "from src import") {
+		if strings.HasPrefix(trimmed, "from solution import") ||
+			strings.HasPrefix(trimmed, "from your_module import") ||
+			strings.HasPrefix(trimmed, "from module_name import") ||
+			strings.HasPrefix(trimmed, "from src import") ||
+			strings.HasPrefix(trimmed, "from module_under_test import") ||
+			strings.HasPrefix(trimmed, "from target_module import") {
+			lines[i] = strings.Replace(line, strings.Fields(trimmed)[1], sourceStem, 1)
+		} else if strings.HasPrefix(trimmed, "import module_under_test") ||
+			strings.HasPrefix(trimmed, "import target_module") {
 			lines[i] = strings.Replace(line, strings.Fields(trimmed)[1], sourceStem, 1)
 		}
 	}
@@ -1024,7 +1184,7 @@ func rewriteGeneratedTestImports(source string, sourcePath string) string {
 }
 
 func inferAliasModules(sourceStem string) []string {
-	base := []string{sourceStem, "solution", "your_module", "module_name", "src"}
+	base := []string{sourceStem, "module_under_test", "target_module", "solution", "your_module", "module_name", "src"}
 	uniq := map[string]struct{}{}
 	out := make([]string, 0, len(base))
 	for _, item := range base {
@@ -1240,6 +1400,13 @@ func pythonExecutable() string {
 		return "python"
 	}
 	return "python3"
+}
+
+func normalizedTimeout(seconds int) time.Duration {
+	if seconds <= 0 {
+		seconds = defaultTestTimeoutSeconds
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func round(v float64, digits int) float64 {
