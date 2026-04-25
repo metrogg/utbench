@@ -1,5 +1,9 @@
 # Build artifacts
+<<<<<<< HEAD
 utbench
+=======
+/utbench
+>>>>>>> origin/feat/go
 
 # Runtime artifacts
 artifacts/*

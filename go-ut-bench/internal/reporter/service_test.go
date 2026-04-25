@@ -27,10 +27,18 @@ func TestBuildMutationBreakdown(t *testing.T) {
 			MutationTimeouts:   &timeouts1,
 			MutationSkipped:    &skipped1,
 			MutationSuspicious: &suspicious1,
+<<<<<<< HEAD
+=======
+			MutationTool:       "mutmut",
+>>>>>>> origin/feat/go
 		},
 		{
 			MutationTotal:  &total2,
 			MutationKilled: &killed2,
+<<<<<<< HEAD
+=======
+			MutationTool:   "mull",
+>>>>>>> origin/feat/go
 		},
 	}
 
@@ -38,6 +46,18 @@ func TestBuildMutationBreakdown(t *testing.T) {
 	if b.Total != 15 || b.Killed != 9 || b.Survived != 2 || b.NoTests != 1 || b.Suspicious != 1 {
 		t.Fatalf("unexpected breakdown: %+v", b)
 	}
+<<<<<<< HEAD
+=======
+	if len(b.ByTool) != 2 {
+		t.Fatalf("expected two tool breakdowns, got %+v", b.ByTool)
+	}
+	if b.ByTool[0].Tool != "mull" || b.ByTool[0].Total != 5 || b.ByTool[0].Killed != 3 {
+		t.Fatalf("unexpected first tool breakdown: %+v", b.ByTool[0])
+	}
+	if b.ByTool[1].Tool != "mutmut" || b.ByTool[1].Total != 10 || b.ByTool[1].Killed != 6 {
+		t.Fatalf("unexpected second tool breakdown: %+v", b.ByTool[1])
+	}
+>>>>>>> origin/feat/go
 }
 
 func TestBuildSummaryUsesSampleLevelTestPassRateWhenCountsMissing(t *testing.T) {
@@ -71,3 +91,51 @@ func TestBuildSummaryUsesSampleLevelTestPassRateWhenCountsMissing(t *testing.T) 
 		t.Fatalf("expected test pass rate 0.5, got %v", s.TestPassRate)
 	}
 }
+<<<<<<< HEAD
+=======
+
+func TestScoreEligibilityExcludesNonModelFailuresFromRanking(t *testing.T) {
+	pass := true
+	fail := false
+	eligible := true
+	excluded := false
+	lineCov := 1.0
+
+	rows := []contracts.EvaluationResult{
+		{
+			Model:         "m1",
+			CompilePass:   true,
+			TestPass:      &pass,
+			LineCoverage:  &lineCov,
+			ScoreEligible: &eligible,
+		},
+		{
+			Model:                "m1",
+			CompilePass:          false,
+			TestPass:             &fail,
+			ScoreEligible:        &excluded,
+			FailureOrigin:        "environment",
+			ScoreExclusionReason: "mvn not installed",
+			CompileError:         "mvn not installed",
+		},
+	}
+
+	s := buildSummary(rows)
+	if s.TotalSamples != 2 || s.EligibleSamples != 1 || s.ExcludedSamples != 1 {
+		t.Fatalf("unexpected summary eligibility counts: %+v", s)
+	}
+	if s.CompilePassRate != 1 {
+		t.Fatalf("expected excluded row to be omitted from compile rate, got %v", s.CompilePassRate)
+	}
+
+	dims := buildDimensions(rows, nil)
+	if len(dims.ByModel) != 1 || dims.ByModel[0].TotalSamples != 1 || dims.ByModel[0].CompilePassRate != 1 {
+		t.Fatalf("unexpected eligible model dimensions: %+v", dims.ByModel)
+	}
+
+	exclusions := buildScoreExclusions(rows)
+	if len(exclusions) != 1 || exclusions[0].Origin != "environment" || exclusions[0].Count != 1 {
+		t.Fatalf("unexpected exclusions: %+v", exclusions)
+	}
+}
+>>>>>>> origin/feat/go

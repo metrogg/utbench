@@ -15,6 +15,12 @@ type GeneratedCase struct {
 	Language          string     `json:"language"`                    // 编程语言，如"python"、"go"、"java"等
 	SampleID          string     `json:"sample_id"`                   // 数据集样本的唯一标识符
 	SamplePath        string     `json:"sample_path"`                 // 原始源代码文件的路径
+<<<<<<< HEAD
+=======
+	PromptVersionID   string     `json:"prompt_version_id,omitempty"` // 本次生成使用的提示词版本ID
+	PromptMode        string     `json:"prompt_mode,omitempty"`       // 提示词模式，如 full_file / module_level
+	PromptPath        string     `json:"prompt_path,omitempty"`       // 渲染后的提示词快照路径
+>>>>>>> origin/feat/go
 	GeneratedTestPath string     `json:"generated_test_path"`         // 生成的测试文件保存路径
 	ResponsePath      string     `json:"response_path"`               // 模型API响应的JSON文件路径（用于调试）
 	MetadataPath      string     `json:"metadata_path"`               // 元数据JSON文件路径
@@ -31,16 +37,28 @@ type GeneratedCase struct {
 // GeneratedManifest 包含一组测试生成案例的清单
 // 作为测试生成阶段的输出格式，包含完整的运行信息和所有案例列表
 type GeneratedManifest struct {
+<<<<<<< HEAD
 	SchemaVersion string          `json:"schema_version"` // 数据结构版本号
 	RunID         string          `json:"run_id"`         // 唯一运行ID，用于关联同一运行的所有数据
 	CreatedAtUTC  time.Time       `json:"created_at_utc"` // 清单创建时间
 	Spec          RunSpec         `json:"spec"`           // 运行时规格说明
 	Cases         []GeneratedCase `json:"cases"`          // 所有生成的测试案例列表
+=======
+	SchemaVersion     string          `json:"schema_version"`                // 数据结构版本号
+	RunID             string          `json:"run_id"`                        // 唯一运行ID，用于关联同一运行的所有数据
+	CreatedAtUTC      time.Time       `json:"created_at_utc"`                // 清单创建时间
+	Spec              RunSpec         `json:"spec"`                          // 运行时规格说明
+	PromptStrategy    string          `json:"prompt_strategy,omitempty"`     // 提示词策略名
+	PromptVersionID   string          `json:"prompt_version_id,omitempty"`   // 提示词版本ID
+	PromptSnapshotDir string          `json:"prompt_snapshot_dir,omitempty"` // 提示词快照目录
+	Cases             []GeneratedCase `json:"cases"`                         // 所有生成的测试案例列表
+>>>>>>> origin/feat/go
 }
 
 // EvaluationResult 表示单个测试的评测结果
 // 包含编译、运行、覆盖率、变异测试等全面的评测指标
 type EvaluationResult struct {
+<<<<<<< HEAD
 	Model              string   `json:"model"`                         // 评测的模型名称
 	Language           string   `json:"language"`                      // 编程语言
 	SampleID           string   `json:"sample_id"`                     // 数据集样本ID
@@ -74,6 +92,44 @@ type EvaluationResult struct {
 	CoverageError      string   `json:"coverage_error,omitempty"`      // 覆盖率收集错误信息
 	MutationError      string   `json:"mutation_error,omitempty"`      // 变异测试错误信息
 	MutationTool       string   `json:"mutation_tool,omitempty"`       // 使用的变异测试工具名称
+=======
+	Model                string   `json:"model"`                            // 评测的模型名称
+	Language             string   `json:"language"`                         // 编程语言
+	SampleID             string   `json:"sample_id"`                        // 数据集样本ID
+	GeneratedTestPath    string   `json:"generated_test_path"`              // 生成的测试文件路径
+	SourcePath           string   `json:"source_path"`                      // 源代码文件路径
+	CompilePass          bool     `json:"compile_pass"`                     // 编译是否通过
+	TestPass             *bool    `json:"test_pass"`                        // 测试是否通过（nil表示未运行）
+	Truncated            bool     `json:"truncated,omitempty"`              // API响应是否因max_tokens截断
+	LineCoverage         *float64 `json:"line_coverage"`                    // 行覆盖率，范围0-100
+	BranchCoverage       *float64 `json:"branch_coverage"`                  // 分支覆盖率，范围0-100
+	MutationScore        *float64 `json:"mutation_score"`                   // 变异测试得分，范围0-100
+	MutationTotal        *int     `json:"mutation_total,omitempty"`         // 变异体总数
+	MutationKilled       *int     `json:"mutation_killed,omitempty"`        // 被杀死的变异体数量
+	MutationSurvived     *int     `json:"mutation_survived,omitempty"`      // 存活的变异体数量
+	MutationNoTests      *int     `json:"mutation_no_tests,omitempty"`      // 无法被测试检测的变异体数
+	MutationTimeouts     *int     `json:"mutation_timeouts,omitempty"`      // 超时的变异体数量
+	MutationSkipped      *int     `json:"mutation_skipped,omitempty"`       // 跳过的变异体数量
+	MutationSuspicious   *int     `json:"mutation_suspicious,omitempty"`    // 可疑的变异体数量
+	AssertionCount       *int     `json:"assertion_count"`                  // 断言数量
+	TestCaseCount        *int     `json:"test_case_count"`                  // 测试用例数量
+	AssertionDensity     *float64 `json:"assertion_density"`                // 断言密度（断言数/测试用例数）
+	TestPassCount        *int     `json:"test_pass_count,omitempty"`        // 通过的测试用例数
+	TestTotalCount       *int     `json:"test_total_count,omitempty"`       // 总测试用例数
+	TestPassRate         *float64 `json:"test_pass_rate,omitempty"`         // 测试通过率
+	RuntimeMS            *int     `json:"runtime_ms"`                       // 测试运行耗时（毫秒）
+	PromptTokens         *int     `json:"prompt_tokens,omitempty"`          // 提示词token数量
+	CompletionTokens     *int     `json:"completion_tokens,omitempty"`      // 生成token数量
+	TotalTokens          *int     `json:"total_tokens,omitempty"`           // 总token数量
+	CompileError         string   `json:"compile_error,omitempty"`          // 编译错误信息
+	TestError            string   `json:"test_error,omitempty"`             // 测试运行错误信息
+	CoverageError        string   `json:"coverage_error,omitempty"`         // 覆盖率收集错误信息
+	MutationError        string   `json:"mutation_error,omitempty"`         // 变异测试错误信息
+	MutationTool         string   `json:"mutation_tool,omitempty"`          // 使用的变异测试工具名称
+	FailureOrigin        string   `json:"failure_origin,omitempty"`         // 失败归因：model/environment/dataset/tool/none
+	ScoreEligible        *bool    `json:"score_eligible,omitempty"`         // 是否进入模型排名分母；缺省按true兼容旧结果
+	ScoreExclusionReason string   `json:"score_exclusion_reason,omitempty"` // 不进入排名的原因
+>>>>>>> origin/feat/go
 }
 
 type EvaluationResultSet struct {
@@ -88,6 +144,11 @@ type EvaluationResultSet struct {
 // 用于快速了解整体评测效果，包含通过率、覆盖率等关键指标的平均值
 type ReportSummary struct {
 	TotalSamples        int     `json:"total_samples"`         // 总样本数量
+<<<<<<< HEAD
+=======
+	EligibleSamples     int     `json:"eligible_samples"`      // 参与排名计分的样本数
+	ExcludedSamples     int     `json:"excluded_samples"`      // 因环境/数据集/工具问题剔除的样本数
+>>>>>>> origin/feat/go
 	CompilePassCount    int     `json:"compile_pass_count"`    // 编译通过的样本数
 	CompilePassRate     float64 `json:"compile_pass_rate"`     // 编译通过率（百分比）
 	TestPassCount       int     `json:"test_pass_count"`       // 测试通过的样本数
@@ -97,6 +158,7 @@ type ReportSummary struct {
 	AvgAssertionDensity float64 `json:"avg_assertion_density"` // 平均断言密度
 }
 
+<<<<<<< HEAD
 // ReportPayload 报告的完整数据结构
 // 包含汇总信息、多维度分析和失败案例详情，用于生成可视化报告
 type ReportPayload struct {
@@ -114,6 +176,75 @@ type ReportPayload struct {
 	Failures         []FailureRow       `json:"failures"`          // 失败案例详情
 	Thresholds       Thresholds         `json:"thresholds"`        // 评估阈值配置
 	Prompts          map[string]string  `json:"prompts"`           // 按语言的提示词模板（key为语言，如"python"）
+=======
+// TruncationStats 截断统计信息
+type TruncationStats struct {
+	TotalTruncated    int                     `json:"total_truncated"`    // 总截断样本数
+	TruncationRate    float64                 `json:"truncation_rate"`    // 截断率（百分比）
+	ByModel           []ModelTruncationDim    `json:"by_model"`           // 按模型统计截断
+	ByLanguage        []LangTruncationDim     `json:"by_language"`        // 按语言统计截断
+	ByScenario        []ScenarioTruncationDim `json:"by_scenario"`        // 按场景统计截断
+	ContinuationStats ContinuationStats       `json:"continuation_stats"` // 续写统计
+}
+
+// ModelTruncationDim 按模型的截断统计
+type ModelTruncationDim struct {
+	Model               string  `json:"model"`                 // 模型名称
+	TotalSamples        int     `json:"total_samples"`         // 总样本数
+	TruncatedCount      int     `json:"truncated_count"`       // 截断样本数
+	TruncationRate      float64 `json:"truncation_rate"`       // 截断率
+	AvgCompletionTokens float64 `json:"avg_completion_tokens"` // 平均生成token数（截断样本）
+}
+
+// LangTruncationDim 按语言的截断统计
+type LangTruncationDim struct {
+	Language       string  `json:"language"`        // 语言
+	TotalSamples   int     `json:"total_samples"`   // 总样本数
+	TruncatedCount int     `json:"truncated_count"` // 截断样本数
+	TruncationRate float64 `json:"truncation_rate"` // 截断率
+}
+
+// ScenarioTruncationDim 按场景的截断统计
+type ScenarioTruncationDim struct {
+	Scenario       string  `json:"scenario"`        // 场景
+	Language       string  `json:"language"`        // 语言
+	TotalSamples   int     `json:"total_samples"`   // 总样本数
+	TruncatedCount int     `json:"truncated_count"` // 截断样本数
+	TruncationRate float64 `json:"truncation_rate"` // 截断率
+}
+
+// ContinuationStats 续写功能统计
+type ContinuationStats struct {
+	Enabled               bool    `json:"enabled"`                 // 是否启用续写
+	TotalContinuations    int     `json:"total_continuations"`     // 总续写次数
+	SuccessfulRecoveries  int     `json:"successful_recoveries"`   // 成功恢复的样本数
+	RecoveryRate          float64 `json:"recovery_rate"`           // 恢复成功率
+	AvgContinuationRounds float64 `json:"avg_continuation_rounds"` // 平均续写轮数
+}
+
+// ReportPayload 报告的完整数据结构
+// 包含汇总信息、多维度分析和失败案例详情，用于生成可视化报告
+type ReportPayload struct {
+	SchemaVersion     string              `json:"schema_version"`                // 数据结构版本号
+	RunID             string              `json:"run_id"`                        // 运行ID
+	GeneratedAtUTC    time.Time           `json:"generated_at_utc"`              // 报告生成时间
+	SourceEvaluation  string              `json:"source_evaluation"`             // 评测结果文件路径
+	PromptStrategy    string              `json:"prompt_strategy,omitempty"`     // 提示词策略名
+	PromptVersionID   string              `json:"prompt_version_id,omitempty"`   // 提示词版本ID
+	PromptSnapshotDir string              `json:"prompt_snapshot_dir,omitempty"` // 提示词快照目录
+	Summary           ReportSummary       `json:"summary"`                       // 汇总统计
+	Dimensions        Dimensions          `json:"dimensions"`                    // 多维度分析数据
+	TopModels         []ModelRank         `json:"top_models"`                    // 模型排名列表
+	ModelInfos        []ModelInfo         `json:"model_infos"`                   // 模型详细信息（含型号）
+	ByScenario        []ScenarioDim       `json:"by_scenario"`                   // 按场景维度分析
+	ByModelScenario   []ModelScenarioDim  `json:"by_model_scenario"`             // 模型+场景交叉分析
+	TokenStats        TokenStats          `json:"token_stats"`                   // Token 使用统计
+	Failures          []FailureRow        `json:"failures"`                      // 失败案例详情
+	ScoreExclusions   []ScoreExclusionRow `json:"score_exclusions,omitempty"`    // 排名剔除原因分布
+	Thresholds        Thresholds          `json:"thresholds"`                    // 评估阈值配置
+	Prompts           map[string]string   `json:"prompts"`                       // 按语言的提示词模板（key为语言，如"python"）
+	TruncationStats   TruncationStats     `json:"truncation_stats"`              // 截断统计信息
+>>>>>>> origin/feat/go
 }
 
 // Dimensions 多维度分析数据
@@ -142,11 +273,14 @@ type ModelDim struct {
 	AvgPromptTokens     float64 `json:"avg_prompt_tokens,omitempty"`     // 平均提示词Token
 	AvgCompletionTokens float64 `json:"avg_completion_tokens,omitempty"` // 平均生成Token
 	AvgTotalTokens      float64 `json:"avg_total_tokens,omitempty"`      // 平均总Token
+<<<<<<< HEAD
 	// 效率指标：每"通过样本"摊销的成本。通过样本 = 编译通过且测试通过率 > 0。
 	// 数值越小越高效；无通过样本时为 0。
 	TokensPerPass float64 `json:"tokens_per_pass,omitempty"` // 每通过样本平均 completion tokens
 	MsPerPass     float64 `json:"ms_per_pass,omitempty"`     // 每通过样本平均耗时
 	PassCount     int     `json:"pass_count,omitempty"`      // 通过样本数（用于效率分母）
+=======
+>>>>>>> origin/feat/go
 }
 
 // LanguageDim 按语言维度的分析结果
@@ -177,14 +311,18 @@ type ModelRank struct {
 	AvgPromptTokens     float64 `json:"avg_prompt_tokens,omitempty"`     // 平均提示词Token
 	AvgCompletionTokens float64 `json:"avg_completion_tokens,omitempty"` // 平均生成Token
 	AvgTotalTokens      float64 `json:"avg_total_tokens,omitempty"`      // 平均总Token
+<<<<<<< HEAD
 	TokensPerPass       float64 `json:"tokens_per_pass,omitempty"`       // 每通过样本平均 completion tokens
 	MsPerPass           float64 `json:"ms_per_pass,omitempty"`           // 每通过样本平均耗时
 	PassCount           int     `json:"pass_count,omitempty"`            // 通过样本数
+=======
+>>>>>>> origin/feat/go
 }
 
 // FailureRow 失败案例详情
 // 记录特定类型错误的示例案例，用于问题诊断
 type FailureRow struct {
+<<<<<<< HEAD
 	Stage          string         `json:"stage"`                     // 失败阶段："generate"、"evaluate"等
 	ErrorType      string         `json:"error_type"`                // 错误类型："compile_error"、"test_error"等
 	Count          int            `json:"count"`                     // 该类型错误的出现次数
@@ -192,6 +330,24 @@ type FailureRow struct {
 	ExampleModel   string         `json:"example_model,omitempty"`   // 示例模型
 	ExampleSample  string         `json:"example_sample,omitempty"`  // 示例样本ID
 	ExampleMessage string         `json:"example_message,omitempty"` // 示例错误消息
+=======
+	Stage          string `json:"stage"`                     // 失败阶段："generate"、"evaluate"等
+	ErrorType      string `json:"error_type"`                // 错误类型："compile_error"、"test_error"等
+	Count          int    `json:"count"`                     // 该类型错误的出现次数
+	ExampleModel   string `json:"example_model,omitempty"`   // 示例模型
+	ExampleSample  string `json:"example_sample,omitempty"`  // 示例样本ID
+	ExampleMessage string `json:"example_message,omitempty"` // 示例错误消息
+}
+
+// ScoreExclusionRow 记录不参与排名计分的样本分布
+type ScoreExclusionRow struct {
+	Origin         string `json:"origin"`                    // environment/dataset/tool
+	Reason         string `json:"reason"`                    // 剔除原因
+	Count          int    `json:"count"`                     // 出现次数
+	ExampleModel   string `json:"example_model,omitempty"`   // 示例模型
+	ExampleSample  string `json:"example_sample,omitempty"`  // 示例样本
+	ExampleMessage string `json:"example_message,omitempty"` // 示例说明
+>>>>>>> origin/feat/go
 }
 
 // Thresholds 评估阈值配置

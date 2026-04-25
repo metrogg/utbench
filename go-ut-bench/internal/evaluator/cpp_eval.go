@@ -1,8 +1,15 @@
 package evaluator
 
 import (
+<<<<<<< HEAD
 	"context"
 	"fmt"
+=======
+	"bytes"
+	"context"
+	"fmt"
+	"math"
+>>>>>>> origin/feat/go
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,7 +118,53 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 		return "", "", "", "", fmt.Sprintf("failed to write source: %s", err)
 	}
 
+<<<<<<< HEAD
 	modifiedTestSource := forceSourceInclude(testSource, sourceBase)
+=======
+	headerPattern := regexp.MustCompile(`#include\s+"([^"]+)"`)
+	headerMatches := headerPattern.FindAllStringSubmatch(string(testSource), -1)
+	for _, match := range headerMatches {
+		if len(match) < 2 {
+			continue
+		}
+		headerName := match[1]
+		if isSystemProvidedCppHeader(headerName) {
+			continue
+		}
+		headerPath := filepath.Join(workdir, headerName)
+		if _, err := os.Stat(headerPath); os.IsNotExist(err) {
+			if strings.HasSuffix(headerName, ".h") || strings.HasSuffix(headerName, ".hpp") {
+				if err := os.MkdirAll(filepath.Dir(headerPath), 0o755); err != nil {
+					_ = os.RemoveAll(workdir)
+					return "", "", "", "", fmt.Sprintf("failed to create header dir for %s: %s", headerName, err)
+				}
+				declHeader := generatePlaceholderHeader(headerName)
+				if err := os.WriteFile(headerPath, []byte(declHeader), 0644); err != nil {
+					_ = os.RemoveAll(workdir)
+					return "", "", "", "", fmt.Sprintf("failed to write header %s: %s", headerName, err)
+				}
+			}
+		}
+	}
+
+	hasSourceInclude := bytes.Contains(testSource, []byte("#include \""+sourceBase+"\"")) ||
+		bytes.Contains(testSource, []byte("#include <"+sourceBase+">")) ||
+		bytes.Contains(testSource, []byte("#include \"source.cpp\"")) ||
+		bytes.Contains(testSource, []byte("#include <source.cpp>"))
+
+	modifiedTestSource := testSource
+	if !hasSourceInclude {
+		sourceInclude := []byte("#include \"" + sourceBase + "\"\n")
+		modifiedTestSource = append(sourceInclude, testSource...)
+	} else {
+		modifiedTestSource = bytes.ReplaceAll(modifiedTestSource,
+			[]byte("#include \"source.cpp\""),
+			[]byte("#include \""+sourceBase+"\""))
+		modifiedTestSource = bytes.ReplaceAll(modifiedTestSource,
+			[]byte("#include <source.cpp>"),
+			[]byte("#include \""+sourceBase+"\""))
+	}
+>>>>>>> origin/feat/go
 
 	if err := os.WriteFile(filepath.Join(workdir, testFileName), modifiedTestSource, 0644); err != nil {
 		_ = os.RemoveAll(workdir)
@@ -180,11 +233,23 @@ func parseCppTestCounts(output string) (*int, *int) {
 	if match := passedPattern2.FindStringSubmatch(output); match != nil && len(match) > 1 {
 		total := parseIntOrZero(match[1])
 		if total > 0 {
+<<<<<<< HEAD
 			failedPattern2 := regexp.MustCompile(`(\d+)\s+FAILED`)
 			failedMatch := failedPattern2.FindStringSubmatch(output)
 			failedCount := 0
 			if failedMatch != nil && len(failedMatch) > 1 {
 				failedCount = parseIntOrZero(failedMatch[1])
+=======
+			failedCount := 0
+			failedPattern2 := regexp.MustCompile(`\[  FAILED  \]\s*(\d+)\s*tests?`)
+			if match2 := failedPattern2.FindStringSubmatch(output); match2 != nil && len(match2) > 1 {
+				failedCount = parseIntOrZero(match2[1])
+			} else {
+				failedPattern3 := regexp.MustCompile(`(\d+)\s+FAILED`)
+				if match3 := failedPattern3.FindStringSubmatch(output); match3 != nil && len(match3) > 1 {
+					failedCount = parseIntOrZero(match3[1])
+				}
+>>>>>>> origin/feat/go
 			}
 			passedCount := total - failedCount
 			if passedCount < 0 {
@@ -371,11 +436,22 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 		passed = testPassed
 		total = testTotal
 	} else if testPassRate != nil {
+<<<<<<< HEAD
 		total = 1
 		passed = int(*testPassRate * float64(total))
 		if passed == 0 && *testPassRate > 0 {
 			passed = 1
 		}
+=======
+		total = 100
+		passed = int(math.Round(*testPassRate * float64(total)))
+		if passed == 0 && *testPassRate > 0 {
+			passed = 1
+		}
+		if passed > total {
+			passed = total
+		}
+>>>>>>> origin/feat/go
 	}
 
 	checkResult := CheckTestPassRate(passed, total, "Mull", minPassRate)
@@ -686,6 +762,18 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, data, 0644)
 }
 
+<<<<<<< HEAD
+=======
+func isSystemProvidedCppHeader(headerName string) bool {
+	return strings.HasPrefix(headerName, "gtest/") || strings.HasPrefix(headerName, "gmock/")
+}
+
+func generatePlaceholderHeader(headerName string) string {
+	guard := strings.ToUpper(strings.NewReplacer("/", "_", ".", "_", "-", "_").Replace(headerName))
+	return fmt.Sprintf("#ifndef %s\n#define %s\n\n#endif\n", guard, guard)
+}
+
+>>>>>>> origin/feat/go
 // parseFloatOrZero 解析字符串为 float64，失败返回 0
 func parseFloatOrZero(s string) float64 {
 	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
@@ -1105,6 +1193,7 @@ func removeSourceInclude(testContent []byte, sourceBase string) []byte {
 
 	return []byte(code)
 }
+<<<<<<< HEAD
 
 func forceSourceInclude(testContent []byte, sourceBase string) []byte {
 	code := string(removeSourceInclude(testContent, sourceBase))
@@ -1121,3 +1210,5 @@ func removeLocalHeaderIncludes(code string) string {
 	code = angleLocalHeaderPattern.ReplaceAllString(code, "")
 	return code
 }
+=======
+>>>>>>> origin/feat/go

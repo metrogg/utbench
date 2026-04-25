@@ -191,3 +191,58 @@ func TestDiscoverSamplesManifestMaxSamplesPerLanguageScenario(t *testing.T) {
 		}
 	}
 }
+<<<<<<< HEAD
+=======
+
+func TestValidateReadinessFindsCountsErrorsAndRiskWarnings(t *testing.T) {
+	root := t.TempDir()
+	datasetRoot := filepath.Join(root, "datasets")
+	pythonDir := filepath.Join(datasetRoot, "python", "python_code_files_self_contained", "simple_function")
+	pythonBoundaryDir := filepath.Join(datasetRoot, "python", "python_code_files_self_contained", "boundary")
+	goDir := filepath.Join(datasetRoot, "go", "go_code_files_self_contained", "unknown_bucket")
+	javaDir := filepath.Join(datasetRoot, "java")
+	cppDir := filepath.Join(datasetRoot, "cpp")
+	for _, dir := range []string{pythonDir, pythonBoundaryDir, goDir, javaDir, cppDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pySource := "import itertools\nimport smtplib\n\ndef task_func(x):\n    return list(itertools.combinations(x, 2))\n"
+	if err := os.WriteFile(filepath.Join(pythonDir, "simple_function_000.py"), []byte(pySource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pythonBoundaryDir, "simple_function_000.py"), []byte("def task_func():\n    return 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(goDir, "simple_function_000.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report := NewService().ValidateReadiness(ValidateOptions{
+		DatasetRoot: datasetRoot,
+		Languages:   []string{"python", "go", "java", "cpp"},
+		Classes:     []string{"self_contained"},
+	})
+	if report.Total != 3 {
+		t.Fatalf("expected 3 samples, got %d", report.Total)
+	}
+	if len(report.Errors) == 0 {
+		t.Fatalf("expected validation errors")
+	}
+	if !hasValidationCode(report.Errors, "duplicate_sample_id") {
+		t.Fatalf("expected duplicate sample id error: %+v", report.Errors)
+	}
+	if !hasValidationCode(report.Warnings, "external_network_io") || !hasValidationCode(report.Warnings, "exponential_complexity") {
+		t.Fatalf("expected risk warnings: %+v", report.Warnings)
+	}
+}
+
+func hasValidationCode(items []ValidationIssue, code string) bool {
+	for _, item := range items {
+		if item.Code == code {
+			return true
+		}
+	}
+	return false
+}
+>>>>>>> origin/feat/go

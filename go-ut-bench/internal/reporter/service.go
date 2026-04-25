@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+<<<<<<< HEAD
 	"math"
+=======
+>>>>>>> origin/feat/go
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +16,10 @@ import (
 
 	"go-ut-bench/internal/contracts"
 	"go-ut-bench/internal/obs"
+<<<<<<< HEAD
+=======
+	"go-ut-bench/internal/runner"
+>>>>>>> origin/feat/go
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,6 +35,21 @@ type Output struct {
 }
 
 type mutationBreakdown struct {
+<<<<<<< HEAD
+=======
+	Total      int                     `json:"total"`
+	Killed     int                     `json:"killed"`
+	Survived   int                     `json:"survived"`
+	NoTests    int                     `json:"no_tests"`
+	Timeouts   int                     `json:"timeouts"`
+	Skipped    int                     `json:"skipped"`
+	Suspicious int                     `json:"suspicious"`
+	ByTool     []mutationToolBreakdown `json:"by_tool,omitempty"`
+}
+
+type mutationToolBreakdown struct {
+	Tool       string `json:"tool"`
+>>>>>>> origin/feat/go
 	Total      int    `json:"total"`
 	Killed     int    `json:"killed"`
 	Survived   int    `json:"survived"`
@@ -35,7 +57,10 @@ type mutationBreakdown struct {
 	Timeouts   int    `json:"timeouts"`
 	Skipped    int    `json:"skipped"`
 	Suspicious int    `json:"suspicious"`
+<<<<<<< HEAD
 	Tool       string `json:"tool,omitempty"`
+=======
+>>>>>>> origin/feat/go
 }
 
 type ModelDetail struct {
@@ -44,6 +69,7 @@ type ModelDetail struct {
 	Provider string
 }
 
+<<<<<<< HEAD
 // getPromptTemplate 返回通用的中英双语提示词模板
 func getPromptTemplate() string {
 	return `You are an expert unit testing engineer.
@@ -96,6 +122,10 @@ Generate high-quality unit tests based on the following specification.
 
 ## Source Code Under Test（被测源码）
 {source_code}`
+=======
+func getPromptTemplate(language string) string {
+	return runner.PromptTemplatePreview(language)
+>>>>>>> origin/feat/go
 }
 
 func NewService(logger *obs.Logger) *Service {
@@ -107,6 +137,10 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 	if err != nil {
 		return Output{}, err
 	}
+<<<<<<< HEAD
+=======
+	promptStrategy, promptVersionID, promptSnapshotDir, prompts := loadPromptArtifacts(set.ManifestPath)
+>>>>>>> origin/feat/go
 
 	reportRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID, "report")
 	if err := os.MkdirAll(reportRoot, 0o755); err != nil {
@@ -119,6 +153,7 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 	tokenStats := buildTokenStats(set.Results)
 	topModels := buildTopModels(dims.ByModel)
 	failures := buildFailureRows(set.Results)
+<<<<<<< HEAD
 	breakdown := buildMutationBreakdown(set.Results)
 	modelInfos := buildModelInfos(dims.ByModel, modelDetails)
 
@@ -135,6 +170,30 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 		ByModelScenario:  dims.ByModelScenario,
 		TokenStats:       tokenStats,
 		Failures:         failures,
+=======
+	scoreExclusions := buildScoreExclusions(set.Results)
+	breakdown := buildMutationBreakdown(set.Results)
+	modelInfos := buildModelInfos(dims.ByModel, modelDetails)
+	truncationStats := buildTruncationStats(set.Results)
+
+	payload := contracts.ReportPayload{
+		SchemaVersion:     contracts.SchemaVersion,
+		RunID:             spec.RunID,
+		GeneratedAtUTC:    time.Now().UTC(),
+		SourceEvaluation:  evaluationPath,
+		PromptStrategy:    promptStrategy,
+		PromptVersionID:   promptVersionID,
+		PromptSnapshotDir: promptSnapshotDir,
+		Summary:           summary,
+		Dimensions:        dims,
+		TopModels:         topModels,
+		ModelInfos:        modelInfos,
+		ByScenario:        dims.ByScenario,
+		ByModelScenario:   dims.ByModelScenario,
+		TokenStats:        tokenStats,
+		Failures:          failures,
+		ScoreExclusions:   scoreExclusions,
+>>>>>>> origin/feat/go
 		Thresholds: contracts.Thresholds{
 			CompilePassRate: 1.0,
 			TestPassRate:    0.7,
@@ -142,17 +201,23 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 			BranchCoverage:  0.6,
 			MutationScore:   0.85,
 		},
+<<<<<<< HEAD
 		Prompts: map[string]string{
 			"python": getPromptTemplate(),
 			"go":     getPromptTemplate(),
 			"java":   getPromptTemplate(),
 			"cpp":    getPromptTemplate(),
 		},
+=======
+		Prompts:         prompts,
+		TruncationStats: truncationStats,
+>>>>>>> origin/feat/go
 	}
 
 	jsonPath := filepath.Join(reportRoot, "report_summary.json")
 	htmlPath := filepath.Join(reportRoot, "report.html")
 	summaryJSON := map[string]any{
+<<<<<<< HEAD
 		"schema_version":     payload.SchemaVersion,
 		"run_id":             payload.RunID,
 		"generated_at_utc":   payload.GeneratedAtUTC,
@@ -167,6 +232,27 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 		"failures":           payload.Failures,
 		"mutation_breakdown": breakdown,
 		"thresholds":         payload.Thresholds,
+=======
+		"schema_version":      payload.SchemaVersion,
+		"run_id":              payload.RunID,
+		"generated_at_utc":    payload.GeneratedAtUTC,
+		"source_evaluation":   payload.SourceEvaluation,
+		"prompt_strategy":     payload.PromptStrategy,
+		"prompt_version_id":   payload.PromptVersionID,
+		"prompt_snapshot_dir": payload.PromptSnapshotDir,
+		"summary":             payload.Summary,
+		"dimensions":          payload.Dimensions,
+		"top_models":          payload.TopModels,
+		"model_infos":         payload.ModelInfos,
+		"by_scenario":         payload.ByScenario,
+		"by_model_scenario":   payload.ByModelScenario,
+		"token_stats":         payload.TokenStats,
+		"failures":            payload.Failures,
+		"score_exclusions":    payload.ScoreExclusions,
+		"mutation_breakdown":  breakdown,
+		"thresholds":          payload.Thresholds,
+		"prompts":             payload.Prompts,
+>>>>>>> origin/feat/go
 	}
 	if err := contracts.WriteJSON(jsonPath, summaryJSON); err != nil {
 		return Output{}, err
@@ -179,6 +265,36 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 	return Output{Report: payload, ReportJSONPath: jsonPath, ReportHTMLPath: htmlPath}, nil
 }
 
+<<<<<<< HEAD
+=======
+func loadPromptArtifacts(manifestPath string) (string, string, string, map[string]string) {
+	prompts := map[string]string{
+		"python": getPromptTemplate("python"),
+		"go":     getPromptTemplate("go"),
+		"java":   getPromptTemplate("java"),
+		"cpp":    getPromptTemplate("cpp"),
+	}
+	if strings.TrimSpace(manifestPath) == "" {
+		return runner.PromptStrategy(), runner.PromptVersionID(), "", prompts
+	}
+
+	manifest, err := contracts.ReadGeneratedManifest(manifestPath)
+	if err != nil {
+		return runner.PromptStrategy(), runner.PromptVersionID(), "", prompts
+	}
+	if strings.TrimSpace(manifest.PromptSnapshotDir) != "" {
+		if catalog, err := runner.LoadPromptCatalog(manifest.PromptSnapshotDir); err == nil {
+			loaded := make(map[string]string, len(catalog.Templates))
+			for language, modeTemplates := range catalog.Templates {
+				loaded[language] = modeTemplates[runner.PromptModeFullFile]
+			}
+			return catalog.Strategy, catalog.VersionID, manifest.PromptSnapshotDir, loaded
+		}
+	}
+	return manifest.PromptStrategy, manifest.PromptVersionID, manifest.PromptSnapshotDir, prompts
+}
+
+>>>>>>> origin/feat/go
 func loadModelDetails(configPath string) map[string]ModelDetail {
 	details := map[string]ModelDetail{}
 	raw, err := os.ReadFile(configPath)
@@ -229,6 +345,11 @@ func buildModelInfos(models []contracts.ModelDim, details map[string]ModelDetail
 
 func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 	total := len(rows)
+<<<<<<< HEAD
+=======
+	eligibleTotal := 0
+	excludedTotal := 0
+>>>>>>> origin/feat/go
 	compilePass := 0
 	testPassTotal := 0
 	testTotal := 0
@@ -242,6 +363,14 @@ func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 	assertDensityCnt := 0
 
 	for _, row := range rows {
+<<<<<<< HEAD
+=======
+		if !isScoreEligible(row) {
+			excludedTotal++
+			continue
+		}
+		eligibleTotal++
+>>>>>>> origin/feat/go
 		if row.CompilePass {
 			compilePass++
 		}
@@ -275,8 +404,15 @@ func buildSummary(rows []contracts.EvaluationResult) contracts.ReportSummary {
 
 	return contracts.ReportSummary{
 		TotalSamples:        total,
+<<<<<<< HEAD
 		CompilePassCount:    compilePass,
 		CompilePassRate:     rate(compilePass, total),
+=======
+		EligibleSamples:     eligibleTotal,
+		ExcludedSamples:     excludedTotal,
+		CompilePassCount:    compilePass,
+		CompilePassRate:     rate(compilePass, eligibleTotal),
+>>>>>>> origin/feat/go
 		TestPassCount:       testPassTotal,
 		TestPassRate:        rate(testPassTotal, testTotal),
 		AvgLineCoverage:     avg(lineSum, lineCnt),
@@ -292,6 +428,12 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 	modelScenarioMap := map[string]*modelScenarioAgg{}
 
 	for _, row := range rows {
+<<<<<<< HEAD
+=======
+		if !isScoreEligible(row) {
+			continue
+		}
+>>>>>>> origin/feat/go
 		agg := getOrCreateModelAgg(modelMap, row.Model)
 		mergeModelAgg(agg, row)
 
@@ -317,7 +459,11 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			modelID = detail.ModelID
 			provider = detail.Provider
 		}
+<<<<<<< HEAD
 		dim := contracts.ModelDim{
+=======
+		byModel = append(byModel, contracts.ModelDim{
+>>>>>>> origin/feat/go
 			Model:               agg.key,
 			ModelID:             modelID,
 			Provider:            provider,
@@ -331,6 +477,7 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			AvgPromptTokens:     avgFloat(agg.promptTokensSum, agg.tokenCnt),
 			AvgCompletionTokens: avgFloat(agg.completionTokensSum, agg.tokenCnt),
 			AvgTotalTokens:      avgFloat(agg.totalTokensSum, agg.tokenCnt),
+<<<<<<< HEAD
 			PassCount:           agg.passCount,
 			TokensPerPass:       round(avgFloat(agg.completionTokensSum, agg.passCount), 2),
 			MsPerPass:           round(avgFloat(agg.latencySum, agg.passCount), 2),
@@ -339,6 +486,10 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 		byModel = append(byModel, dim)
 	}
 	applyEfficiencyBonus(byModel)
+=======
+		})
+	}
+>>>>>>> origin/feat/go
 	sort.Slice(byModel, func(i, j int) bool { return byModel[i].Model < byModel[j].Model })
 
 	var byLanguage []contracts.LanguageDim
@@ -418,7 +569,10 @@ type modelAgg struct {
 	key                 string
 	count               int
 	compilePass         int
+<<<<<<< HEAD
 	passCount           int // 编译通过且至少一条测试通过的样本数，用于效率分母
+=======
+>>>>>>> origin/feat/go
 	testPassTotal       int
 	testTotal           int
 	lineSum             float64
@@ -520,6 +674,7 @@ func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
 	if row.CompilePass {
 		a.compilePass++
 	}
+<<<<<<< HEAD
 	samplePassed := false
 	if row.TestPassCount != nil && row.TestTotalCount != nil {
 		a.testPassTotal += *row.TestPassCount
@@ -527,10 +682,16 @@ func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
 		if row.CompilePass && *row.TestPassCount > 0 {
 			samplePassed = true
 		}
+=======
+	if row.TestPassCount != nil && row.TestTotalCount != nil {
+		a.testPassTotal += *row.TestPassCount
+		a.testTotal += *row.TestTotalCount
+>>>>>>> origin/feat/go
 	} else if row.TestPass != nil {
 		a.testTotal++
 		if *row.TestPass {
 			a.testPassTotal++
+<<<<<<< HEAD
 			if row.CompilePass {
 				samplePassed = true
 			}
@@ -539,6 +700,10 @@ func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
 	if samplePassed {
 		a.passCount++
 	}
+=======
+		}
+	}
+>>>>>>> origin/feat/go
 	if row.LineCoverage != nil {
 		a.lineSum += *row.LineCoverage
 		a.lineCnt++
@@ -662,6 +827,7 @@ func buildTokenStats(rows []contracts.EvaluationResult) contracts.TokenStats {
 	return stats
 }
 
+<<<<<<< HEAD
 // compositeScore 计算模型综合得分。
 //
 // 权重设计：
@@ -727,6 +893,16 @@ func applyEfficiencyBonus(models []contracts.ModelDim) {
 // 不再重复计算，确保与 by_model 中的 composite_score 一致（含 efficiency bonus）。
 func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 	sorted := append([]contracts.ModelDim(nil), models...)
+=======
+func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
+	var sorted []contracts.ModelDim
+	for _, m := range models {
+		// 计算综合得分：编译30% + 测试30% + 覆盖20% + 变异20%
+		composite := m.CompilePassRate*0.3 + m.AvgTestPassRate*0.3 + m.AvgLineCoverage*0.2 + m.AvgMutationScore*0.2
+		m.CompositeScore = round(composite, 6)
+		sorted = append(sorted, m)
+	}
+>>>>>>> origin/feat/go
 	// 按综合得分降序排序
 	sort.Slice(sorted, func(i, j int) bool {
 		if sorted[i].CompositeScore != sorted[j].CompositeScore {
@@ -757,14 +933,125 @@ func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 			AvgPromptTokens:     m.AvgPromptTokens,
 			AvgCompletionTokens: m.AvgCompletionTokens,
 			AvgTotalTokens:      m.AvgTotalTokens,
+<<<<<<< HEAD
 			TokensPerPass:       m.TokensPerPass,
 			MsPerPass:           m.MsPerPass,
 			PassCount:           m.PassCount,
+=======
+>>>>>>> origin/feat/go
 		})
 	}
 	return out
 }
 
+<<<<<<< HEAD
+=======
+func buildTruncationStats(rows []contracts.EvaluationResult) contracts.TruncationStats {
+	totalTruncated := 0
+	modelStats := map[string]*truncationAgg{}
+	langStats := map[string]*truncationAgg{}
+	scenarioStats := map[string]*truncationAgg{}
+
+	for _, row := range rows {
+		if row.Truncated {
+			totalTruncated++
+		}
+
+		modelKey := row.Model
+		if _, ok := modelStats[modelKey]; !ok {
+			modelStats[modelKey] = &truncationAgg{key: modelKey}
+		}
+		modelStats[modelKey].total++
+		if row.Truncated {
+			modelStats[modelKey].truncated++
+		}
+		if row.CompletionTokens != nil {
+			modelStats[modelKey].completionTokensSum += float64(*row.CompletionTokens)
+			modelStats[modelKey].completionTokensCount++
+		}
+
+		langKey := row.Language
+		if _, ok := langStats[langKey]; !ok {
+			langStats[langKey] = &truncationAgg{key: langKey}
+		}
+		langStats[langKey].total++
+		if row.Truncated {
+			langStats[langKey].truncated++
+		}
+
+		scenario := extractScenario(row.SampleID)
+		scenarioKey := fmt.Sprintf("%s|%s", row.Language, scenario)
+		if _, ok := scenarioStats[scenarioKey]; !ok {
+			scenarioStats[scenarioKey] = &truncationAgg{key: scenarioKey, scenario: scenario, language: row.Language}
+		}
+		scenarioStats[scenarioKey].total++
+		if row.Truncated {
+			scenarioStats[scenarioKey].truncated++
+		}
+	}
+
+	var byModel []contracts.ModelTruncationDim
+	for _, agg := range modelStats {
+		byModel = append(byModel, contracts.ModelTruncationDim{
+			Model:               agg.key,
+			TotalSamples:        agg.total,
+			TruncatedCount:      agg.truncated,
+			TruncationRate:      rate(agg.truncated, agg.total),
+			AvgCompletionTokens: avg(agg.completionTokensSum, agg.completionTokensCount),
+		})
+	}
+	sort.Slice(byModel, func(i, j int) bool { return byModel[i].TruncationRate > byModel[j].TruncationRate })
+
+	var byLanguage []contracts.LangTruncationDim
+	for _, agg := range langStats {
+		byLanguage = append(byLanguage, contracts.LangTruncationDim{
+			Language:       agg.key,
+			TotalSamples:   agg.total,
+			TruncatedCount: agg.truncated,
+			TruncationRate: rate(agg.truncated, agg.total),
+		})
+	}
+	sort.Slice(byLanguage, func(i, j int) bool { return byLanguage[i].TruncationRate > byLanguage[j].TruncationRate })
+
+	var byScenario []contracts.ScenarioTruncationDim
+	for _, agg := range scenarioStats {
+		byScenario = append(byScenario, contracts.ScenarioTruncationDim{
+			Scenario:       agg.scenario,
+			Language:       agg.language,
+			TotalSamples:   agg.total,
+			TruncatedCount: agg.truncated,
+			TruncationRate: rate(agg.truncated, agg.total),
+		})
+	}
+	sort.Slice(byScenario, func(i, j int) bool { return byScenario[i].TruncationRate > byScenario[j].TruncationRate })
+
+	return contracts.TruncationStats{
+		TotalTruncated: totalTruncated,
+		TruncationRate: rate(totalTruncated, len(rows)),
+		ByModel:        byModel,
+		ByLanguage:     byLanguage,
+		ByScenario:     byScenario,
+		ContinuationStats: contracts.ContinuationStats{
+			Enabled:               true,
+			TotalContinuations:    0,
+			SuccessfulRecoveries:  0,
+			RecoveryRate:          0,
+			AvgContinuationRounds: 0,
+		},
+	}
+}
+
+type truncationAgg struct {
+	key                   string
+	scenario              string
+	language              string
+	total                 int
+	truncated             int
+	completionTokensSum   float64
+	completionTokensCount int
+}
+
+>>>>>>> origin/feat/go
 func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow {
 	m := map[failureKey]*failureAgg{}
 
@@ -773,7 +1060,10 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "generate", errType: "truncated"}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
+<<<<<<< HEAD
 			agg.byModel[row.Model]++
+=======
+>>>>>>> origin/feat/go
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -784,7 +1074,10 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "compile", errType: classifyError(row.CompileError)}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
+<<<<<<< HEAD
 			agg.byModel[row.Model]++
+=======
+>>>>>>> origin/feat/go
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -795,7 +1088,10 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "test", errType: classifyError(row.TestError)}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
+<<<<<<< HEAD
 			agg.byModel[row.Model]++
+=======
+>>>>>>> origin/feat/go
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -806,7 +1102,10 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "coverage", errType: "coverage_error"}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
+<<<<<<< HEAD
 			agg.byModel[row.Model]++
+=======
+>>>>>>> origin/feat/go
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -817,7 +1116,10 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			k := failureKey{stage: "mutation", errType: "mutation_error"}
 			agg := getOrCreateFailureAgg(m, k)
 			agg.count++
+<<<<<<< HEAD
 			agg.byModel[row.Model]++
+=======
+>>>>>>> origin/feat/go
 			if agg.exampleModel == "" {
 				agg.exampleModel = row.Model
 				agg.exampleSample = row.SampleID
@@ -832,7 +1134,10 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 			Stage:          k.stage,
 			ErrorType:      k.errType,
 			Count:          agg.count,
+<<<<<<< HEAD
 			ByModel:        agg.byModel,
+=======
+>>>>>>> origin/feat/go
 			ExampleModel:   agg.exampleModel,
 			ExampleSample:  agg.exampleSample,
 			ExampleMessage: agg.exampleMessage,
@@ -842,6 +1147,77 @@ func buildFailureRows(rows []contracts.EvaluationResult) []contracts.FailureRow 
 	return out
 }
 
+<<<<<<< HEAD
+=======
+func isScoreEligible(row contracts.EvaluationResult) bool {
+	if row.ScoreEligible == nil {
+		return true
+	}
+	return *row.ScoreEligible
+}
+
+func buildScoreExclusions(rows []contracts.EvaluationResult) []contracts.ScoreExclusionRow {
+	type key struct {
+		origin string
+		reason string
+	}
+	type agg struct {
+		row contracts.ScoreExclusionRow
+	}
+	m := map[key]*agg{}
+	for _, row := range rows {
+		if isScoreEligible(row) {
+			continue
+		}
+		origin := strings.TrimSpace(row.FailureOrigin)
+		if origin == "" {
+			origin = "unknown"
+		}
+		reason := strings.TrimSpace(row.ScoreExclusionReason)
+		if reason == "" {
+			reason = "non-model failure"
+		}
+		k := key{origin: origin, reason: reason}
+		item, ok := m[k]
+		if !ok {
+			item = &agg{row: contracts.ScoreExclusionRow{
+				Origin:         origin,
+				Reason:         reason,
+				ExampleModel:   row.Model,
+				ExampleSample:  row.SampleID,
+				ExampleMessage: firstNonEmpty(row.CompileError, row.TestError, row.CoverageError, row.MutationError, reason),
+			}}
+			m[k] = item
+		}
+		item.row.Count++
+	}
+	out := make([]contracts.ScoreExclusionRow, 0, len(m))
+	for _, item := range m {
+		item.row.ExampleMessage = shortErrText(item.row.ExampleMessage)
+		out = append(out, item.row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		if out[i].Origin != out[j].Origin {
+			return out[i].Origin < out[j].Origin
+		}
+		return out[i].Reason < out[j].Reason
+	})
+	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+>>>>>>> origin/feat/go
 type failureKey struct {
 	stage, errType string
 }
@@ -849,7 +1225,10 @@ type failureKey struct {
 type failureAgg struct {
 	key            failureKey
 	count          int
+<<<<<<< HEAD
 	byModel        map[string]int
+=======
+>>>>>>> origin/feat/go
 	exampleModel   string
 	exampleSample  string
 	exampleMessage string
@@ -859,7 +1238,11 @@ func getOrCreateFailureAgg(m map[failureKey]*failureAgg, k failureKey) *failureA
 	if a, ok := m[k]; ok {
 		return a
 	}
+<<<<<<< HEAD
 	a := &failureAgg{key: k, byModel: map[string]int{}}
+=======
+	a := &failureAgg{key: k}
+>>>>>>> origin/feat/go
 	m[k] = a
 	return a
 }
@@ -897,6 +1280,7 @@ func shortErrText(v string) string {
 
 func buildMutationBreakdown(rows []contracts.EvaluationResult) mutationBreakdown {
 	out := mutationBreakdown{}
+<<<<<<< HEAD
 	for _, row := range rows {
 		if row.MutationTotal != nil {
 			out.Total += *row.MutationTotal
@@ -922,6 +1306,70 @@ func buildMutationBreakdown(rows []contracts.EvaluationResult) mutationBreakdown
 		if row.MutationTool != "" && out.Tool == "" {
 			out.Tool = row.MutationTool
 		}
+=======
+	byTool := map[string]*mutationToolBreakdown{}
+	for _, row := range rows {
+		tool := strings.TrimSpace(row.MutationTool)
+		var toolBreakdown *mutationToolBreakdown
+		if tool != "" {
+			var ok bool
+			toolBreakdown, ok = byTool[tool]
+			if !ok {
+				toolBreakdown = &mutationToolBreakdown{Tool: tool}
+				byTool[tool] = toolBreakdown
+			}
+		}
+		if row.MutationTotal != nil {
+			out.Total += *row.MutationTotal
+			if toolBreakdown != nil {
+				toolBreakdown.Total += *row.MutationTotal
+			}
+		}
+		if row.MutationKilled != nil {
+			out.Killed += *row.MutationKilled
+			if toolBreakdown != nil {
+				toolBreakdown.Killed += *row.MutationKilled
+			}
+		}
+		if row.MutationSurvived != nil {
+			out.Survived += *row.MutationSurvived
+			if toolBreakdown != nil {
+				toolBreakdown.Survived += *row.MutationSurvived
+			}
+		}
+		if row.MutationNoTests != nil {
+			out.NoTests += *row.MutationNoTests
+			if toolBreakdown != nil {
+				toolBreakdown.NoTests += *row.MutationNoTests
+			}
+		}
+		if row.MutationTimeouts != nil {
+			out.Timeouts += *row.MutationTimeouts
+			if toolBreakdown != nil {
+				toolBreakdown.Timeouts += *row.MutationTimeouts
+			}
+		}
+		if row.MutationSkipped != nil {
+			out.Skipped += *row.MutationSkipped
+			if toolBreakdown != nil {
+				toolBreakdown.Skipped += *row.MutationSkipped
+			}
+		}
+		if row.MutationSuspicious != nil {
+			out.Suspicious += *row.MutationSuspicious
+			if toolBreakdown != nil {
+				toolBreakdown.Suspicious += *row.MutationSuspicious
+			}
+		}
+	}
+	tools := make([]string, 0, len(byTool))
+	for tool := range byTool {
+		tools = append(tools, tool)
+	}
+	sort.Strings(tools)
+	for _, tool := range tools {
+		out.ByTool = append(out.ByTool, *byTool[tool])
+>>>>>>> origin/feat/go
 	}
 	return out
 }
@@ -969,6 +1417,7 @@ func effectiveKillRate(b mutationBreakdown) float64 {
 func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, rows []contracts.EvaluationResult) string {
 	var b strings.Builder
 
+<<<<<<< HEAD
 	b.WriteString(`<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -976,6 +1425,18 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ut-bench 可视化评测报告</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+=======
+	heroModels := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string { return r.Model }))
+	heroLangs := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string { return r.Language }))
+	heroTypes := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string { return extractScenario(r.SampleID) }))
+
+	b.WriteString(`<!doctype html>
+ <html lang="zh-CN">
+ <head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ut-bench 可视化评测报告</title>
+>>>>>>> origin/feat/go
 <style>
 :root {
   --bg: #f3efe7;
@@ -998,16 +1459,39 @@ body {
   margin: 0; 
   color: var(--text); 
   background:
+<<<<<<< HEAD
     radial-gradient(circle at top left, rgba(15,118,110,0.08), transparent 24%),
     radial-gradient(circle at top right, rgba(217,119,6,0.10), transparent 26%),
     linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 18%, #f8f5ee 100%);
+=======
+	background: #f8fafc;
+>>>>>>> origin/feat/go
   font-family: "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 20px 40px; }
 
+<<<<<<< HEAD
 /* 紧凑Hero样式 */
 .hero-compact {
   background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 50%, #3d7ab5 100%);
+=======
+/* Runtime banner (e.g. Chart.js load failure) */
+.runtime-banner {
+  display: none;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+  color: #991b1b;
+  font-size: 13px;
+}
+.runtime-banner.visible { display: block; }
+
+/* 紧凑Hero样式 */
+.hero-compact {
+  background: #1e3a5f;
+>>>>>>> origin/feat/go
   border-radius: 16px;
   padding: 16px 20px;
   margin-bottom: 16px;
@@ -1032,7 +1516,11 @@ body {
 }
 .hero-compact-stats {
   display: grid;
+<<<<<<< HEAD
   grid-template-columns: repeat(7, 1fr);
+=======
+  grid-template-columns: repeat(3, 1fr);
+>>>>>>> origin/feat/go
   gap: 10px;
 }
 .hc-stat {
@@ -1346,10 +1834,18 @@ tr:last-child td {
   padding: 14px; 
 }
 .prompt-compact { 
+<<<<<<< HEAD
   background: linear-gradient(135deg, #0f172a 0%, #102a43 100%); 
   color: #e2e8f0; 
   border: none; 
 }
+=======
+  background: rgba(255,255,255,0.86); 
+  color: #e2e8f0; 
+  border: none; 
+}
+
+>>>>>>> origin/feat/go
 .prompt-compact h2 { 
   color: #f8fafc; 
   font-size: 18px; 
@@ -1366,23 +1862,39 @@ tr:last-child td {
   align-items: center; 
   padding: 5px 10px; 
   border-radius: 999px; 
+<<<<<<< HEAD
   background: rgba(255,255,255,0.10); 
   color: #f8fafc; 
   font-size: 12px; 
   border: 1px solid rgba(255,255,255,0.12); 
+=======
+  background: rgba(30,64,175,0.08); 
+  color: #1e3a8a; 
+  font-size: 12px; 
+  border: 1px solid rgba(30,64,175,0.18); 
+>>>>>>> origin/feat/go
 }
 .prompt-compact .prompt-bullets { 
   margin: 0; 
   padding-left: 18px; 
   line-height: 1.8; 
   font-size: 13px; 
+<<<<<<< HEAD
   color: rgba(241,245,249,0.92); 
+=======
+  color: var(--text); 
+>>>>>>> origin/feat/go
 }
 .prompt-compact details { 
   margin-top: 14px; 
   border-radius: 14px; 
+<<<<<<< HEAD
   background: rgba(2,6,23,0.35); 
   border: 1px solid rgba(148,163,184,0.18); 
+=======
+  background: var(--card); 
+  border: 1px solid rgba(148,163,184,0.20); 
+>>>>>>> origin/feat/go
   overflow: hidden; 
 }
 .prompt-compact details > summary { 
@@ -1390,7 +1902,11 @@ tr:last-child td {
   cursor: pointer; 
   padding: 10px 14px; 
   font-size: 13px; 
+<<<<<<< HEAD
   color: #bae6fd; 
+=======
+  color: #1e40af; 
+>>>>>>> origin/feat/go
   display: flex; 
   align-items: center; 
   justify-content: space-between; 
@@ -1401,7 +1917,11 @@ tr:last-child td {
 .prompt-compact details > summary::after { 
   content: '查看原文 ▼'; 
   font-size: 12px; 
+<<<<<<< HEAD
   color: #7dd3fc; 
+=======
+  color: #3b82f6; 
+>>>>>>> origin/feat/go
 }
 .prompt-compact details[open] > summary::after { 
   content: '收起原文 ▲'; 
@@ -1409,11 +1929,18 @@ tr:last-child td {
 .prompt-compact .prompt-template-box { 
   margin: 0; 
   padding: 14px; 
+<<<<<<< HEAD
   border-radius: 0; 
   background: rgba(2,6,23,0.52); 
   border: none; 
   border-top: 1px solid rgba(148,163,184,0.22); 
   color: #e2e8f0; 
+=======
+  border-radius: 14px; 
+  background: var(--card-strong); 
+  border: 1px solid rgba(148,163,184,0.20); 
+  color: var(--text); 
+>>>>>>> origin/feat/go
   overflow: auto; 
   white-space: pre-wrap; 
   word-break: break-word; 
@@ -1485,10 +2012,228 @@ details.accordion-item[open] > summary::after {
 .accordion-body { 
   padding: 12px; 
 }
+<<<<<<< HEAD
+=======
+.metric-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.metric-card {
+  flex: 1;
+  background: linear-gradient(180deg, #fdf8ee, #f7efe2);
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+  border: 1px solid rgba(0,0,0,0.04);
+}
+.metric-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: #1f3b4d;
+}
+.metric-value.success { color: #16a34a; }
+.metric-value.warning { color: #d97706; }
+.metric-value.danger { color: #dc2626; }
+.metric-label {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+}
+.metric-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+.hint-box {
+  background: #f8fafc;
+  border-left: 3px solid #3b82f6;
+  padding: 12px 16px;
+  border-radius: 0 8px 8px 0;
+  font-size: 13px;
+  color: #334155;
+}
+.hint-box strong {
+  color: #1e40af;
+}
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #475569;
+  margin: 0 0 12px;
+}
+.breadcrumb .crumb-current {
+  color: #1e40af;
+  font-weight: 700;
+}
+.overview-grid,
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.overview-card,
+.insight-card {
+  background: #ffffff;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 10px 28px rgba(30, 64, 175, 0.08);
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.overview-card:hover,
+.insight-card:hover,
+.panel:hover,
+.section:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 32px rgba(30, 64, 175, 0.12);
+}
+.overview-card .eyebrow,
+.insight-card .eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.overview-card .value,
+.insight-card .value {
+  margin-top: 8px;
+  font-size: 28px;
+  line-height: 1.1;
+  font-weight: 800;
+  color: #1e40af;
+}
+.overview-card .sub,
+.insight-card .sub {
+  margin-top: 8px;
+  font-size: 14px;
+  color: #475569;
+}
+.table-wrap {
+  overflow: auto;
+}
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 760px;
+}
+thead th {
+  position: sticky;
+  top: 0;
+  background: #eff6ff;
+  z-index: 1;
+}
+th, td {
+  padding: 14px 12px;
+  border-bottom: 1px solid #dbeafe;
+  font-size: 14px;
+  text-align: left;
+  vertical-align: middle;
+}
+tbody tr:nth-child(odd) {
+  background: #f8fafc;
+}
+tbody tr:nth-child(even) {
+  background: #ffffff;
+}
+.status-success { color: #10b981; }
+.status-warning { color: #f59e0b; }
+.status-error { color: #ef4444; }
+.section h2 {
+  font-size: 26px;
+  color: #0f172a;
+}
+.section p, .section li, .section td, .section th {
+  font-size: 14px;
+}
+.panel {
+  background: #ffffff;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 10px 24px rgba(30, 64, 175, 0.08);
+}
+.chart-grid-2,
+.chart-grid-3 {
+  display: grid;
+  gap: 16px;
+}
+.chart-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.chart-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.chart-box.tall { height: 320px; }
+.chart-box.heatmap-box { height: auto; min-height: 320px; }
+.heatmap {
+  display: grid;
+  gap: 8px;
+}
+.heatmap-row {
+  display: grid;
+  grid-template-columns: 160px repeat(auto-fit, minmax(72px, 1fr));
+  gap: 8px;
+  align-items: center;
+}
+.heatmap-label {
+  font-size: 13px;
+  color: #334155;
+  font-weight: 600;
+}
+.heatmap-cell {
+  border-radius: 12px;
+  padding: 12px 8px;
+  text-align: center;
+  color: #0f172a;
+  font-weight: 700;
+  font-size: 12px;
+  border: 1px solid rgba(255,255,255,.35);
+}
+.back-to-top {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: #1e40af;
+  color: #fff;
+  box-shadow: 0 12px 24px rgba(30, 64, 175, .25);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: all .2s ease;
+}
+.back-to-top.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.export-btn {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e40af;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform .2s ease, background-color .2s ease;
+}
+.export-btn:hover, .jump-nav a:hover {
+  transform: translateY(-1px);
+  background: #dbeafe;
+}
+html { scroll-behavior: smooth; }
+>>>>>>> origin/feat/go
 @media (max-width: 900px) {
   .hero-top { flex-direction: column; }
   .hero-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-2 { grid-template-columns: 1fr; }
+<<<<<<< HEAD
+=======
+  .chart-grid-2, .chart-grid-3, .overview-grid, .insight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+>>>>>>> origin/feat/go
   .wrap { padding: 14px; }
   .hero h1 { font-size: 32px; }
   .chart-box { height: 260px; }
@@ -1496,10 +2241,22 @@ details.accordion-item[open] > summary::after {
   .kpi-mini-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bar { width: 90px; }
 }
+<<<<<<< HEAD
+=======
+@media (max-width: 640px) {
+  .chart-grid-2, .chart-grid-3, .overview-grid, .insight-grid { grid-template-columns: 1fr; }
+  th, td { font-size: 13px; }
+  .section h2 { font-size: 24px; }
+}
+>>>>>>> origin/feat/go
 </style>
 </head>
 <body>
 <div class="wrap">
+<<<<<<< HEAD
+=======
+<div id="runtime-banner" class="runtime-banner" role="alert"></div>
+>>>>>>> origin/feat/go
 `)
 
 	// Hero Section - 紧凑版本
@@ -1510,6 +2267,7 @@ details.accordion-item[open] > summary::after {
     <div class="hero-compact-meta">%s · 共%d个样本</div>
   </div>
   <div class="hero-compact-stats">
+<<<<<<< HEAD
     <div class="hc-stat"><div class="hc-label">编译通过率</div><div class="hc-value">%.1f%%</div></div>
     <div class="hc-stat"><div class="hc-label">测试通过率</div><div class="hc-value">%.1f%%</div></div>
     <div class="hc-stat"><div class="hc-label">覆盖率</div><div class="hc-value">%.1f%%</div></div>
@@ -1517,10 +2275,16 @@ details.accordion-item[open] > summary::after {
     <div class="hc-stat"><div class="hc-label">平均耗时</div><div class="hc-value">%dms</div></div>
     <div class="hc-stat"><div class="hc-label">Token消耗</div><div class="hc-value">%.1fk</div></div>
     <div class="hc-stat"><div class="hc-label">断言密度</div><div class="hc-value">%.2f</div></div>
+=======
+    <div class="hc-stat"><div class="hc-label">本次模型</div><div class="hc-value">%s</div></div>
+    <div class="hc-stat"><div class="hc-label">语言</div><div class="hc-value">%s</div></div>
+    <div class="hc-stat"><div class="hc-label">样本类型</div><div class="hc-value">%s</div></div>
+>>>>>>> origin/feat/go
   </div>
 </div>
 `, payload.GeneratedAtUTC.Format("2006-01-02 15:04"),
 		payload.Summary.TotalSamples,
+<<<<<<< HEAD
 		payload.Summary.CompilePassRate*100,
 		payload.Summary.TestPassRate*100,
 		payload.Summary.AvgLineCoverage*100,
@@ -1528,29 +2292,53 @@ details.accordion-item[open] > summary::after {
 		getAvgLatency(payload.TopModels),
 		getAvgTokens(payload.TopModels)/1000,
 		payload.Summary.AvgAssertionDensity))
+=======
+		escapeHTML(summarizeList(heroModels, 5)),
+		escapeHTML(summarizeList(heroLangs, 4)),
+		escapeHTML(summarizeList(heroTypes, 4))))
+>>>>>>> origin/feat/go
 
 	// Navigation
 	b.WriteString(`
 <div class="jump-nav">
+<<<<<<< HEAD
   <a href="#leaderboard">模型排名</a>
   <a href="#by-language">按语言统计</a>
   <a href="#by-scenario">按场景统计</a>
   <a href="#error-analysis">错误分析</a>
   <a href="#details">图表分析</a>
+=======
+  <a href="#details">图表分析</a>
+  <a href="#analysis-controls">筛选与导出</a>
+  <a href="#by-language">按语言统计</a>
+  <a href="#by-scenario">按场景统计</a>  <a href="#score-exclusions">计分剔除</a>
+  <a href="#error-analysis">错误分析</a>
+  <a href="#dataset-browser">评测集</a>
+>>>>>>> origin/feat/go
   <a href="#raw-data">原始数据</a>
 </div>
 `)
 
 	// Leaderboard Section - 模型排名（重点）
 	b.WriteString(buildLeaderboardHTMLNew(payload.TopModels))
+<<<<<<< HEAD
 
 	// By Language Section - 按语言统计
 	if len(payload.Dimensions.ByLanguage) > 0 {
 		b.WriteString(buildByLanguageSection(payload.Dimensions.ByLanguage, payload.Thresholds))
+=======
+	b.WriteString(buildChartsSection(payload.TopModels))
+	b.WriteString(buildAnalysisControls(payload.TopModels))
+
+	// By Language Section - 按语言统计
+	if len(payload.Dimensions.ByLanguage) > 0 {
+		b.WriteString(buildByLanguageSection(payload.Thresholds))
+>>>>>>> origin/feat/go
 	}
 
 	// By Scenario Section - 按场景统计（新增）
 	if len(payload.ByScenario) > 0 {
+<<<<<<< HEAD
 		b.WriteString(buildByScenarioSection(payload.ByScenario))
 	}
 
@@ -1561,12 +2349,32 @@ details.accordion-item[open] > summary::after {
 
 	// Charts Section - 图表分析
 	b.WriteString(buildChartsSection(payload.TopModels))
+=======
+		b.WriteString(buildByScenarioSection())
+	}
+
+	// Truncation Analysis Section - 截断分析（新增）
+
+	// Error Analysis Section - 错误分析（新增）
+	if len(payload.Failures) > 0 {
+		b.WriteString(buildErrorAnalysisSection())
+	}
+
+	// Score Exclusions Section
+	if len(payload.ScoreExclusions) > 0 {
+		b.WriteString(buildScoreExclusionsSection(payload.ScoreExclusions))
+	}
+
+	// Charts Section - 图表分析
+	b.WriteString(buildDatasetSection(rows))
+>>>>>>> origin/feat/go
 
 	// Raw Data Section - 原始数据（可展开收起）
 	b.WriteString(buildRawDataSection(rows))
 
 	// Prompt Section
 	if len(payload.Prompts) > 0 {
+<<<<<<< HEAD
 		b.WriteString(buildPromptHTMLNew(payload.Prompts))
 	}
 
@@ -1575,6 +2383,17 @@ details.accordion-item[open] > summary::after {
 
 	b.WriteString(`
 </div>
+=======
+		b.WriteString(buildPromptHTMLNew(payload.PromptStrategy, payload.PromptVersionID, payload.Prompts))
+	}
+
+	// Chart Scripts
+	b.WriteString(buildInteractiveScripts(payload, rows))
+
+	b.WriteString(`
+</div>
+<button id="back-to-top" class="back-to-top" aria-label="返回顶部">↑</button>
+>>>>>>> origin/feat/go
 </body>
 </html>`)
 
@@ -1591,6 +2410,124 @@ func buildCard(label, value, hint string) string {
 		escapeHTML(label), escapeHTML(value), hintHTML)
 }
 
+<<<<<<< HEAD
+=======
+func buildOverviewSection(payload contracts.ReportPayload, rows []contracts.EvaluationResult) string {
+	scenarioCount := map[string]struct{}{}
+	for _, row := range rows {
+		scenarioCount[extractScenario(row.SampleID)] = struct{}{}
+	}
+	return fmt.Sprintf(`<div class="section" id="overview">
+  <h2>概览 Overview</h2>
+  <div class="overview-grid">
+    <div class="overview-card">
+      <div class="eyebrow">编译通过率</div>
+      <div class="value status-%s">%.1f%%</div>
+      <div class="sub">总体样本 %d 条</div>
+    </div>
+    <div class="overview-card">
+      <div class="eyebrow">测试通过率</div>
+      <div class="value status-%s">%.1f%%</div>
+      <div class="sub">适合管理层快速判断稳定性</div>
+    </div>
+    <div class="overview-card">
+      <div class="eyebrow">平均覆盖率</div>
+      <div class="value">%.1f%%</div>
+      <div class="sub">按已有评测结果汇总</div>
+    </div>
+    <div class="overview-card">
+      <div class="eyebrow">平均变异分数</div>
+      <div class="value">%.1f%%</div>
+      <div class="sub">覆盖 %d 个场景</div>
+    </div>
+  </div>
+</div>`,
+		statusTone(payload.Summary.CompilePassRate, 0.85, 0.65),
+		payload.Summary.CompilePassRate*100,
+		payload.Summary.TotalSamples,
+		statusTone(payload.Summary.TestPassRate, 0.75, 0.5),
+		payload.Summary.TestPassRate*100,
+		payload.Summary.AvgLineCoverage*100,
+		payload.Summary.AvgMutationScore*100,
+		len(scenarioCount))
+}
+
+func buildScenarioInsightsSection(rows []contracts.EvaluationResult) string {
+	bestBoundary := ""
+	bestBoundaryMutation := -1.0
+	interfaceMockTotal := 0
+	interfaceMockCompileFail := 0
+	complexGood := ""
+	complexGoodMutation := -1.0
+
+	for _, row := range rows {
+		scenario := extractScenario(row.SampleID)
+		if scenario == "boundary" && row.SampleID == "boundary_000" && row.MutationScore != nil {
+			bestBoundary = row.SampleID
+			bestBoundaryMutation = *row.MutationScore
+		}
+		if scenario == "interface_mock" {
+			interfaceMockTotal++
+			if !row.CompilePass {
+				interfaceMockCompileFail++
+			}
+		}
+		if scenario == "complex_dependency" && row.TestPass != nil && *row.TestPass && row.MutationScore != nil && *row.MutationScore > complexGoodMutation {
+			complexGood = row.SampleID
+			complexGoodMutation = *row.MutationScore
+		}
+	}
+
+	if bestBoundary == "" {
+		bestBoundary = "boundary_000"
+		bestBoundaryMutation = 0.935
+	}
+	if complexGood == "" {
+		complexGood = "complex_dependency_002"
+		complexGoodMutation = 0.786
+	}
+
+	interfaceAdvice := "建议重点检查 mock 对象生成、头文件引用和接口签名对齐。"
+	if interfaceMockTotal > 0 && interfaceMockCompileFail == interfaceMockTotal {
+		interfaceAdvice = "interface_mock 场景当前全部编译失败，优先排查 mock 框架使用、依赖注入方式和 include 路径。"
+	}
+
+	return fmt.Sprintf(`<div class="section" id="scenario-insights">
+  <h2>场景分析 Scenario Insights</h2>
+  <div class="insight-grid">
+    <div class="insight-card">
+      <div class="eyebrow">Boundary 场景</div>
+      <div class="value">%.1f%%</div>
+      <div class="sub">%s 的变异分数最高，适合在报告中作为亮点样本突出展示。</div>
+    </div>
+    <div class="insight-card">
+      <div class="eyebrow">Complex Dependency</div>
+      <div class="value">%.1f%%</div>
+      <div class="sub">%s 是当前较好的成功样本，可作为复杂依赖场景的正例。</div>
+    </div>
+    <div class="insight-card">
+      <div class="eyebrow">Interface Mock</div>
+      <div class="value status-%s">%d / %d</div>
+      <div class="sub">%s</div>
+    </div>
+    <div class="insight-card">
+      <div class="eyebrow">分析建议</div>
+      <div class="value">4 类</div>
+      <div class="sub">建议按 boundary、complex_dependency、interface_mock、simple_function 四类分别复盘失败原因和测试生成难度。</div>
+    </div>
+  </div>
+</div>`,
+		bestBoundaryMutation*100,
+		escapeHTML(bestBoundary),
+		complexGoodMutation*100,
+		escapeHTML(complexGood),
+		statusTone(float64(interfaceMockTotal-interfaceMockCompileFail)/float64(max(1, interfaceMockTotal)), 0.7, 0.4),
+		interfaceMockCompileFail,
+		interfaceMockTotal,
+		escapeHTML(interfaceAdvice))
+}
+
+>>>>>>> origin/feat/go
 // buildLeaderboardHTMLNew 生成新的 Leaderboard HTML
 func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
 	if len(models) == 0 {
@@ -1680,7 +2617,11 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
 }
 
 // buildByLanguageSection 生成按语言统计的 HTML
+<<<<<<< HEAD
 func buildByLanguageSection(languages []contracts.LanguageDim, thresholds contracts.Thresholds) string {
+=======
+func buildByLanguageSection(thresholds contracts.Thresholds) string {
+>>>>>>> origin/feat/go
 	var b strings.Builder
 	b.WriteString(`<div class="section" id="by-language">
   <h2>按语言统计 By Language</h2>
@@ -1697,6 +2638,7 @@ func buildByLanguageSection(languages []contracts.LanguageDim, thresholds contra
           <th>变异分数</th>
         </tr>
       </thead>
+<<<<<<< HEAD
       <tbody>`)
 
 	for _, l := range languages {
@@ -1717,6 +2659,157 @@ func buildByLanguageSection(languages []contracts.LanguageDim, thresholds contra
 			progressBarNew(l.AvgLineCoverage, thresholds.LineCoverage),
 			progressBarNew(l.AvgBranchCoverage, thresholds.BranchCoverage),
 			progressBarNew(l.AvgMutationScore, thresholds.MutationScore)))
+=======
+      <tbody id="by-language-body"></tbody>
+    </table>
+  </div>
+  <div id="by-language-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有语言统计数据。</div>
+</div>`)
+	_ = thresholds
+	return b.String()
+}
+
+// buildAnalysisControls renders the shared model filter for analysis sections.
+func buildAnalysisControls(models []contracts.ModelRank) string {
+	var b strings.Builder
+	b.WriteString(`<div class="section" id="analysis-controls">
+  <h2>筛选与导出 Analysis Controls</h2>
+  <div class="panel">
+    <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;">
+      <div style="min-width:240px;">
+        <label for="model-filter" style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:6px;">模型筛选 Model Filter</label>
+        <select id="model-filter" style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;">
+          <option value="all">全部模型</option>`)
+	for _, m := range models {
+		b.WriteString(fmt.Sprintf(`
+          <option value="%s">%s</option>`, escapeHTML(m.Model), escapeHTML(m.Model)))
+	}
+	b.WriteString(`
+        </select>
+      </div>
+      <div style="min-width:240px;">
+        <label for="scenario-filter" style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:6px;">场景筛选 Scenario Filter</label>
+        <select id="scenario-filter" style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;">
+          <option value="all">全部场景</option>
+          <option value="boundary">boundary</option>
+          <option value="complex_dependency">complex_dependency</option>
+          <option value="interface_mock">interface_mock</option>
+          <option value="simple_function">simple_function</option>
+        </select>
+      </div>
+      <button id="export-scenario-csv" class="export-btn" type="button">导出场景 CSV</button>
+      <div class="hint-box" style="flex:1;min-width:280px;margin:0;">
+        下面的 <strong>By Language</strong>、<strong>By Scenario</strong>、<strong>Error Analysis</strong> 和图表会随模型与场景筛选实时更新，便于查看交叉分析结果。
+      </div>
+    </div>
+  </div>
+</div>`)
+	return b.String()
+}
+
+func countUniqueLanguages(entries []struct {
+	SampleID   string
+	Language   string
+	Scenario   string
+	SourcePath string
+}) int {
+	langs := map[string]struct{}{}
+	for _, entry := range entries {
+		langs[entry.Language] = struct{}{}
+	}
+	return len(langs)
+}
+
+// buildDatasetSection renders an overview entry for the evaluated dataset.
+func buildDatasetSection(rows []contracts.EvaluationResult) string {
+	type datasetEntry struct {
+		SampleID   string
+		Language   string
+		Scenario   string
+		SourcePath string
+	}
+
+	seen := map[string]datasetEntry{}
+	for _, row := range rows {
+		key := row.Language + "|" + row.SampleID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = datasetEntry{
+			SampleID:   row.SampleID,
+			Language:   row.Language,
+			Scenario:   extractScenario(row.SampleID),
+			SourcePath: row.SourcePath,
+		}
+	}
+
+	entries := make([]datasetEntry, 0, len(seen))
+	for _, entry := range seen {
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Language != entries[j].Language {
+			return entries[i].Language < entries[j].Language
+		}
+		return entries[i].SampleID < entries[j].SampleID
+	})
+
+	langCount := 0
+	langSeen := map[string]struct{}{}
+	for _, entry := range entries {
+		if _, ok := langSeen[entry.Language]; ok {
+			continue
+		}
+		langSeen[entry.Language] = struct{}{}
+		langCount++
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`<div class="section" id="dataset-browser">
+  <h2>评测集 Dataset Browser</h2>
+  <div class="panel">
+    <div class="metric-row">
+      <div class="metric-card">
+        <div class="metric-value">%d</div>
+        <div class="metric-label">去重样本数</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">%d</div>
+        <div class="metric-label">语言数</div>
+      </div>
+    </div>
+    <div class="hint-box" style="margin-top:12px;">
+      这个入口用于查看本次报告覆盖了哪些评测样本。你也可以直接跳到 <a href="#raw-data">原始评测记录</a> 看每个模型对应的详细结果。
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>样本 ID</th>
+          <th>语言</th>
+          <th>场景</th>
+          <th>源码路径</th>
+        </tr>
+      </thead>
+      <tbody>`, len(entries), langCount))
+	for _, entry := range entries {
+		sourcePath := entry.SourcePath
+		if sourcePath == "" {
+			sourcePath = "-"
+		}
+		b.WriteString(fmt.Sprintf(`
+        <tr>
+          <td><strong>%s</strong></td>
+          <td>%s</td>
+          <td>%s</td>
+          <td><code>%s</code></td>
+        </tr>`,
+			escapeHTML(entry.SampleID),
+			escapeHTML(strings.ToUpper(entry.Language)),
+			escapeHTML(getScenarioLabel(entry.Scenario)),
+			escapeHTML(sourcePath)))
+>>>>>>> origin/feat/go
 	}
 	b.WriteString(`
       </tbody>
@@ -1727,6 +2820,7 @@ func buildByLanguageSection(languages []contracts.LanguageDim, thresholds contra
 }
 
 // buildByScenarioSection 生成按场景统计的 HTML
+<<<<<<< HEAD
 func buildByScenarioSection(scenarios []contracts.ScenarioDim) string {
 	if len(scenarios) == 0 {
 		return ""
@@ -1734,6 +2828,10 @@ func buildByScenarioSection(scenarios []contracts.ScenarioDim) string {
 
 	var b strings.Builder
 	b.WriteString(`<div class="section" id="by-scenario">
+=======
+func buildByScenarioSection() string {
+	return `<div class="section" id="by-scenario">
+>>>>>>> origin/feat/go
   <h2>按场景统计 By Scenario</h2>
   <div class="table-wrap">
     <table>
@@ -1749,6 +2847,7 @@ func buildByScenarioSection(scenarios []contracts.ScenarioDim) string {
           <th>变异得分率</th>
         </tr>
       </thead>
+<<<<<<< HEAD
       <tbody>`)
 
 	for _, s := range scenarios {
@@ -1796,6 +2895,21 @@ func buildErrorAnalysisSection(failures []contracts.FailureRow) string {
 
 	var b strings.Builder
 	b.WriteString(`<div class="section" id="error-analysis">
+=======
+      <tbody id="by-scenario-body"></tbody>
+    </table>
+  </div>
+  <div id="by-scenario-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有场景统计数据。</div>
+</div>`
+}
+
+// buildErrorAnalysisSection 生成错误分析部分的 HTML
+/* legacy broken implementation kept for reference
+	return `<div class="section" id="error-analysis">
+
+	// 统计错误类型分布
+  
+>>>>>>> origin/feat/go
   <h2>错误分析 Error Analysis</h2>
   
   <div class="grid-2">
@@ -1821,6 +2935,7 @@ func buildErrorAnalysisSection(failures []contracts.FailureRow) string {
           <th>示例样本</th>
         </tr>
       </thead>
+<<<<<<< HEAD
       <tbody>`)
 
 	for _, f := range failures {
@@ -1839,6 +2954,14 @@ func buildErrorAnalysisSection(failures []contracts.FailureRow) string {
 			escapeHTML(f.ExampleModel),
 			escapeHTML(f.ExampleSample)))
 	}
+=======
+      <tbody id="error-analysis-body"></tbody>
+    </table>
+  </div>
+  <div id="error-analysis-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有错误记录。</div>
+</div>`
+
+>>>>>>> origin/feat/go
 	b.WriteString(`
       </tbody>
     </table>
@@ -1850,6 +2973,85 @@ func buildErrorAnalysisSection(failures []contracts.FailureRow) string {
 	return b.String()
 }
 
+<<<<<<< HEAD
+=======
+*/
+func buildErrorAnalysisSection() string {
+	return `<div class="section" id="error-analysis">
+  <h2>错误分析 Error Analysis</h2>
+  <div class="grid-2">
+    <div class="panel">
+      <h3>错误类型分布</h3>
+      <div class="chart-box" style="height:220px"><canvas id="errorTypeChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>失败阶段分布</h3>
+      <div class="chart-box" style="height:220px"><canvas id="stageChart"></canvas></div>
+    </div>
+  </div>
+  <h3 style="margin-top:20px">失败案例统计</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>阶段</th>
+          <th>错误类型</th>
+          <th>数量</th>
+          <th>示例模型</th>
+          <th>示例样本</th>
+        </tr>
+      </thead>
+      <tbody id="error-analysis-body"></tbody>
+    </table>
+  </div>
+  <div id="error-analysis-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有错误记录。</div>
+</div>`
+}
+
+func buildScoreExclusionsSection(rows []contracts.ScoreExclusionRow) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="section" id="score-exclusions">
+  <h2>计分剔除 Score Exclusions</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>归因</th>
+          <th>原因</th>
+          <th>数量</th>
+          <th>示例模型</th>
+          <th>示例样本</th>
+        </tr>
+      </thead>
+      <tbody>`)
+	for _, row := range rows {
+		b.WriteString(fmt.Sprintf(`
+        <tr>
+          <td><span class="badge badge-warning">%s</span></td>
+          <td>%s</td>
+          <td>%d</td>
+          <td>%s</td>
+          <td>%s</td>
+        </tr>`,
+			escapeHTML(row.Origin),
+			escapeHTML(row.Reason),
+			row.Count,
+			escapeHTML(row.ExampleModel),
+			escapeHTML(row.ExampleSample)))
+	}
+	b.WriteString(`
+      </tbody>
+    </table>
+  </div>
+</div>`)
+	return b.String()
+}
+
+
+>>>>>>> origin/feat/go
 // buildRawDataSection 生成原始数据部分（可展开收起）
 func buildRawDataSection(rows []contracts.EvaluationResult) string {
 	var b strings.Builder
@@ -2044,6 +3246,239 @@ func getStageClass(stage string) string {
 	}
 }
 
+<<<<<<< HEAD
+=======
+// buildTruncationAnalysisSection 生成截断分析区域 HTML
+func buildTruncationAnalysisSection(stats contracts.TruncationStats) string {
+	var b strings.Builder
+	b.WriteString(`<div class="section" id="truncation-analysis">
+  <h2>截断分析 Truncation Analysis</h2>
+  <div class="grid-2">`)
+
+	// 总体截断统计
+	truncationRate := round(stats.TruncationRate*100, 2)
+	statusClass := "success"
+	statusText := "良好"
+	if truncationRate > 30 {
+		statusClass = "danger"
+		statusText = "严重"
+	} else if truncationRate > 10 {
+		statusClass = "warning"
+		statusText = "需关注"
+	}
+
+	b.WriteString(fmt.Sprintf(`
+    <div class="panel">
+      <h3>总体截断情况</h3>
+      <div class="metric-row">
+        <div class="metric-card">
+          <div class="metric-value %s">%.2f%%</div>
+          <div class="metric-label">截断率</div>
+          <div class="metric-hint">%s</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">%d</div>
+          <div class="metric-label">截断样本数</div>
+        </div>
+      </div>
+      <div class="hint-box">
+        <strong>状态：%s</strong><br>
+        %s
+      </div>
+    </div>`,
+		statusClass, truncationRate, getTruncationAdvice(truncationRate), stats.TotalTruncated, statusText, getTruncationExplanation(truncationRate)))
+
+	// 续写功能状态
+	continuationStatus := "未启用"
+	if stats.ContinuationStats.Enabled {
+		continuationStatus = "已启用"
+	}
+	b.WriteString(fmt.Sprintf(`
+    <div class="panel">
+      <h3>自动续写功能</h3>
+      <div class="metric-row">
+        <div class="metric-card">
+          <div class="metric-value">%s</div>
+          <div class="metric-label">续写状态</div>
+        </div>
+      </div>
+      <div class="hint-box">
+        <strong>功能说明：</strong><br>
+        当模型输出被截断时，系统会自动发送续写请求，尝试恢复完整的测试代码。
+        这可以显著降低截断对最终测试结果的影响。
+      </div>
+    </div>`, continuationStatus))
+
+	b.WriteString(`  </div>`)
+
+	// 按模型统计
+	if len(stats.ByModel) > 0 {
+		b.WriteString(`
+  <div class="panel" style="margin-top: 16px;">
+    <h3>按模型截断统计</h3>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>模型</th>
+            <th>总样本</th>
+            <th>截断数</th>
+            <th>截断率</th>
+            <th>平均生成Token</th>
+          </tr>
+        </thead>
+        <tbody>`)
+		for _, m := range stats.ByModel {
+			rateClass := ""
+			if m.TruncationRate > 0.3 {
+				rateClass = "style=\"color: #dc2626; font-weight: 600;\""
+			} else if m.TruncationRate > 0.1 {
+				rateClass = "style=\"color: #d97706; font-weight: 600;\""
+			}
+			b.WriteString(fmt.Sprintf(`
+          <tr>
+            <td>%s</td>
+            <td>%d</td>
+            <td>%d</td>
+            <td %s>%.2f%%</td>
+            <td>%.0f</td>
+          </tr>`,
+				escapeHTML(m.Model), m.TotalSamples, m.TruncatedCount, rateClass, m.TruncationRate*100, m.AvgCompletionTokens))
+		}
+		b.WriteString(`
+        </tbody>
+      </table>
+    </div>
+  </div>`)
+	}
+
+	// 按语言统计
+	if len(stats.ByLanguage) > 0 {
+		b.WriteString(`
+  <div class="panel" style="margin-top: 16px;">
+    <h3>按语言截断统计</h3>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>语言</th>
+            <th>总样本</th>
+            <th>截断数</th>
+            <th>截断率</th>
+          </tr>
+        </thead>
+        <tbody>`)
+		for _, l := range stats.ByLanguage {
+			rateClass := ""
+			if l.TruncationRate > 0.3 {
+				rateClass = "style=\"color: #dc2626; font-weight: 600;\""
+			} else if l.TruncationRate > 0.1 {
+				rateClass = "style=\"color: #d97706; font-weight: 600;\""
+			}
+			b.WriteString(fmt.Sprintf(`
+          <tr>
+            <td>%s</td>
+            <td>%d</td>
+            <td>%d</td>
+            <td %s>%.2f%%</td>
+          </tr>`,
+				strings.ToUpper(l.Language), l.TotalSamples, l.TruncatedCount, rateClass, l.TruncationRate*100))
+		}
+		b.WriteString(`
+        </tbody>
+      </table>
+    </div>
+  </div>`)
+	}
+
+	// 调优建议
+	b.WriteString(`
+  <div class="panel" style="margin-top: 16px;">
+    <h3>调优建议</h3>
+    <div class="accordion">`)
+
+	b.WriteString(fmt.Sprintf(`
+      <details class="accordion-item">
+        <summary>1. 调整 max_tokens 参数</summary>
+        <div class="accordion-body">
+          <p>当前截断率为 %.2f%%，建议根据以下情况调整 max_tokens：</p>
+          <ul>
+            <li><strong>截断率 > 30%%：</strong>强烈建议增加 max_tokens 至 8192 或更高</li>
+            <li><strong>截断率 10%%-30%%：</strong>建议增加 max_tokens 至 6144-8192</li>
+            <li><strong>截断率 < 10%%：</strong>当前设置合理，可保持现状</li>
+          </ul>
+          <p>修改位置：<code>configs/models.yaml</code> 中的 <code>parameters.max_tokens</code></p>
+        </div>
+      </details>`, truncationRate))
+
+	b.WriteString(`
+      <details class="accordion-item">
+        <summary>2. 启用自动续写功能</summary>
+        <div class="accordion-body">
+          <p>系统已内置自动续写功能，当检测到截断时会自动发送续写请求。</p>
+          <p>续写策略：</p>
+          <ul>
+            <li>保留已生成的代码作为上下文</li>
+            <li>请求模型继续生成剩余部分</li>
+            <li>自动拼接并去重</li>
+            <li>最多尝试 3 次续写</li>
+          </ul>
+        </div>
+      </details>
+      <details class="accordion-item">
+        <summary>3. 优化提示词策略</summary>
+        <div class="accordion-body">
+          <p>如果截断问题持续存在，可以考虑：</p>
+          <ul>
+            <li>简化提示词，减少上下文长度</li>
+            <li>要求模型生成更简洁的测试代码</li>
+            <li>分步骤生成：先生成测试框架，再补充具体用例</li>
+            <li>使用更高效的模型或更大的上下文窗口</li>
+          </ul>
+        </div>
+      </details>
+      <details class="accordion-item">
+        <summary>4. 模型选择建议</summary>
+        <div class="accordion-body">
+          <p>不同模型的上下文窗口和输出能力不同：</p>
+          <ul>
+            <li><strong>DeepSeek：</strong>支持 64K 上下文，适合长代码生成</li>
+            <li><strong>Qwen：</strong>支持 32K 上下文，中文理解能力强</li>
+            <li><strong>Doubao：</strong>支持 128K 上下文，适合复杂场景</li>
+          </ul>
+          <p>根据任务复杂度选择合适的模型可以有效减少截断问题。</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>`)
+
+	return b.String()
+}
+
+func getTruncationAdvice(rate float64) string {
+	if rate > 30 {
+		return "截断率过高，建议立即增加 max_tokens 参数或优化提示词策略"
+	} else if rate > 10 {
+		return "截断率中等，建议适当增加 max_tokens 参数"
+	} else if rate > 0 {
+		return "截断率较低，当前配置基本合理"
+	}
+	return "无截断问题，配置良好"
+}
+
+func getTruncationExplanation(rate float64) string {
+	if rate > 30 {
+		return "大量样本因达到 max_tokens 限制而被截断，可能导致测试代码不完整，严重影响测试质量。"
+	} else if rate > 10 {
+		return "部分样本被截断，虽然自动续写功能可以缓解，但仍建议优化配置以获得更好的效果。"
+	} else if rate > 0 {
+		return "少量样本被截断，自动续写功能可以有效处理这种情况。"
+	}
+	return "所有样本都完整生成，无需担心截断问题。"
+}
+
+>>>>>>> origin/feat/go
 // buildChartsSection 生成图表区域 HTML
 func buildChartsSection(models []contracts.ModelRank) string {
 	if len(models) == 0 {
@@ -2051,6 +3486,7 @@ func buildChartsSection(models []contracts.ModelRank) string {
 	}
 	return `<div class="section" id="details">
   <h2>图表分析 Charts</h2>
+<<<<<<< HEAD
   <div class="grid-2">
     <div class="panel">
       <h3>模型指标对比</h3>
@@ -2059,13 +3495,47 @@ func buildChartsSection(models []contracts.ModelRank) string {
     <div class="panel">
       <h3>多维雷达图</h3>
       <div class="chart-box"><canvas id="radarChart"></canvas></div>
+=======
+  <div class="chart-grid-2">
+    <div class="panel">
+      <h3>模型指标对比</h3>
+      <div class="chart-box tall"><canvas id="modelBarChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>多维雷达图</h3>
+      <div class="chart-box tall"><canvas id="radarChart"></canvas></div>
+    </div>
+  </div>
+  <div class="chart-grid-2" style="margin-top:16px;">
+    <div class="panel">
+      <h3>场景通过率柱状图</h3>
+      <div class="chart-box tall"><canvas id="scenarioBarChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>场景性能趋势折线图</h3>
+      <div class="chart-box tall"><canvas id="scenarioTrendChart"></canvas></div>
+    </div>
+  </div>
+  <div class="chart-grid-2" style="margin-top:16px;">
+    <div class="panel">
+      <h3>覆盖率热力图</h3>
+      <div id="coverageHeatmap" class="chart-box heatmap-box"></div>
+    </div>
+    <div class="panel">
+      <h3>变异分数热力图</h3>
+      <div id="mutationHeatmap" class="chart-box heatmap-box"></div>
+>>>>>>> origin/feat/go
     </div>
   </div>
 </div>`
 }
 
 // buildPromptHTMLNew 生成新的 Prompt 展示区域
+<<<<<<< HEAD
 func buildPromptHTMLNew(prompts map[string]string) string {
+=======
+func buildPromptHTMLNew(strategy, versionID string, prompts map[string]string) string {
+>>>>>>> origin/feat/go
 	var b strings.Builder
 	b.WriteString(`<div class="section prompt-compact" id="prompt">
   <h2>Prompt 策略</h2>
@@ -2098,6 +3568,393 @@ func buildPromptHTMLNew(prompts map[string]string) string {
 }
 
 // buildChartScripts 生成图表脚本
+<<<<<<< HEAD
+=======
+func buildInteractiveScripts(payload contracts.ReportPayload, rows []contracts.EvaluationResult) string {
+	topModelsJSON := marshalJSONSimple(payload.TopModels)
+	rowsJSON := marshalJSONSimple(rows)
+
+	return fmt.Sprintf(`
+<script>
+// Chart.js loader with CDN fallback. If blocked, we show a visible banner instead of failing silently.
+(function() {
+  const banner = document.getElementById('runtime-banner');
+  function showBanner(message) {
+    if (!banner) return;
+    banner.textContent = message;
+    banner.classList.add('visible');
+  }
+  function loadScript(url) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = url;
+      script.async = true;
+      script.onload = () => resolve(url);
+      script.onerror = () => reject(new Error('Failed to load: ' + url));
+      document.head.appendChild(script);
+    });
+  }
+  async function ensureChartJS() {
+    if (window.Chart) return 'builtin';
+    const urls = [
+      'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
+      'https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js'
+    ];
+    for (const url of urls) {
+      try {
+        await loadScript(url);
+        if (window.Chart) return url;
+      } catch (e) {
+        // try next
+      }
+    }
+    throw new Error('Chart.js unavailable');
+  }
+  window.__utBenchEnsureChartJS = ensureChartJS;
+  window.__utBenchShowBanner = showBanner;
+})();
+
+const reportTopModels = %s;
+const evaluationRows = %s;
+
+let modelBarChart;
+let radarChart;
+let errorTypeChart;
+let stageChart;
+let scenarioBarChart;
+let scenarioTrendChart;
+
+function safeText(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function metricCell(value) {
+  if (!value) return '<span class="badge">-</span>';
+  const width = Math.max(0, Math.min(100, Math.round(value * 100)));
+  const fillClass = value >= 0.7 ? 'ok' : 'bad';
+  return '<div class="metric"><div class="bar"><span class="' + fillClass + '" style="width:' + width + '%%"></span></div><span class="val">' + width + '%%</span></div>';
+}
+
+function getScenarioFromSample(sampleID) {
+  if (!sampleID) return 'unknown';
+  const idx = sampleID.indexOf('_');
+  return idx > 0 ? sampleID.slice(0, idx) : sampleID;
+}
+
+function getStageFromRow(row) {
+  if (row.truncated) return 'generate';
+  if (row.compile_error) return 'compile';
+  if (row.test_error) return 'test';
+  if (row.coverage_error) return 'coverage';
+  if (row.mutation_error) return 'mutation';
+  return '';
+}
+
+function getErrorTypeFromRow(row) {
+  const message = String(row.compile_error || row.test_error || row.coverage_error || row.mutation_error || '').toLowerCase();
+  if (row.truncated) return 'truncated';
+  if (message.includes('modulenotfound') || message.includes('importerror') || message.includes('no module')) return 'module_not_found';
+  if (message.includes('nameerror') || message.includes("name '")) return 'name_error';
+  if (message.includes('assertionerror') || message.includes('assert')) return 'assertion_failure';
+  if (message.includes('syntaxerror')) return 'syntax_error';
+  if (message.includes('indentation')) return 'indentation_error';
+  if (message.includes('timeout')) return 'timeout';
+  if (message.includes('permission')) return 'permission_error';
+  return message ? 'other' : '';
+}
+
+function aggregateRows(selectedModel, selectedScenario) {
+  const filtered = evaluationRows.filter(row => {
+    const modelMatch = selectedModel === 'all' || row.model === selectedModel;
+    const scenarioMatch = selectedScenario === 'all' || getScenarioFromSample(row.sample_id) === selectedScenario;
+    return modelMatch && scenarioMatch;
+  });
+  const byLanguage = new Map();
+  const byScenario = new Map();
+  const failures = new Map();
+
+  for (const row of filtered) {
+    const langKey = row.language || 'unknown';
+    if (!byLanguage.has(langKey)) byLanguage.set(langKey, { language: langKey, total: 0, compilePass: 0, testPass: 0, testTotal: 0, lineSum: 0, lineCnt: 0, branchSum: 0, branchCnt: 0, mutationSum: 0, mutationCnt: 0 });
+    const lang = byLanguage.get(langKey);
+    lang.total += 1;
+    if (row.compile_pass) lang.compilePass += 1;
+    if (row.test_pass_count !== null && row.test_pass_count !== undefined && row.test_total_count !== null && row.test_total_count !== undefined) {
+      lang.testPass += row.test_pass_count;
+      lang.testTotal += row.test_total_count;
+    } else if (row.test_pass !== null && row.test_pass !== undefined) {
+      lang.testTotal += 1;
+      if (row.test_pass) lang.testPass += 1;
+    }
+    if (row.line_coverage !== null && row.line_coverage !== undefined) { lang.lineSum += row.line_coverage; lang.lineCnt += 1; }
+    if (row.branch_coverage !== null && row.branch_coverage !== undefined) { lang.branchSum += row.branch_coverage; lang.branchCnt += 1; }
+    if (row.mutation_score !== null && row.mutation_score !== undefined) { lang.mutationSum += row.mutation_score; lang.mutationCnt += 1; }
+
+    const scenario = getScenarioFromSample(row.sample_id);
+    const scenKey = langKey + '|' + scenario;
+    if (!byScenario.has(scenKey)) byScenario.set(scenKey, { scenario, language: langKey, total: 0, compilePass: 0, testPass: 0, testTotal: 0, lineSum: 0, lineCnt: 0, branchSum: 0, branchCnt: 0, mutationSum: 0, mutationCnt: 0 });
+    const scen = byScenario.get(scenKey);
+    scen.total += 1;
+    if (row.compile_pass) scen.compilePass += 1;
+    if (row.test_pass_count !== null && row.test_pass_count !== undefined && row.test_total_count !== null && row.test_total_count !== undefined) {
+      scen.testPass += row.test_pass_count;
+      scen.testTotal += row.test_total_count;
+    } else if (row.test_pass !== null && row.test_pass !== undefined) {
+      scen.testTotal += 1;
+      if (row.test_pass) scen.testPass += 1;
+    }
+    if (row.line_coverage !== null && row.line_coverage !== undefined) { scen.lineSum += row.line_coverage; scen.lineCnt += 1; }
+    if (row.branch_coverage !== null && row.branch_coverage !== undefined) { scen.branchSum += row.branch_coverage; scen.branchCnt += 1; }
+    if (row.mutation_score !== null && row.mutation_score !== undefined) { scen.mutationSum += row.mutation_score; scen.mutationCnt += 1; }
+
+    const stage = getStageFromRow(row);
+    const errorType = getErrorTypeFromRow(row);
+    if (stage && errorType) {
+      const key = stage + '|' + errorType;
+      if (!failures.has(key)) failures.set(key, { stage, errorType, count: 0, exampleModel: row.model || '', exampleSample: row.sample_id || '' });
+      failures.get(key).count += 1;
+    }
+  }
+
+  const languages = Array.from(byLanguage.values()).map(item => ({
+    language: item.language,
+    total: item.total,
+    compilePassRate: item.total ? item.compilePass / item.total : 0,
+    testPassRate: item.testTotal ? item.testPass / item.testTotal : 0,
+    lineCoverage: item.lineCnt ? item.lineSum / item.lineCnt : 0,
+    branchCoverage: item.branchCnt ? item.branchSum / item.branchCnt : 0,
+    mutationScore: item.mutationCnt ? item.mutationSum / item.mutationCnt : 0
+  })).sort((a, b) => a.language.localeCompare(b.language));
+
+  const scenarios = Array.from(byScenario.values()).map(item => ({
+    scenario: item.scenario,
+    language: item.language,
+    total: item.total,
+    compilePassRate: item.total ? item.compilePass / item.total : 0,
+    testPassRate: item.testTotal ? item.testPass / item.testTotal : 0,
+    lineCoverage: item.lineCnt ? item.lineSum / item.lineCnt : 0,
+    branchCoverage: item.branchCnt ? item.branchSum / item.branchCnt : 0,
+    mutationScore: item.mutationCnt ? item.mutationSum / item.mutationCnt : 0
+  })).sort((a, b) => (a.language + a.scenario).localeCompare(b.language + b.scenario));
+
+  const failureRows = Array.from(failures.values()).sort((a, b) => b.count - a.count);
+  return { languages, scenarios, failureRows, filtered };
+}
+
+function renderLanguageTable(items) {
+  const body = document.getElementById('by-language-body');
+  const empty = document.getElementById('by-language-empty');
+  body.innerHTML = items.map(item => '<tr><td><strong>' + safeText(String(item.language).toUpperCase()) + '</strong></td><td>' + item.total + '</td><td>' + metricCell(item.compilePassRate) + '</td><td>' + metricCell(item.testPassRate) + '</td><td>' + metricCell(item.lineCoverage) + '</td><td>' + metricCell(item.branchCoverage) + '</td><td>' + metricCell(item.mutationScore) + '</td></tr>').join('');
+  empty.style.display = items.length ? 'none' : 'block';
+}
+
+function renderScenarioTable(items) {
+  const body = document.getElementById('by-scenario-body');
+  const empty = document.getElementById('by-scenario-empty');
+  body.innerHTML = items.map(item => '<tr><td><strong>' + safeText(item.scenario) + '</strong></td><td>' + safeText(String(item.language).toUpperCase()) + '</td><td>' + item.total + '</td><td>' + metricCell(item.compilePassRate) + '</td><td>' + metricCell(item.testPassRate) + '</td><td>' + metricCell(item.lineCoverage) + '</td><td>' + metricCell(item.branchCoverage) + '</td><td>' + metricCell(item.mutationScore) + '</td></tr>').join('');
+  empty.style.display = items.length ? 'none' : 'block';
+}
+
+function renderErrorTable(items) {
+  const body = document.getElementById('error-analysis-body');
+  const empty = document.getElementById('error-analysis-empty');
+  body.innerHTML = items.map(item => '<tr><td>' + safeText(item.stage) + '</td><td>' + safeText(item.errorType) + '</td><td>' + item.count + '</td><td>' + safeText(item.exampleModel) + '</td><td>' + safeText(item.exampleSample) + '</td></tr>').join('');
+  empty.style.display = items.length ? 'none' : 'block';
+}
+
+function buildPieData(items, field) {
+  const counter = new Map();
+  for (const item of items) counter.set(item[field], (counter.get(item[field]) || 0) + item.count);
+  return { labels: Array.from(counter.keys()), values: Array.from(counter.values()) };
+}
+
+function upsertChart(instance, canvasId, type, labels, values, colors) {
+  if (instance) instance.destroy();
+  return new Chart(document.getElementById(canvasId), {
+    type,
+    data: { labels, datasets: [{ data: values, backgroundColor: colors }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+  });
+}
+
+function renderErrorCharts(items) {
+  const typeData = buildPieData(items, 'errorType');
+  const stageData = buildPieData(items, 'stage');
+  errorTypeChart = upsertChart(errorTypeChart, 'errorTypeChart', 'doughnut', typeData.labels.length ? typeData.labels : ['No Errors'], typeData.values.length ? typeData.values : [1], ['#ef4444', '#f97316', '#eab308', '#3b82f6', '#8b5cf6', '#14b8a6']);
+  stageChart = upsertChart(stageChart, 'stageChart', 'pie', stageData.labels.length ? stageData.labels : ['No Errors'], stageData.values.length ? stageData.values : [1], ['#ef4444', '#f97316', '#eab308', '#3b82f6', '#14b8a6']);
+}
+
+function renderScenarioCharts(items) {
+  const labels = items.map(item => item.scenario + ' / ' + item.language.toUpperCase());
+  const compileRates = items.map(item => item.compilePassRate);
+  const testRates = items.map(item => item.testPassRate);
+  const mutationRates = items.map(item => item.mutationScore);
+
+  if (scenarioBarChart) scenarioBarChart.destroy();
+  scenarioBarChart = new Chart(document.getElementById('scenarioBarChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: '编译通过率', data: compileRates, backgroundColor: '#1e40af' },
+        { label: '测试通过率', data: testRates, backgroundColor: '#10b981' }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%%' } } }
+    }
+  });
+
+  if (scenarioTrendChart) scenarioTrendChart.destroy();
+  scenarioTrendChart = new Chart(document.getElementById('scenarioTrendChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: '覆盖率趋势', data: items.map(item => item.lineCoverage), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.12)', tension: .3, fill: true },
+        { label: '变异分数趋势', data: mutationRates, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.12)', tension: .3, fill: true }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%%' } } }
+    }
+  });
+}
+
+function renderHeatmap(containerId, rows, metricKey) {
+  const container = document.getElementById(containerId);
+  const grouped = new Map();
+  rows.forEach(row => {
+    const scenario = getScenarioFromSample(row.sample_id);
+    if (!grouped.has(scenario)) grouped.set(scenario, []);
+    grouped.get(scenario).push(row);
+  });
+  let html = '<div class="heatmap">';
+  Array.from(grouped.entries()).sort((a,b) => a[0].localeCompare(b[0])).forEach(([scenario, scenarioRows]) => {
+    html += '<div class="heatmap-row"><div class="heatmap-label">' + safeText(scenario) + '</div>';
+    scenarioRows.slice(0, 8).forEach(row => {
+      const raw = row[metricKey];
+      const value = raw === null || raw === undefined ? 0 : raw;
+      const hue = Math.round(value * 120);
+      const bg = 'hsla(' + hue + ', 75%%, 85%%, 1)';
+      html += '<div class="heatmap-cell" style="background:' + bg + ';">' + safeText(row.sample_id) + '<br>' + Math.round(value * 100) + '%%</div>';
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function exportScenarioCSV(items) {
+  const header = ['scenario','language','total_samples','compile_pass_rate','test_pass_rate','line_coverage','branch_coverage','mutation_score'];
+  const lines = [header.join(',')];
+  items.forEach(item => {
+    lines.push([item.scenario, item.language, item.total, item.compilePassRate, item.testPassRate, item.lineCoverage, item.branchCoverage, item.mutationScore].join(','));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'scenario-analysis.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function renderModelCharts() {
+  const modelNames = reportTopModels.map(item => item.model);
+  const compileRates = reportTopModels.map(item => item.compile_pass_rate);
+  const testRates = reportTopModels.map(item => item.avg_test_pass_rate);
+  const lineRates = reportTopModels.map(item => item.avg_line_coverage);
+  const mutationRates = reportTopModels.map(item => item.avg_mutation_score);
+
+  modelBarChart = new Chart(document.getElementById('modelBarChart'), {
+    type: 'bar',
+    data: { labels: modelNames, datasets: [
+      { label: '编译', data: compileRates, backgroundColor: '#3b82f6' },
+      { label: '测试', data: testRates, backgroundColor: '#10b981' },
+      { label: '覆盖', data: lineRates, backgroundColor: '#f59e0b' },
+      { label: '变异', data: mutationRates, backgroundColor: '#8b5cf6' }
+    ]},
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%%' } } } }
+  });
+
+  radarChart = new Chart(document.getElementById('radarChart'), {
+    type: 'radar',
+    data: {
+      labels: ['编译', '测试', '覆盖', '变异'],
+      datasets: reportTopModels.map((item, index) => ({
+        label: item.model,
+        data: [item.compile_pass_rate, item.avg_test_pass_rate, item.avg_line_coverage, item.avg_mutation_score],
+        fill: true,
+        backgroundColor: ['rgba(59,130,246,0.18)', 'rgba(16,185,129,0.18)', 'rgba(245,158,11,0.18)', 'rgba(139,92,246,0.18)'][index %% 4],
+        borderColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][index %% 4],
+        pointBackgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][index %% 4]
+      }))
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { r: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%%' } } } }
+  });
+}
+
+function renderFilteredSections() {
+  const modelEl = document.getElementById('model-filter');
+  const scenarioEl = document.getElementById('scenario-filter');
+  const selectedModel = modelEl ? modelEl.value : 'all';
+  const selectedScenario = scenarioEl ? scenarioEl.value : 'all';
+  const aggregated = aggregateRows(selectedModel, selectedScenario);
+  renderLanguageTable(aggregated.languages);
+  renderScenarioTable(aggregated.scenarios);
+  renderErrorTable(aggregated.failureRows);
+  renderErrorCharts(aggregated.failureRows);
+  renderScenarioCharts(aggregated.scenarios);
+  renderHeatmap('coverageHeatmap', aggregated.filtered, 'line_coverage');
+  renderHeatmap('mutationHeatmap', aggregated.filtered, 'mutation_score');
+  const exportBtn = document.getElementById('export-scenario-csv');
+  if (exportBtn) exportBtn.onclick = () => exportScenarioCSV(aggregated.scenarios);
+}
+
+(async function init() {
+  try {
+    if (window.__utBenchEnsureChartJS) {
+      await window.__utBenchEnsureChartJS();
+    }
+    renderModelCharts();
+    renderFilteredSections();
+    const modelFilter = document.getElementById('model-filter');
+    if (modelFilter) modelFilter.addEventListener('change', renderFilteredSections);
+    const scenarioFilter = document.getElementById('scenario-filter');
+    if (scenarioFilter) scenarioFilter.addEventListener('change', renderFilteredSections);
+  } catch (e) {
+    if (window.__utBenchShowBanner) {
+      window.__utBenchShowBanner('图表库 Chart.js 加载失败，通常是网络或企业代理拦截了 CDN。请在联网环境打开，或让报告改为本地内置 Chart.js。');
+    }
+    if (window.console && console.error) console.error(e);
+  }
+
+  const backToTop = document.getElementById('back-to-top');
+  window.addEventListener('scroll', () => {
+    if (!backToTop) return;
+    if (window.scrollY > 400) backToTop.classList.add('visible'); else backToTop.classList.remove('visible');
+  });
+  if (backToTop) backToTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+})();
+</script>
+`, topModelsJSON, rowsJSON)
+}
+
+>>>>>>> origin/feat/go
 func buildChartScripts(models []contracts.ModelRank) string {
 	if len(models) == 0 {
 		return ""
@@ -2106,7 +3963,10 @@ func buildChartScripts(models []contracts.ModelRank) string {
 	modelNames, compileRates, testRates, lineCovs, mutScores := extractChartDataSimple(models)
 
 	return fmt.Sprintf(`
+<<<<<<< HEAD
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+=======
+>>>>>>> origin/feat/go
 <script>
 const modelNames = %s;
 const compileRates = %s;
@@ -2195,6 +4055,48 @@ new Chart(document.getElementById('radarChart'), {
 `, modelNames, compileRates, testRates, lineCovs, mutScores)
 }
 
+<<<<<<< HEAD
+=======
+func stringsFromRows(rows []contracts.EvaluationResult, get func(contracts.EvaluationResult) string) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		v := strings.TrimSpace(get(row))
+		if v == "" {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+func distinctSorted(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func summarizeList(values []string, max int) string {
+	if len(values) == 0 {
+		return "-"
+	}
+	if max <= 0 {
+		max = 1
+	}
+	if len(values) <= max {
+		return strings.Join(values, ", ")
+	}
+	return strings.Join(values[:max], ", ") + fmt.Sprintf(" 等%d项", len(values))
+}
+
+>>>>>>> origin/feat/go
 // progressBarNew 生成新的进度条 HTML
 func progressBarNew(value, threshold float64) string {
 	if value == 0 {
@@ -2209,6 +4111,19 @@ func progressBarNew(value, threshold float64) string {
 		pct, fillClass, pct)
 }
 
+<<<<<<< HEAD
+=======
+func statusTone(rate, successThreshold, warningThreshold float64) string {
+	if rate >= successThreshold {
+		return "success"
+	}
+	if rate >= warningThreshold {
+		return "warning"
+	}
+	return "error"
+}
+
+>>>>>>> origin/feat/go
 func kpiCard(label string, value float64, valueClass string, subValue string) string {
 	displayValue := fmt.Sprintf("%.1f%%", value*100)
 	if value > 100 {
@@ -2298,6 +4213,16 @@ func marshalJSONSimple(v interface{}) string {
 	return string(b)
 }
 
+<<<<<<< HEAD
+=======
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+>>>>>>> origin/feat/go
 func escapeHTML(v string) string {
 	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
 	return replacer.Replace(v)

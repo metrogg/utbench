@@ -1,6 +1,10 @@
 package evaluator
 
 import (
+<<<<<<< HEAD
+=======
+	"go-ut-bench/internal/contracts"
+>>>>>>> origin/feat/go
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,6 +134,64 @@ func TestAdd(t *testing.T) {
 	}
 }
 
+<<<<<<< HEAD
+=======
+func TestRewriteGeneratedTestImportsNeutralPythonModules(t *testing.T) {
+	sourcePath := filepath.Join("tmp", "actual_module.py")
+	input := strings.Join([]string{
+		"from module_under_test import task_func",
+		"from target_module import helper",
+		"from solution import other",
+		"import module_under_test",
+		"import target_module as target",
+	}, "\n")
+
+	got := rewriteGeneratedTestImports(input, sourcePath)
+	for _, forbidden := range []string{"module_under_test", "target_module", "solution"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("expected neutral import %q to be rewritten, got:\n%s", forbidden, got)
+		}
+	}
+	if !strings.Contains(got, "from actual_module import task_func") ||
+		!strings.Contains(got, "from actual_module import helper") ||
+		!strings.Contains(got, "import actual_module") {
+		t.Fatalf("unexpected rewritten imports:\n%s", got)
+	}
+}
+
+func TestClassifyFailureOriginKeepsMutationToolErrorAsModelWhenTestsFailed(t *testing.T) {
+	testPass := false
+	rate := 0.5
+	row := contracts.EvaluationResult{
+		CompilePass:   true,
+		TestPass:      &testPass,
+		TestPassRate:  &rate,
+		MutationError: "gremlins parse error: failed to parse mutation output",
+	}
+
+	origin, reason := classifyFailureOrigin(row)
+	if origin != "model" {
+		t.Fatalf("expected model origin for mutation error caused by failing tests, got origin=%q reason=%q", origin, reason)
+	}
+}
+
+func TestClassifyFailureOriginKeepsPureMutationToolErrorExcluded(t *testing.T) {
+	testPass := true
+	rate := 1.0
+	row := contracts.EvaluationResult{
+		CompilePass:   true,
+		TestPass:      &testPass,
+		TestPassRate:  &rate,
+		MutationError: "gremlins parse error: failed to parse mutation output",
+	}
+
+	origin, reason := classifyFailureOrigin(row)
+	if origin != "tool" || reason == "" {
+		t.Fatalf("expected pure mutation parser issue to remain tool origin, got origin=%q reason=%q", origin, reason)
+	}
+}
+
+>>>>>>> origin/feat/go
 func containsAll(s string, subs []string) bool {
 	for _, sub := range subs {
 		if !strings.Contains(s, sub) {

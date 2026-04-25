@@ -14,34 +14,89 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+<<<<<<< HEAD
+=======
+	"sync"
+>>>>>>> origin/feat/go
 	"time"
 
 	"go-ut-bench/internal/contracts"
 )
 
+<<<<<<< HEAD
 // apiClient is the HTTP transport for OpenAI-compatible / DashScope model
 // providers. Prompt construction is delegated to prompt.go (see BuildPrompt).
 
+=======
+>>>>>>> origin/feat/go
 type apiClient struct {
 	client  *http.Client
 	retries int
 	backoff time.Duration
 }
 
+<<<<<<< HEAD
 func newAPIClient() *apiClient {
 	return &apiClient{
 		client:  &http.Client{Timeout: 120 * time.Second},
+=======
+// Global per-model rate limiter: stagger calls to the same model provider/endpoint
+var (
+	globalRateLimiter   sync.Mutex
+	modelLastCall       = make(map[string]time.Time)
+	modelMinInterval    = 200 * time.Millisecond // minimum interval between calls to the same model
+	modelJitter         = 100 * time.Millisecond // max random jitter
+)
+
+func newAPIClient() *apiClient {
+	return &apiClient{
+		client:  &http.Client{Timeout: 300 * time.Second},
+>>>>>>> origin/feat/go
 		retries: 3,
 		backoff: 2 * time.Second,
 	}
 }
 
+<<<<<<< HEAD
+=======
+// waitModelInterval ensures staggered calls to the same model.
+// If the same model was called recently, sleeps until the interval has passed.
+func waitModelInterval(modelName string) {
+	if modelMinInterval <= 0 {
+		return
+	}
+	globalRateLimiter.Lock()
+	lastCall, ok := modelLastCall[modelName]
+	if !ok {
+		modelLastCall[modelName] = time.Now()
+		globalRateLimiter.Unlock()
+		return
+	}
+	elapsed := time.Since(lastCall)
+	globalRateLimiter.Unlock()
+
+	if elapsed < modelMinInterval {
+		jitter := time.Duration(rand.Int63n(int64(modelJitter)))
+		sleep := modelMinInterval - elapsed + jitter
+		time.Sleep(sleep)
+	}
+
+	globalRateLimiter.Lock()
+	modelLastCall[modelName] = time.Now()
+	globalRateLimiter.Unlock()
+}
+
+>>>>>>> origin/feat/go
 func (c *apiClient) generateTest(
 	ctx context.Context,
 	model modelConfig,
 	language string,
+<<<<<<< HEAD
 	samplePath string,
 	sourceCode string,
+=======
+	prompt string,
+>>>>>>> origin/feat/go
 ) (string, map[string]any, int, *int, *int, *int, bool, *contracts.ErrorInfo) {
 	apiKey := strings.TrimSpace(os.Getenv(model.APIKeyEnv))
 	if apiKey == "" {
@@ -52,7 +107,10 @@ func (c *apiClient) generateTest(
 		}
 	}
 
+<<<<<<< HEAD
 	prompt := buildPrompt(language, samplePath, sourceCode)
+=======
+>>>>>>> origin/feat/go
 	payload := buildPayload(model, prompt)
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -62,17 +120,58 @@ func (c *apiClient) generateTest(
 	endpoint := resolveEndpoint(model)
 	var lastErr *contracts.ErrorInfo
 	var lastTruncated bool
+<<<<<<< HEAD
+=======
+	var allResponses []map[string]any
+	var accumulatedCode strings.Builder
+	var totalPromptTokens, totalCompletionTokens, totalTokens int
+	var tokenCountsSet bool
+	maxContinuationAttempts := 3
+
+>>>>>>> origin/feat/go
 	for attempt := 1; attempt <= c.retries; attempt++ {
 		started := time.Now()
 		code, rawResp, p, cm, total, truncated, errInfo := c.doOnce(ctx, endpoint, apiKey, model.Provider, body)
 		latency := int(time.Since(started).Milliseconds())
+<<<<<<< HEAD
 		if errInfo == nil {
 			san := sanitizeModelOutput(code, language)
+=======
+
+		if errInfo != nil {
+			lastErr = errInfo
+			lastTruncated = truncated
+			if !errInfo.Retryable || attempt >= c.retries {
+				break
+			}
+			sleep := float64(c.backoff) * math.Pow(2, float64(attempt-1))
+			sleep += float64(time.Duration(rand.Int63n(int64(200 * time.Millisecond))))
+			time.Sleep(time.Duration(sleep))
+			continue
+		}
+
+		allResponses = append(allResponses, rawResp)
+		accumulatedCode.WriteString(code)
+
+		if !tokenCountsSet && p != nil && cm != nil && total != nil {
+			totalPromptTokens = *p
+			totalCompletionTokens = *cm
+			totalTokens = *total
+			tokenCountsSet = true
+		} else if tokenCountsSet && cm != nil {
+			totalCompletionTokens += *cm
+			totalTokens += *cm
+		}
+
+		if !truncated {
+			san := sanitizeModelOutput(accumulatedCode.String(), language)
+>>>>>>> origin/feat/go
 			extracted := extractCode(san, language)
 			if vErr := validateGeneratedTest(extracted, language); vErr != nil {
 				lastErr = &contracts.ErrorInfo{Kind: "quality_error", Message: vErr.Error(), Retryable: false}
 				break
 			}
+<<<<<<< HEAD
 			return extracted, rawResp, latency, p, cm, total, truncated, nil
 		}
 
@@ -84,12 +183,43 @@ func (c *apiClient) generateTest(
 		sleep := float64(c.backoff) * math.Pow(2, float64(attempt-1))
 		sleep += float64(time.Duration(rand.Int63n(int64(200 * time.Millisecond))))
 		time.Sleep(time.Duration(sleep))
+=======
+			finalTruncated := false
+			return extracted, mergeResponses(allResponses), latency, &totalPromptTokens, &totalCompletionTokens, &totalTokens, finalTruncated, nil
+		}
+
+		if maxContinuationAttempts <= 0 {
+			lastTruncated = true
+			break
+		}
+		maxContinuationAttempts--
+
+		continuationPayload := buildContinuationPayload(model, prompt, accumulatedCode.String())
+		body, err = json.Marshal(continuationPayload)
+		if err != nil {
+			return accumulatedCode.String(), mergeResponses(allResponses), latency, &totalPromptTokens, &totalCompletionTokens, &totalTokens, true, &contracts.ErrorInfo{
+				Kind:      "continuation_payload_error",
+				Message:   err.Error(),
+				Retryable: false,
+			}
+		}
+	}
+
+	if lastErr == nil && accumulatedCode.Len() > 0 {
+		san := sanitizeModelOutput(accumulatedCode.String(), language)
+		extracted := extractCode(san, language)
+		return extracted, mergeResponses(allResponses), 0, &totalPromptTokens, &totalCompletionTokens, &totalTokens, lastTruncated, nil
+>>>>>>> origin/feat/go
 	}
 
 	if lastErr == nil {
 		lastErr = &contracts.ErrorInfo{Kind: "unknown_error", Message: "unknown generation error", Retryable: false}
 	}
+<<<<<<< HEAD
 	return "", nil, 0, nil, nil, nil, lastTruncated, lastErr
+=======
+	return accumulatedCode.String(), mergeResponses(allResponses), 0, &totalPromptTokens, &totalCompletionTokens, &totalTokens, lastTruncated, lastErr
+>>>>>>> origin/feat/go
 }
 
 func (c *apiClient) doOnce(
@@ -104,7 +234,11 @@ func (c *apiClient) doOnce(
 		return "", nil, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "request_build_error", Message: err.Error(), Retryable: false}
 	}
 	req.Header.Set("Content-Type", "application/json")
+<<<<<<< HEAD
 	setAuthHeaders(req, provider, apiKey)
+=======
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+>>>>>>> origin/feat/go
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -157,6 +291,7 @@ func resolveEndpoint(model modelConfig) string {
 		}
 		return base + "/services/aigc/text-generation/generation"
 	}
+<<<<<<< HEAD
 	if isAnthropicProvider(model.Provider) {
 		if strings.HasSuffix(base, "/messages") {
 			return base
@@ -166,6 +301,8 @@ func resolveEndpoint(model modelConfig) string {
 		}
 		return base + "/v1/messages"
 	}
+=======
+>>>>>>> origin/feat/go
 	return base + "/chat/completions"
 }
 
@@ -182,6 +319,7 @@ func buildPayload(model modelConfig, prompt string) map[string]any {
 			"parameters": params,
 		}
 	}
+<<<<<<< HEAD
 	if isAnthropicProvider(model.Provider) {
 		maxTokens := any(4096)
 		if v, ok := params["max_tokens"]; ok {
@@ -201,6 +339,8 @@ func buildPayload(model modelConfig, prompt string) map[string]any {
 		}
 		return payload
 	}
+=======
+>>>>>>> origin/feat/go
 
 	payload := map[string]any{
 		"model": model.Model,
@@ -216,6 +356,7 @@ func buildPayload(model modelConfig, prompt string) map[string]any {
 	return payload
 }
 
+<<<<<<< HEAD
 func extractResponseText(response map[string]any, provider string) (string, error) {
 	if isAnthropicProvider(provider) {
 		if blocks, ok := response["content"].([]any); ok {
@@ -228,10 +369,141 @@ func extractResponseText(response map[string]any, provider string) (string, erro
 			}
 			if len(parts) > 0 {
 				return strings.Join(parts, "\n"), nil
+=======
+func buildContinuationPayload(model modelConfig, originalPrompt string, generatedSoFar string) map[string]any {
+	continuationPrompt := "Continue generating the unit test code from where you left off. " +
+		"Output only the remaining code without any explanations or markdown fences. " +
+		"Do not repeat what was already generated."
+
+	params := map[string]any{}
+	for k, v := range model.Params {
+		params[k] = v
+	}
+
+	switch model.Provider {
+	case "dashscope":
+		if !strings.Contains(model.Endpoint, "compatible-mode") {
+			return map[string]any{
+				"model": model.Model,
+				"input": map[string]any{
+					"messages": []map[string]any{
+						{"role": "user", "content": originalPrompt},
+						{"role": "assistant", "content": generatedSoFar},
+						{"role": "user", "content": continuationPrompt},
+					},
+				},
+				"parameters": params,
+			}
+		}
+		return map[string]any{
+			"model": model.Model,
+			"messages": []map[string]any{
+				{"role": "system", "content": systemMessage},
+				{"role": "user", "content": originalPrompt},
+				{"role": "assistant", "content": generatedSoFar},
+				{"role": "user", "content": continuationPrompt},
+			},
+			"stream": false,
+		}
+	case "volcengine":
+		return map[string]any{
+			"model": model.Model,
+			"messages": []map[string]any{
+				{"role": "system", "content": systemMessage},
+				{"role": "user", "content": originalPrompt},
+				{"role": "assistant", "content": generatedSoFar},
+				{"role": "user", "content": continuationPrompt},
+			},
+			"stream": false,
+		}
+	default:
+		return map[string]any{
+			"model": model.Model,
+			"messages": []map[string]any{
+				{"role": "system", "content": systemMessage},
+				{"role": "user", "content": originalPrompt},
+				{"role": "assistant", "content": generatedSoFar},
+				{"role": "user", "content": continuationPrompt},
+			},
+			"stream": false,
+		}
+	}
+}
+
+func mergeResponses(responses []map[string]any) map[string]any {
+	if len(responses) == 0 {
+		return map[string]any{"merged": true, "count": 0}
+	}
+	if len(responses) == 1 {
+		responses[0]["merged"] = true
+		responses[0]["continuation_count"] = 1
+		return responses[0]
+	}
+
+	mergedText := ""
+	var totalPromptTokens, totalCompletionTokens, totalTokens int64
+	continuationCount := len(responses)
+
+	for _, resp := range responses {
+		if text, err := extractResponseTextFromAny(resp); err == nil {
+			mergedText += text
+		}
+		if usage, ok := resp["usage"].(map[string]any); ok {
+			if p, ok := usage["prompt_tokens"].(float64); ok {
+				totalPromptTokens += int64(p)
+			}
+			if c, ok := usage["completion_tokens"].(float64); ok {
+				totalCompletionTokens += int64(c)
+			}
+			if t, ok := usage["total_tokens"].(float64); ok {
+				totalTokens += int64(t)
+>>>>>>> origin/feat/go
 			}
 		}
 	}
 
+<<<<<<< HEAD
+=======
+	return map[string]any{
+		"merged":             true,
+		"continuation_count": continuationCount,
+		"merged_text":        mergedText,
+		"prompt_tokens":      totalPromptTokens,
+		"completion_tokens":  totalCompletionTokens,
+		"total_tokens":       totalTokens,
+		"first_response":     responses[0],
+	}
+}
+
+func extractResponseTextFromAny(response map[string]any) (string, error) {
+	if choices, ok := response["choices"].([]any); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]any); ok {
+			if msg, ok := choice["message"].(map[string]any); ok {
+				if content, ok := msg["content"].(string); ok {
+					return content, nil
+				}
+			}
+		}
+	}
+	if output, ok := response["output"].(map[string]any); ok {
+		if text, ok := output["text"].(string); ok && text != "" {
+			return text, nil
+		}
+		if choices, ok := output["choices"].([]any); ok && len(choices) > 0 {
+			if item, ok := choices[0].(map[string]any); ok {
+				if msg, ok := item["message"].(map[string]any); ok {
+					if content, ok := msg["content"].(string); ok {
+						return content, nil
+					}
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("unable to extract text from response")
+}
+
+func extractResponseText(response map[string]any, provider string) (string, error) {
+>>>>>>> origin/feat/go
 	if provider == "dashscope" {
 		if output, ok := response["output"].(map[string]any); ok {
 			if text, ok := output["text"].(string); ok && text != "" {
@@ -278,14 +550,18 @@ func extractUsage(response map[string]any) (*int, *int, *int) {
 		c = toIntPtr(usage["output_tokens"])
 	}
 	t := toIntPtr(usage["total_tokens"])
+<<<<<<< HEAD
 	if t == nil && p != nil && c != nil {
 		total := *p + *c
 		t = &total
 	}
+=======
+>>>>>>> origin/feat/go
 	return p, c, t
 }
 
 func extractFinishReason(response map[string]any, provider string) bool {
+<<<<<<< HEAD
 	if isAnthropicProvider(provider) {
 		if reason, ok := response["stop_reason"].(string); ok {
 			return reason == "max_tokens"
@@ -293,6 +569,8 @@ func extractFinishReason(response map[string]any, provider string) bool {
 		return false
 	}
 
+=======
+>>>>>>> origin/feat/go
 	if provider == "dashscope" {
 		if output, ok := response["output"].(map[string]any); ok {
 			if choices, ok := output["choices"].([]any); ok && len(choices) > 0 {
@@ -316,6 +594,7 @@ func extractFinishReason(response map[string]any, provider string) bool {
 	return false
 }
 
+<<<<<<< HEAD
 func setAuthHeaders(req *http.Request, provider string, apiKey string) {
 	if isAnthropicProvider(provider) {
 		req.Header.Set("x-api-key", apiKey)
@@ -330,6 +609,8 @@ func isAnthropicProvider(provider string) bool {
 	return p == "anthropic" || p == "claude"
 }
 
+=======
+>>>>>>> origin/feat/go
 func toIntPtr(v any) *int {
 	switch x := v.(type) {
 	case int:
@@ -345,10 +626,13 @@ func toIntPtr(v any) *int {
 	}
 }
 
+<<<<<<< HEAD
 // -----------------------------------------------------------------------------
 // Output post-processing (raw LLM response -> cleaned code string)
 // -----------------------------------------------------------------------------
 
+=======
+>>>>>>> origin/feat/go
 func sanitizeModelOutput(content string, language string) string {
 	text := strings.TrimSpace(content)
 	re := regexp.MustCompile(`(?is)<think>.*?</think>`)
@@ -363,7 +647,11 @@ func sanitizeModelOutput(content string, language string) string {
 
 func trimNonCodePrefix(text string) string {
 	lines := strings.Split(text, "\n")
+<<<<<<< HEAD
 	re := regexp.MustCompile(`^\s*(from\s+\w|import\s+\w|def\s+\w|class\s+\w|@|if\s+__name__|#|"""|''')`)
+=======
+	re := regexp.MustCompile(`^\s*(from\s+\w|import\s+\w|def\s+\w|class\s+\w|@|if\s+__name__|#|\"\"\"|''')`)
+>>>>>>> origin/feat/go
 	for i, line := range lines {
 		if re.MatchString(line) {
 			return strings.TrimSpace(strings.Join(lines[i:], "\n"))
@@ -450,10 +738,69 @@ func trimText(v string, max int) string {
 	return v[:max]
 }
 
+<<<<<<< HEAD
 // -----------------------------------------------------------------------------
 // Source-analysis helpers (used by prompt.go to enrich prompts with context).
 // Kept here because they are also re-exercised from api_test.go.
 // -----------------------------------------------------------------------------
+=======
+func coverageTargetsText() string {
+	// Keep in sync with benchmark/config/models.yaml default thresholds.
+	line := 0.7
+	branch := 0.6
+	function := 0.8
+	return fmt.Sprintf(
+		"line >= %.0f%%, branch >= %.0f%%, function >= %.0f%%",
+		line*100,
+		branch*100,
+		function*100,
+	)
+}
+
+func languageFramework(language string) string {
+	switch language {
+	case "java":
+		return "JUnit 4"
+	case "python":
+		return "pytest"
+	case "go":
+		return "Go testing package"
+	case "cpp":
+		return "GoogleTest"
+	case "javascript":
+		return "Jest"
+	default:
+		return "the standard test framework"
+	}
+}
+
+func moduleImportName(sampleID string) string {
+	normalized := regexp.MustCompile(`[^a-zA-Z0-9_]`).ReplaceAllString(sampleID, "_")
+	normalized = strings.Trim(normalized, "_")
+	if normalized == "" {
+		return "solution"
+	}
+	if regexp.MustCompile(`^[0-9]`).MatchString(normalized) {
+		return "sample_" + normalized
+	}
+	return normalized
+}
+
+func parseSampleMeta(sampleID, samplePath string) (string, string) {
+	parts := strings.Split(sampleID, "_")
+	if len(parts) >= 4 {
+		complexity := strings.ToLower(parts[0])
+		scenario := strings.ToLower(strings.Join(parts[2:len(parts)-1], "_"))
+		return scenario, complexity
+	}
+	parent := strings.ToLower(filepath.Base(filepath.Dir(samplePath)))
+	grand := strings.ToLower(filepath.Base(filepath.Dir(filepath.Dir(samplePath))))
+	if parent != "" && parent != grand {
+		return parent, ""
+	}
+	return "", ""
+}
+>>>>>>> origin/feat/go
 
 func extractDependencies(sourceCode, language string) []string {
 	var deps []string
@@ -480,15 +827,28 @@ func extractDependencies(sourceCode, language string) []string {
 		}
 	case "go":
 		reSingle := regexp.MustCompile(`(?m)^\s*import\s+"([^"]+)"`)
+<<<<<<< HEAD
 		for _, m := range reSingle.FindAllStringSubmatch(sourceCode, -1) {
+=======
+		singleMatches := reSingle.FindAllStringSubmatch(sourceCode, -1)
+		for _, m := range singleMatches {
+>>>>>>> origin/feat/go
 			if len(m) > 1 && strings.TrimSpace(m[1]) != "" {
 				deps = append(deps, strings.TrimSpace(m[1]))
 			}
 		}
 		reBlock := regexp.MustCompile(`(?s)import\s*\((.*?)\)`)
+<<<<<<< HEAD
 		if block := reBlock.FindStringSubmatch(sourceCode); len(block) > 1 {
 			reQuoted := regexp.MustCompile(`"([^"]+)"`)
 			for _, m := range reQuoted.FindAllStringSubmatch(block[1], -1) {
+=======
+		block := reBlock.FindStringSubmatch(sourceCode)
+		if len(block) > 1 {
+			reQuoted := regexp.MustCompile(`"([^"]+)"`)
+			quoted := reQuoted.FindAllStringSubmatch(block[1], -1)
+			for _, m := range quoted {
+>>>>>>> origin/feat/go
 				if len(m) > 1 && strings.TrimSpace(m[1]) != "" {
 					deps = append(deps, strings.TrimSpace(m[1]))
 				}
@@ -496,7 +856,12 @@ func extractDependencies(sourceCode, language string) []string {
 		}
 	case "cpp":
 		re := regexp.MustCompile(`(?m)^\s*#include\s*[<"]([^>"]+)[>"]`)
+<<<<<<< HEAD
 		for _, m := range re.FindAllStringSubmatch(sourceCode, -1) {
+=======
+		matches := re.FindAllStringSubmatch(sourceCode, -1)
+		for _, m := range matches {
+>>>>>>> origin/feat/go
 			if len(m) > 1 && strings.TrimSpace(m[1]) != "" {
 				deps = append(deps, strings.TrimSpace(m[1]))
 			}
@@ -518,6 +883,7 @@ func extractDependencies(sourceCode, language string) []string {
 	return out
 }
 
+<<<<<<< HEAD
 func extractCriticalConditions(sourceCode, language string) []string {
 	switch language {
 	case "python":
@@ -559,6 +925,37 @@ func extractCriticalConditionsGo(sourceCode string) []string {
 }
 
 func extractCriticalConditionsPython(sourceCode string) []string {
+=======
+func mockRequirement(sourceCode string) string {
+	lower := strings.ToLower(sourceCode)
+	markers := []string{
+		"http",
+		"request",
+		"socket",
+		"open(",
+		"file",
+		"database",
+		"sql",
+		"redis",
+		"grpc",
+		"client",
+		"os.environ",
+		"subprocess",
+	}
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			return "Use mocks/stubs/fakes for network, file, database, subprocess, or env dependencies."
+		}
+	}
+	return "Mock only when necessary; avoid over-mocking pure functions."
+}
+
+func extractCriticalConditions(sourceCode, language string) []string {
+	if language != "python" {
+		return nil
+	}
+
+>>>>>>> origin/feat/go
 	lines := strings.Split(sourceCode, "\n")
 	candidates := make([]string, 0, 16)
 	loopLines := map[int]string{}
@@ -615,12 +1012,22 @@ func extractCriticalConditionsPython(sourceCode string) []string {
 			break
 		}
 	}
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/feat/go
 	return dedup
 }
 
 func containsComparator(line string) bool {
+<<<<<<< HEAD
 	for _, c := range []string{"<=", ">=", "==", "!=", "<", ">"} {
 		if strings.Contains(line, c) {
+=======
+	comparators := []string{"<=", ">=", "==", "!=", "<", ">"}
+	for _, item := range comparators {
+		if strings.Contains(line, item) {
+>>>>>>> origin/feat/go
 			return true
 		}
 	}
@@ -697,10 +1104,13 @@ func extractModuleLevelSymbols(sourceCode, language string) string {
 	return "Module-level symbols available to import: " + strings.Join(symbols, ", ") + "."
 }
 
+<<<<<<< HEAD
 // -----------------------------------------------------------------------------
 // Module-level meta loading (shared between generator and prompt builder)
 // -----------------------------------------------------------------------------
 
+=======
+>>>>>>> origin/feat/go
 type moduleLevelMetaForRunner struct {
 	SampleID      string   `json:"sample_id"`
 	ModuleImport  string   `json:"module_import"`

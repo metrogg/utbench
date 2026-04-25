@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+<<<<<<< HEAD
+=======
+	"math"
+>>>>>>> origin/feat/go
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +16,11 @@ import (
 	"time"
 )
 
+<<<<<<< HEAD
 const defaultTestTimeoutSeconds = 120
+=======
+const defaultTestTimeoutSeconds = 180
+>>>>>>> origin/feat/go
 
 const javaPomTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -452,6 +460,12 @@ func collectJavaMutation(ctx context.Context, workdir, className string, timeout
 		timeoutSeconds = 120
 	}
 
+<<<<<<< HEAD
+=======
+	fmt.Printf("        [MUTATION] Java PITest 开始 | 类名: %s | 超时: %ds\n", className, timeoutSeconds)
+	logMutation("DEBUG-1", "mutation_start", "language", "java", "tool", "pitest", "class_name", className, "timeout_seconds", timeoutSeconds)
+
+>>>>>>> origin/feat/go
 	minPassRate := GetMinPassRateForTool("pitest")
 	passed := 0
 	total := 0
@@ -459,22 +473,55 @@ func collectJavaMutation(ctx context.Context, workdir, className string, timeout
 		passed = testPassed
 		total = testTotal
 	} else if testPassRate != nil {
+<<<<<<< HEAD
 		total = 1
 		passed = int(*testPassRate * float64(total))
 		if passed == 0 && *testPassRate > 0 {
 			passed = 1
 		}
+=======
+		total = 100
+		passed = int(math.Round(*testPassRate * float64(total)))
+		if passed == 0 && *testPassRate > 0 {
+			passed = 1
+		}
+		if passed > total {
+			passed = total
+		}
+>>>>>>> origin/feat/go
 	}
 
 	checkResult := CheckTestPassRate(passed, total, "PITest", minPassRate)
 	if !checkResult.ShouldRun {
+<<<<<<< HEAD
 		return 0, mutationStats{}, checkResult.Message
 	}
 
+=======
+		fmt.Printf("        [MUTATION] 跳过: %s\n", checkResult.Message)
+		logMutation("DEBUG-2", "mutation_skip", "reason", checkResult.Message)
+		return 0, mutationStats{}, checkResult.Message
+	}
+
+	fmt.Printf("        [MUTATION] 步骤1: 运行 mvn pitest (超时=%ds)...\n", timeoutSeconds)
+	logMutation("DEBUG-1", "mutation_step", "step", "mvn_pitest")
+	mutmutRunStart := time.Now()
+>>>>>>> origin/feat/go
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
 	runOut, runErr := runCommandWithProcessGroupKill(runCtx, "mvn", []string{"org.pitest:pitest-maven:mutationCoverage", "-q"}, workdir, nil)
+<<<<<<< HEAD
+=======
+	mutmutRunElapsed := time.Since(mutmutRunStart)
+	logMutation("DEBUG-1", "mutation_step_done", "step", "mvn_pitest", "elapsed_ms", mutmutRunElapsed.Milliseconds(), "run_err", runErr)
+
+	if runErr != nil {
+		fmt.Printf("        [MUTATION] 步骤1完成(有错误) | 耗时: %dms | 错误: %v\n", mutmutRunElapsed.Milliseconds(), runErr)
+	} else {
+		fmt.Printf("        [MUTATION] 步骤1完成 | 耗时: %dms\n", mutmutRunElapsed.Milliseconds())
+	}
+>>>>>>> origin/feat/go
 
 	stats, parseErr := parsePitXML(workdir)
 	if parseErr != "" {
