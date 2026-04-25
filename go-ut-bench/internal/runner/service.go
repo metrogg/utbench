@@ -107,8 +107,8 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		workerCount = min(16, max(2, runtime.NumCPU()))
 	}
 	progress := obs.NewProgressReporter(totalTasks, "generate")
-	progress.PrintStageStart("生成测试", fmt.Sprintf("模型: %s | 样本: %d | Workers: %d",
-		strings.Join(getModelNames(modelConfigs), ", "), len(samples), workerCount))
+	progress.PrintStageStart("生成测试", fmt.Sprintf("%d 样本 × %d 模型 = %d 任务 | Workers: %d",
+		len(samples), len(modelConfigs), totalTasks, workerCount))
 
 	// 创建worker池
 	tasks := make(chan task)
