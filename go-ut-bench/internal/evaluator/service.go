@@ -80,7 +80,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 	// 计算worker数量
 	workerCount := spec.Workers
 	if workerCount <= 0 {
-		workerCount = min(16, max(2, runtime.NumCPU()))
+		workerCount = min(8, max(2, runtime.NumCPU()))
 	}
 
 	// 输出评测配置信息

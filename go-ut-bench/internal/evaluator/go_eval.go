@@ -253,8 +253,22 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
-	// gremlins 不支持 --quiet 参数，直接运行 unleash 命令
-	runOut, runErr := runCommandWithProcessGroupKill(runCtx, gremlinsPath, []string{"unleash"}, workdir, nil)
+	// gremlins 启用全部变异类型
+	gremlinsArgs := []string{
+		"unleash",
+		"--arithmetic-base",
+		"--conditionals-boundary",
+		"--conditionals-negation",
+		"--increment-decrement",
+		"--invert-negatives",
+		"--invert-assignments",
+		"--invert-bitwise",
+		"--invert-bwassign",
+		"--invert-logical",
+		"--invert-loopctrl",
+		"--remove-self-assignments",
+	}
+	runOut, runErr := runCommandWithProcessGroupKill(runCtx, gremlinsPath, gremlinsArgs, workdir, nil)
 	mutmutRunElapsed := time.Since(mutmutRunStart)
 	logMutation("DEBUG-1", "mutation_step_done", "step", "gremlins_unleash", "elapsed_ms", mutmutRunElapsed.Milliseconds(), "run_err", runErr)
 

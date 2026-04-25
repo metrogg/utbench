@@ -393,6 +393,7 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		}
 
 		client := newAPIClient()
+		waitModelInterval(modelCfg.Name) // stagger calls to the same model
 		generated, response, latency, pTok, cTok, tTok, isTruncated, genErr := client.generateTest(
 			ctx,
 			modelCfg,

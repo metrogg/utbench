@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"go-ut-bench/internal/contracts"
@@ -25,12 +26,47 @@ type apiClient struct {
 	backoff time.Duration
 }
 
+// Global per-model rate limiter: stagger calls to the same model provider/endpoint
+var (
+	globalRateLimiter   sync.Mutex
+	modelLastCall       = make(map[string]time.Time)
+	modelMinInterval    = 200 * time.Millisecond // minimum interval between calls to the same model
+	modelJitter         = 100 * time.Millisecond // max random jitter
+)
+
 func newAPIClient() *apiClient {
 	return &apiClient{
 		client:  &http.Client{Timeout: 300 * time.Second},
 		retries: 3,
 		backoff: 2 * time.Second,
 	}
+}
+
+// waitModelInterval ensures staggered calls to the same model.
+// If the same model was called recently, sleeps until the interval has passed.
+func waitModelInterval(modelName string) {
+	if modelMinInterval <= 0 {
+		return
+	}
+	globalRateLimiter.Lock()
+	lastCall, ok := modelLastCall[modelName]
+	if !ok {
+		modelLastCall[modelName] = time.Now()
+		globalRateLimiter.Unlock()
+		return
+	}
+	elapsed := time.Since(lastCall)
+	globalRateLimiter.Unlock()
+
+	if elapsed < modelMinInterval {
+		jitter := time.Duration(rand.Int63n(int64(modelJitter)))
+		sleep := modelMinInterval - elapsed + jitter
+		time.Sleep(sleep)
+	}
+
+	globalRateLimiter.Lock()
+	modelLastCall[modelName] = time.Now()
+	globalRateLimiter.Unlock()
 }
 
 func (c *apiClient) generateTest(
