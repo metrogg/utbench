@@ -655,6 +655,12 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                     <button @click="refreshDetail()" class="btn-ghost">刷新</button>
                   </span>
                 </template>
+                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="reevaluateRun(currentRun.run_id)" :disabled="runActionBusy === 'reevaluate'" class="btn-ghost" style="color:var(--accent)" title="使用已有 generated_manifest.json 重新执行评测">
+                  <span x-text="runActionBusy === 'reevaluate' ? '评测中...' : '重新评测'"></span>
+                </button>
+                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="regenerateReport(currentRun.run_id)" :disabled="runActionBusy === 'report'" class="btn-ghost" style="color:var(--green)" title="根据 evaluation_result.json 重新生成报告">
+                  <span x-text="runActionBusy === 'report' ? '生成中...' : '从 JSON 生成报告'"></span>
+                </button>
                 <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="rerunRun(currentRun.run_id)" class="btn-ghost" style="color:var(--yellow)" title="以相同配置再跑一次">重跑</button>
                 <button @click="goto('runs')" class="btn-ghost">返回</button>
                 <button x-show="currentRun.status === 'completed'" @click="openHtmlReport()" class="btn-warm text-[12px]">
@@ -950,6 +956,7 @@ function app() {
     currentReport: null,
     detailTab: 'logs',
     sseSource: null,
+    runActionBusy: '',
 
     // 模型管理
     models: [],
@@ -1344,6 +1351,46 @@ function app() {
         // 切到任务列表方便查看新任务状态
         this.stopSSE(); this.page = 'runs'
       } catch (e) { this.showToast('重跑失败：' + e.message, 'err') }
+    },
+
+    async reevaluateRun(runID) {
+      if (!confirm('重新评测该任务？会覆盖当前 evaluation_result.json。')) return
+      this.runActionBusy = 'reevaluate'
+      try {
+        const r = await fetch('/api/runs/' + encodeURIComponent(runID) + '/reevaluate', { method: 'POST' })
+        const data = await r.json()
+        if (!r.ok) { this.showToast('重新评测失败：' + (data.error || 'HTTP ' + r.status), 'err', 6000); return }
+        this.currentReport = null
+        this.showToast('重新评测完成：' + data.evaluation_path, 'ok', 6000)
+        await this.refreshDetail()
+      } catch (e) {
+        this.showToast('重新评测失败：' + e.message, 'err', 6000)
+      } finally {
+        this.runActionBusy = ''
+      }
+    },
+
+    async regenerateReport(runID) {
+      const defaultPath = `artifacts/runs/${runID}/evaluation/evaluation_result.json`
+      const evaluationPath = prompt('输入 evaluation_result.json 路径：', defaultPath)
+      if (evaluationPath === null) return
+      this.runActionBusy = 'report'
+      try {
+        const r = await fetch('/api/runs/' + encodeURIComponent(runID) + '/regenerate-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ evaluation_path: evaluationPath.trim() || defaultPath }),
+        })
+        const data = await r.json()
+        if (!r.ok) { this.showToast('生成报告失败：' + (data.error || 'HTTP ' + r.status), 'err', 6000); return }
+        this.showToast('报告已重新生成', 'ok')
+        this.detailTab = 'report'
+        await this.loadReport()
+      } catch (e) {
+        this.showToast('生成报告失败：' + e.message, 'err', 6000)
+      } finally {
+        this.runActionBusy = ''
+      }
     },
 
     async runControl(runID, action) {

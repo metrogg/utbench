@@ -2369,9 +2369,9 @@ func buildByScenarioSection() string {
 	return `<div class="section" id="error-analysis">
 
 	// 统计错误类型分布
-
+  
   <h2>错误分析 Error Analysis</h2>
-
+  
   <div class="grid-2">
     <div class="panel">
       <h3>错误类型分布</h3>
@@ -2382,7 +2382,7 @@ func buildByScenarioSection() string {
       <div class="chart-box" style="height:220px"><canvas id="stageChart"></canvas></div>
     </div>
   </div>
-
+  
   <h3 style="margin-top:20px">失败案例统计</h3>
   <div class="table-wrap">
     <table>
@@ -2486,6 +2486,7 @@ func buildScoreExclusionsSection(rows []contracts.ScoreExclusionRow) string {
 </div>`)
 	return b.String()
 }
+
 
 // buildRawDataSection 生成原始数据部分（可展开收起）
 func buildRawDataSection(rows []contracts.EvaluationResult) string {

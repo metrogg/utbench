@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -13,7 +14,10 @@ import (
 	"time"
 
 	"go-ut-bench/internal/contracts"
+	"go-ut-bench/internal/evaluator"
+	"go-ut-bench/internal/obs"
 	"go-ut-bench/internal/orchestrator"
+	"go-ut-bench/internal/reporter"
 
 	"gopkg.in/yaml.v3"
 )
@@ -348,6 +352,10 @@ func (s *Server) handleRunSub(w http.ResponseWriter, r *http.Request) {
 		s.handleRunReportHTML(w, r, runID)
 	case "rerun":
 		s.handleRunRerun(w, r, runID)
+	case "reevaluate":
+		s.handleRunReevaluate(w, r, runID)
+	case "regenerate-report":
+		s.handleRunRegenerateReport(w, r, runID)
 	case "pause", "resume", "cancel":
 		s.handleRunControl(w, r, runID, sub)
 	default:
@@ -441,6 +449,123 @@ func (s *Server) handleRunRerun(w http.ResponseWriter, r *http.Request, runID st
 	})
 }
 
+func (s *Server) loadRunSpec(runID string) (contracts.RunSpec, error) {
+	if entry, ok := s.mgr.Get(runID); ok {
+		entry.mu.RLock()
+		spec := entry.Spec
+		entry.mu.RUnlock()
+		if spec.RunID != "" {
+			return spec, nil
+		}
+	}
+
+	path := filepath.Join(s.outputRoot, "runs", runID, "run_summary.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return contracts.RunSpec{}, fmt.Errorf("run not found or summary missing: %s", runID)
+	}
+	var raw struct {
+		Spec contracts.RunSpec `json:"spec"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil || raw.Spec.RunID == "" {
+		return contracts.RunSpec{}, fmt.Errorf("run_summary.json missing spec")
+	}
+	return raw.Spec, nil
+}
+
+func (s *Server) normalizeRunSpec(runID string, spec contracts.RunSpec) contracts.RunSpec {
+	spec.RunID = runID
+	spec.OutputRoot = s.outputRoot
+	spec.ConfigPath = s.configPath
+	spec.DatasetRoot = s.mgr.datasetRoot
+	if spec.MutationPolicy == "" {
+		spec.MutationPolicy = "warn"
+	}
+	if spec.MutationTimeout == 0 {
+		spec.MutationTimeout = 1800
+	}
+	return spec
+}
+
+func (s *Server) handleRunReevaluate(w http.ResponseWriter, r *http.Request, runID string) {
+	if r.Method != http.MethodPost {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	spec, err := s.loadRunSpec(runID)
+	if err != nil {
+		errJSON(w, http.StatusNotFound, err.Error())
+		return
+	}
+	spec = s.normalizeRunSpec(runID, spec)
+	manifestPath := filepath.Join(s.outputRoot, "runs", runID, "generated", "generated_manifest.json")
+	if _, err := os.Stat(manifestPath); err != nil {
+		errJSON(w, http.StatusNotFound, "generated manifest not found: "+manifestPath)
+		return
+	}
+
+	logDir := filepath.Join(s.outputRoot, "runs", runID, "logs")
+	logger := obs.NewLogger(true, logDir)
+	out, err := evaluator.NewService(logger).Evaluate(r.Context(), spec, manifestPath)
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, "reevaluate failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"run_id":          runID,
+		"manifest_path":   manifestPath,
+		"evaluation_path": out.ResultPath,
+		"result_count":    len(out.Result.Results),
+	})
+}
+
+type regenerateReportRequest struct {
+	EvaluationPath string `json:"evaluation_path"`
+}
+
+func (s *Server) handleRunRegenerateReport(w http.ResponseWriter, r *http.Request, runID string) {
+	if r.Method != http.MethodPost {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	spec, err := s.loadRunSpec(runID)
+	if err != nil {
+		errJSON(w, http.StatusNotFound, err.Error())
+		return
+	}
+	spec = s.normalizeRunSpec(runID, spec)
+
+	var req regenerateReportRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	evaluationPath := strings.TrimSpace(req.EvaluationPath)
+	if evaluationPath == "" {
+		evaluationPath = filepath.Join(s.outputRoot, "runs", runID, "evaluation", "evaluation_result.json")
+	}
+	if !filepath.IsAbs(evaluationPath) {
+		evaluationPath = filepath.Clean(evaluationPath)
+	}
+	if _, err := os.Stat(evaluationPath); err != nil {
+		errJSON(w, http.StatusNotFound, "evaluation JSON not found: "+evaluationPath)
+		return
+	}
+
+	logDir := filepath.Join(s.outputRoot, "runs", runID, "logs")
+	logger := obs.NewLogger(true, logDir)
+	out, err := reporter.NewService(logger).Generate(context.Background(), spec, evaluationPath)
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, "regenerate report failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"run_id":          runID,
+		"evaluation_path": evaluationPath,
+		"report_json":     out.ReportJSONPath,
+		"report_html":     out.ReportHTMLPath,
+	})
+}
+
 type runDetailResponse struct {
 	RunID     string            `json:"run_id"`
 	Status    RunStatus         `json:"status"`
@@ -459,7 +584,17 @@ func (s *Server) handleRunGet(w http.ResponseWriter, r *http.Request, runID stri
 	}
 	entry, ok := s.mgr.Get(runID)
 	if !ok {
-		errJSON(w, http.StatusNotFound, "run not found: "+runID)
+		spec, err := s.loadRunSpec(runID)
+		if err != nil {
+			errJSON(w, http.StatusNotFound, "run not found: "+runID)
+			return
+		}
+		writeJSON(w, http.StatusOK, runDetailResponse{
+			RunID:  runID,
+			Status: StatusCompleted,
+			Spec:   spec,
+			Logs:   []string{},
+		})
 		return
 	}
 	entry.mu.RLock()
@@ -546,6 +681,7 @@ func (s *Server) handleRunReport(w http.ResponseWriter, r *http.Request, runID s
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(data)
 }
 
@@ -561,6 +697,7 @@ func (s *Server) handleRunReportHTML(w http.ResponseWriter, r *http.Request, run
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(data)
 }
 

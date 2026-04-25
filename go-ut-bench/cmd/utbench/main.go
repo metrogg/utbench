@@ -19,6 +19,7 @@ import (
 	"go-ut-bench/internal/reporter"
 	"go-ut-bench/internal/runner"
 	"go-ut-bench/internal/store"
+	"go-ut-bench/internal/web"
 )
 
 func main() {
@@ -49,6 +50,8 @@ func main() {
 		err = runDataset(args)
 	case "doctor":
 		err = runDoctor(args)
+	case "web":
+		err = runWeb(args)
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -74,6 +77,7 @@ Usage:
   utbench ingest       Ingest evaluation results into SQLite
   utbench dataset      Dataset management (index, manifest, stats)
   utbench doctor       Check evaluator toolchains with canary tests
+  utbench web          Launch Web management UI
   utbench tui          Launch interactive TUI interface
   utbench help         Show this help
 
@@ -127,6 +131,50 @@ func withSignal(ctx context.Context) (context.Context, context.CancelFunc) {
 		cancel()
 	}()
 	return ctx, cancel
+}
+
+func runWeb(args []string) error {
+	fs := flag.NewFlagSet("utbench web", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Println("Usage: utbench web [flags]")
+		fmt.Println("Flags:")
+		fs.PrintDefaults()
+	}
+
+	addr := fs.String("addr", ":8080", "HTTP listen address")
+	configPath := fs.String("config", "./configs/models.yaml", "Model config path")
+	datasetRoot := fs.String("dataset-root", "./datasets", "Dataset root directory")
+	outputRoot := fs.String("output-root", "./artifacts", "Output root directory")
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	imageName := fs.String("docker-image", "utbench:latest", "Docker image for containerized runs")
+	projectRoot := fs.String("project-root", ".", "Project root mounted into Docker")
+	envFile := fs.String("env-file", "./.env", "Environment file passed to Docker runs")
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	absProjectRoot, err := filepath.Abs(*projectRoot)
+	if err != nil {
+		return fmt.Errorf("resolve project root: %w", err)
+	}
+	absEnvFile := *envFile
+	if absEnvFile != "" {
+		absEnvFile, err = filepath.Abs(absEnvFile)
+		if err != nil {
+			return fmt.Errorf("resolve env file: %w", err)
+		}
+	}
+
+	dockerCfg := web.DockerConfig{
+		ImageName:   *imageName,
+		ProjectRoot: absProjectRoot,
+		EnvFile:     absEnvFile,
+	}
+	mgr := web.NewRunManager(*configPath, *datasetRoot, *outputRoot, *dbPath, dockerCfg)
+	bld := web.NewBuildManager(absProjectRoot)
+	server := web.NewServer(mgr, bld, *configPath, *outputRoot, dockerCfg)
+	return server.Start(*addr)
 }
 
 func runRun(args []string) error {
