@@ -32,7 +32,7 @@
 | 语言 | 必须安装 | 变异测试|
 |------|----------|-----------------|
 | Python | `python3`、`pytest`、`coverage` | `mutmut` |
-| Go | Go 工具链（已有即可） | `gremlins` |
+| Go | Go 工具链（已有即可） | `go-mutesting` |
 | Java | JDK 17+、Maven 3+ | pitest（Maven 插件，自动拉取） |
 | C++ | CMake、GoogleTest、`gcov`/`llvm-cov` | `mull` |
 
@@ -41,7 +41,7 @@
 pip install pytest coverage mutmut
 
 # Go 变异工具
-go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest
 ```
 
 > **Windows 用户**：`dataset stats` 命令依赖 `python3`（注意是 `python3`，不是 `python`）。
@@ -335,7 +335,7 @@ benchmark:
 
 ### 方式 B：Docker（推荐，评测工具链全预装）
 
-Docker 镜像已预装：Python pytest/coverage/mutmut、Go gremlins、JDK 21 / Maven、C++ clang/gcov/GoogleTest/mull。
+Docker 镜像已预装：Python pytest/coverage/mutmut、Go go-mutesting、JDK 21 / Maven、C++ clang/gcov/GoogleTest/mull。
 
 **第一步：构建镜像（只需一次）**
 

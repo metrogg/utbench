@@ -527,7 +527,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			mutationStats := mutationStats{}
 			mutationErr := ""
 			if !shouldRunMutationAfterSampleTests(row) {
-				mutationErr = "gremlins: baseline tests failed, skipping mutation"
+				mutationErr = "go-mutesting: baseline tests failed, skipping mutation"
 			} else {
 				testPassed := 0
 				if row.TestPassCount != nil {
@@ -544,7 +544,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 				"model", item.Model,
 				"language", item.Language,
 				"sample_id", item.SampleID,
-				"tool", "gremlins",
+				"tool", "go-mutesting",
 				"score", mutationScore,
 				"total", mutationStats.Total,
 				"killed", mutationStats.Killed,
@@ -563,7 +563,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			if mutationErr != "" {
 				row.MutationError = mutationErr
 			}
-			row.MutationTool = "gremlins"
+			row.MutationTool = "go-mutesting"
 		}
 
 	} else if strings.EqualFold(item.Language, "java") {
@@ -948,6 +948,8 @@ func isToolFailureMessage(msg string) bool {
 		strings.Contains(msg, "stats file not found") ||
 		strings.Contains(msg, "gremlins no results to report") ||
 		strings.Contains(msg, "no gremlins output found") ||
+		strings.Contains(msg, "go-mutesting no results to report") ||
+		strings.Contains(msg, "no go-mutesting output found") ||
 		strings.Contains(msg, "no results to report") ||
 		strings.Contains(msg, "produced zero mutants") ||
 		strings.Contains(msg, "did not execute any mutants") ||
@@ -1412,15 +1414,32 @@ func normalizedPytestFilename(origin string) string {
 }
 
 func estimateAssertionDensity(path, language string) (int, int, float64) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return 0, 0, 0
+	switch strings.ToLower(language) {
+	case "go":
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return 0, 0, 0
+		}
+		return estimateGoAssertionDensity(string(raw))
+	case "python":
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return 0, 0, 0
+		}
+		return estimatePythonAssertionDensity(string(raw))
+	case "java":
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return 0, 0, 0
+		}
+		return estimateJavaAssertionDensity(string(raw))
+	case "cpp":
+		return estimateCppAssertionDensity(path)
 	}
-	text := string(raw)
-	if strings.EqualFold(language, "go") {
-		return estimateGoAssertionDensity(text)
-	}
+	return 0, 0, 0
+}
 
+func estimatePythonAssertionDensity(text string) (int, int, float64) {
 	assertCount := strings.Count(text, "assert ") + strings.Count(text, "pytest.raises")
 	testCount := strings.Count(text, "def test_")
 	if testCount <= 0 {
@@ -1435,6 +1454,44 @@ func estimateGoAssertionDensity(text string) (int, int, float64) {
 		strings.Count(text, "Expect(") +
 		strings.Count(text, "require.")
 	testCount := strings.Count(text, "func Test")
+	if testCount <= 0 {
+		return assertCount, 0, 0
+	}
+	return assertCount, testCount, round(float64(assertCount)/float64(testCount), 6)
+}
+
+func estimateJavaAssertionDensity(text string) (int, int, float64) {
+	// JUnit 5 Assertions.* methods
+	junit5Asserts := strings.Count(text, "Assertions.assertEquals") +
+		strings.Count(text, "Assertions.assertTrue") +
+		strings.Count(text, "Assertions.assertFalse") +
+		strings.Count(text, "Assertions.assertNull") +
+		strings.Count(text, "Assertions.assertNotNull") +
+		strings.Count(text, "Assertions.assertThrows") +
+		strings.Count(text, "Assertions.assertThat") +
+		strings.Count(text, "Assertions.assertSame") +
+		strings.Count(text, "Assertions.assertNotSame") +
+		strings.Count(text, "Assertions.assertArrayEquals") +
+		strings.Count(text, "Assertions.assertLinesMatch") +
+		strings.Count(text, "Assertions.assertTimeout") +
+		strings.Count(text, "Assertions.assertTimeoutPreemptively") +
+		strings.Count(text, "Assertions.assertIterableEquals") +
+		strings.Count(text, "Assertions.assertNotEquals")
+
+	// JUnit 4 style (without Assertions prefix, static import)
+	junit4Asserts := strings.Count(text, "assertEquals(") +
+		strings.Count(text, "assertTrue(") +
+		strings.Count(text, "assertFalse(") +
+		strings.Count(text, "assertNull(") +
+		strings.Count(text, "assertNotNull(") +
+		strings.Count(text, "assertSame(") +
+		strings.Count(text, "assertThrows(") +
+		strings.Count(text, "assertThat(") +
+		strings.Count(text, "assertArrayEquals(") +
+		strings.Count(text, "expect(")
+
+	assertCount := junit5Asserts + junit4Asserts
+	testCount := strings.Count(text, "@Test")
 	if testCount <= 0 {
 		return assertCount, 0, 0
 	}

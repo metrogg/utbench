@@ -190,7 +190,7 @@ func TestClassifyMutationError(t *testing.T) {
 	cases := map[string]string{
 		"Mull: baseline tests failed, skipping mutation":                           "mutation_skipped_baseline_failed",
 		"mutmut: generated tests do not import mutation target, skipping mutation": "mutation_target_not_exercised",
-		"gremlins: gremlins no results to report":                                  "mutation_no_results",
+		"go-mutesting: go-mutesting no results to report":                          "mutation_no_results",
 		"pitest: pitest no killed/survived results":                                "mutation_no_coverage",
 		"mutmut produced zero mutants":                                             "mutation_no_effective_mutants",
 		"mull timed out after 120s":                                                "mutation_timeout",
@@ -208,7 +208,7 @@ func TestClassifyMutationError(t *testing.T) {
 func TestBuildFailureRowsUsesMutationErrorCategories(t *testing.T) {
 	rows := []contracts.EvaluationResult{
 		{Model: "m1", SampleID: "s1", MutationError: "Mull: baseline tests failed, skipping mutation"},
-		{Model: "m1", SampleID: "s2", MutationError: "gremlins no results to report"},
+		{Model: "m1", SampleID: "s2", MutationError: "go-mutesting no results to report"},
 	}
 
 	failures := buildFailureRows(rows)

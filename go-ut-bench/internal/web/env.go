@@ -84,7 +84,7 @@ func detectImage(name string) (bool, string) {
 func detectNativeTools() map[string]bool {
 	tools := []string{
 		"python3", "pytest", "coverage", "mutmut",
-		"go", "gremlins",
+		"go", "go-mutesting",
 		"mvn", "java", "javac",
 		"clang", "clang++", "cmake", "mull",
 	}

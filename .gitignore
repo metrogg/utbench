@@ -2,7 +2,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-
+.gocache
 .pytest_cache/
 .mypy_cache/
 
@@ -14,13 +14,10 @@ justtest/
 .venv/
 venv/
 
-<<<<<<< HEAD
-=======
 # IDE configs
 .opencode/
 .trae/
 
->>>>>>> origin/feat/go
 .DS_Store
 
 # Build/Docker logs
@@ -33,10 +30,7 @@ docker_build*
 
 # Environment files
 .env
-<<<<<<< HEAD
-=======
 
 # Generated temp files (obsolete)
 tbody_content.txt
 opencode.json
->>>>>>> origin/feat/go

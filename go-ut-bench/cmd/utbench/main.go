@@ -745,7 +745,7 @@ func checkDoctorTools(langs []string, mutationEnabled bool) []doctorToolRow {
 	if need["go"] {
 		rows = append(rows, versionRow("go", "go", "version"))
 		if mutationEnabled {
-			rows = append(rows, versionRow("gremlins", findGremlinsCommand(), "--version"))
+			rows = append(rows, versionRow("go-mutesting", findGoMutestingCommand(), "--help"))
 		}
 	}
 	if need["java"] {
@@ -918,8 +918,8 @@ func findPythonCommand() string {
 	return ""
 }
 
-func findGremlinsCommand() string {
-	for _, candidate := range []string{"gremlins", filepath.Join(os.Getenv("HOME"), "go", "bin", "gremlins"), "/root/go/bin/gremlins"} {
+func findGoMutestingCommand() string {
+	for _, candidate := range []string{"go-mutesting", filepath.Join(os.Getenv("HOME"), "go", "bin", "go-mutesting"), "/root/go/bin/go-mutesting"} {
 		if path, err := exec.LookPath(candidate); err == nil {
 			return path
 		}
