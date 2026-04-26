@@ -137,6 +137,9 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		if spec.DryRun {
 			a = append(a, "--dry-run")
 		}
+		if spec.ReuseGenerated {
+			a = append(a, "--reuse-generated", "--db-path", "/app/storage/utbench.db")
+		}
 		if spec.MutationEnabled {
 			a = append(a, "--mutation-enabled")
 		}

@@ -7,7 +7,7 @@ utbench run          完整流程 (generate -> evaluate -> report)
 utbench generate     仅生成单元测试
 utbench evaluate     评测已生成的单元测试
 utbench report       生成评测报告
-utbench ingest       结果导入 SQLite
+utbench db           管理 SQLite 评测数据库
 utbench dataset      数据集管理 (index, manifest, stats, validate)
 utbench doctor       评测工具链自检
 ```
@@ -53,8 +53,8 @@ utbench run \
 | `--total-timeout` | `0`（不限制） | 总超时（分钟） |
 | `--dry-run` | `false` | 跳过 API 调用 |
 | `--reset-checkpoint` | `false` | 重置 checkpoint |
-| `--ingest` | `false` | 完成后导入 SQLite |
-| `--db` | `./storage/utbench.db` | SQLite 数据库路径 |
+| `--ingest` | `false` | 完成后写入 v2 SQLite 数据库 |
+| `--db-path` | `./storage/utbench.db` | SQLite 数据库路径 |
 | `--verbose` | `true` | 详细日志 |
 
 ---
@@ -157,23 +157,57 @@ utbench report \
 
 ---
 
-## 5. ingest
+## 5. db
 
-将评测结果导入 SQLite 数据库。
+管理 SQLite 评测数据库。v2 schema 会保存 manifest、生成测试代码、prompt、模型响应、评测结果、报告和 artifact 索引；旧 `utbench ingest` 两表结构不再作为入口。
 
 **示例：**
 ```bash
-utbench ingest \
-  --input ./artifacts/runs/<run-id>/evaluation/evaluation_result.json \
-  --db ./storage/utbench.db
+utbench db init --db-path ./storage/utbench.db
+
+utbench db ingest-run \
+  --run-id <run-id> \
+  --output-root ./artifacts \
+  --db-path ./storage/utbench.db
+
+utbench db overview --db-path ./storage/utbench.db
+utbench db list-results --run-id <run-id> --db-path ./storage/utbench.db
+
+utbench db report \
+  --run-ids <run-a>,<run-b> \
+  --models deepseek,qwen \
+  --langs python,go \
+  --output-root ./artifacts \
+  --db-path ./storage/utbench.db
 ```
 
 **参数：**
 
+| 子命令 | 说明 |
+|------|------|
+| `init` | 初始化数据库 schema |
+| `ingest-manifest --manifest <path>` | 入库 `generated_manifest.json` 和关联生成产物 |
+| `ingest-evaluation --evaluation <path>` | 入库 `evaluation_result.json`，并尽量追溯 manifest |
+| `ingest-report --report <path>` | 入库 `report_summary.json` 和 HTML 报告 |
+| `ingest-run --run-id <id>` | 入库 `artifacts/runs/<run-id>` 下所有已知产物 |
+| `overview` | 输出数据库计数和最近运行 |
+| `list-runs` | 列出数据库中的运行 |
+| `list-results` | 按 run/model/lang 查询样本级评测结果 |
+| `report` | 基于数据库筛选结果生成横向对比报告 |
+
+常用参数：
+
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--input` | 必填 | 评测结果 JSON 文件路径 |
-| `--db` | `./storage/utbench.db` | SQLite 数据库路径 |
+| `--db-path` | `./storage/utbench.db` | SQLite 数据库路径 |
+| `--run-id` | 空 | `ingest-run` / `list-results` 的运行 ID |
+| `--run-ids` | 空 | `report` 的来源 run ID 列表，逗号分隔 |
+| `--evaluation-run-ids` | 空 | `report` 的来源 evaluation run ID 列表，逗号分隔 |
+| `--models` | 空 | `report` 的模型过滤，逗号分隔 |
+| `--langs` | 空 | `report` 的语言过滤，逗号分隔 |
+| `--run-dir` | 空 | 直接指定 run 目录 |
+| `--output-root` | `./artifacts` | `ingest-run --run-id` 推导 run 目录时使用 |
+| `--json` | `false` | `overview` / `list-runs` / `list-results` 输出 JSON |
 
 ---
 

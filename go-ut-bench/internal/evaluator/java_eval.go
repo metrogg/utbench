@@ -329,9 +329,10 @@ func stripANSICodes(s string) string {
 func parseJavaTestCounts(output string) (*int, *int) {
 	clean := stripANSICodes(output)
 
-	// Match: Tests run: X, Failures: Y, Errors: Z
-	// Note: Maven may output either "Failures" or "Errors" or both
-	passedPattern := regexp.MustCompile(`Tests run:\s*(\d+),\s*Failures:\s*(\d+)(?:,\s*Errors:\s*(\d+))?`)
+	// Match: Tests run: X, Failures: Y, Errors: Z, Skipped: W
+	// Maven Surefire 输出格式，Skipped 也需要统计
+	// 注意：Skipped 不计入通过/失败分母，因为它们没有实际执行
+	passedPattern := regexp.MustCompile(`Tests run:\s*(\d+),\s*Failures:\s*(\d+)(?:,\s*Errors:\s*(\d+))?(?:,\s*Skipped:\s*(\d+))?`)
 	match := passedPattern.FindStringSubmatch(clean)
 	if match != nil && len(match) >= 3 {
 		totalRuns := parseIntOrZero(match[1])
@@ -340,10 +341,23 @@ func parseJavaTestCounts(output string) (*int, *int) {
 		if len(match) >= 4 && match[3] != "" {
 			errors = parseIntOrZero(match[3])
 		}
+		skipped := 0
+		if len(match) >= 5 && match[4] != "" {
+			skipped = parseIntOrZero(match[4])
+		}
+		// 实际执行的测试 = totalRuns - skipped
+		// 通过的测试 = totalRuns - failures - errors
+		executedTotal := totalRuns - skipped
+		if executedTotal < 0 {
+			executedTotal = totalRuns // 安全处理
+		}
 		totalFailures := failures + errors
-		passed := totalRuns - totalFailures
+		passed := executedTotal - totalFailures
 		if passed < 0 {
 			passed = 0
+		}
+		if executedTotal > 0 {
+			return &passed, &executedTotal
 		}
 		return &passed, &totalRuns
 	}

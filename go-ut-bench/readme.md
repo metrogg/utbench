@@ -64,7 +64,7 @@ export DEEPSEEK_API_KEY="sk-xxx"
 | `utbench generate` | 仅生成单元测试 |
 | `utbench evaluate` | 评测已生成的单元测试 |
 | `utbench report` | 生成评测报告 |
-| `utbench ingest` | 结果导入 SQLite |
+| `utbench db` | 初始化、入库和查询 SQLite 评测数据库 |
 | `utbench dataset` | 数据集管理 |
 | `utbench doctor` | 检查评测工具链并运行 canary 自检 |
 
@@ -86,6 +86,8 @@ artifacts/runs/<run-id>/
 - **变异测试**：可选启用变异测试评估测试质量
 - **评测自检**：`utbench doctor` 检查工具版本并运行临时 canary 样本
 - **数据集审计**：`utbench dataset validate` 统计样本并标记外部 I/O、非确定性和复杂度风险
+- **结果数据库**：`utbench db` 以 v2 schema 保存 manifest、生成测试、模型响应、评测结果、报告和 artifact 索引，支持跨运行复用和对比
+- **Web 数据管理**：Web 后台提供“数据管理”页，可查看数据库运行、样本结果和 artifact，并补录已有 run 目录
 
 ## 数据集说明
 
@@ -105,6 +107,19 @@ artifacts/runs/<run-id>/
 ./utbench doctor --langs python,go,java,cpp --mutation-enabled --mutation-timeout 120
 ./utbench dataset validate --dataset-root ./datasets --langs python,go,java,cpp --class self_contained --strict
 ```
+
+## 数据库
+
+```bash
+./utbench db init --db-path ./storage/utbench.db
+./utbench db ingest-run --run-id <run-id> --output-root ./artifacts --db-path ./storage/utbench.db
+./utbench db overview --db-path ./storage/utbench.db
+./utbench db list-results --run-id <run-id> --db-path ./storage/utbench.db
+./utbench db report --run-ids <run-a>,<run-b> --models deepseek,qwen --langs python,go --db-path ./storage/utbench.db
+```
+
+`run --ingest --db-path ./storage/utbench.db` 会在运行结束后自动把当前 run 目录中的 `generated_manifest.json`、`evaluation_result.json`、`report_summary.json` 以及关联的测试代码、prompt、模型响应、元数据和报告 artifact 写入数据库。不再使用旧的 `utbench ingest` 两表结构。
+`utbench db report` 会从数据库筛选历史结果并复用现有 reporter 生成新的 `report_summary.json` 和 `report.html`，用于把不同运行中的模型放到同一份报告里比较。
 
 ## 文档
 
