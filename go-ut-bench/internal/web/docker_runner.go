@@ -213,6 +213,20 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 	return a
 }
 
+// runEvaluateInDocker runs only the evaluation step inside the utbench container.
+// Unlike runInDocker (which runs the full pipeline), this is a simpler synchronous
+// wrapper that captures output as a string. Used by the reevaluate API handler.
+func runEvaluateInDocker(ctx context.Context, runID string, spec contracts.RunSpec, cfg DockerConfig) (string, error) {
+	opts := orchestrator.Options{
+		Phase:       "evaluate",
+		SourceRunID: runID,
+	}
+	args := buildDockerRunArgs(spec, opts, cfg)
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
 func buildDockerBaseArgs(cfg DockerConfig) []string {
 	a := []string{"run", "--rm"}
 	if cfg.EnvFile != "" && fileExists(cfg.EnvFile) {

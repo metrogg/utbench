@@ -97,7 +97,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return Output{}, err
 	}
 	tasks := make(chan evalTask, workerCount*2)
-	results := make(chan contracts.EvaluationResult, workerCount*2)
+	results := make(chan evalResultItem, workerCount*2)
 	tracker := newActiveEvalTracker(s.logger)
 	watchdogDone := make(chan struct{})
 	go func() {
@@ -129,12 +129,12 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 			for t := range tasks {
 				key, setPhase, done := tracker.start(t.item)
 				_ = key
-				item := s.evaluateOne(ctx, spec, t.item, setPhase)
+				res := s.evaluateOne(ctx, spec, t.item, setPhase)
 				done()
 				select {
 				case <-ctx.Done():
 					return
-				case results <- evalResultItem{index: t.index, row: row}:
+				case results <- evalResultItem{index: t.index, row: res}:
 				}
 			}
 		}()
@@ -803,6 +803,30 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 	}
 
 	return row
+}
+
+func evaluationFailed(row contracts.EvaluationResult) bool {
+	return !row.CompilePass || (row.TestPass != nil && !*row.TestPass)
+}
+
+func evaluationStatus(row contracts.EvaluationResult) string {
+	if !row.CompilePass {
+		return "COMPILE_ERR"
+	}
+	if row.TestPass != nil && !*row.TestPass {
+		return "TEST_FAIL"
+	}
+	return "PASS"
+}
+
+func countSuccessfulResults(items []evalResultItem) int {
+	count := 0
+	for _, item := range items {
+		if item.row.CompilePass && (item.row.TestPass == nil || *item.row.TestPass) {
+			count++
+		}
+	}
+	return count
 }
 
 func finalizeEvaluationResult(row *contracts.EvaluationResult, start time.Time) {
