@@ -189,7 +189,7 @@ func (s *Server) buildEnvironmentCheck() environmentCheckResponse {
 			ID:    "go",
 			Label: "Go 评测",
 			Items: []environmentCheckItem{
-				checkExecutable("gremlins", "gremlins", "go", []string{"gremlins"}, []string{"version"}, false, "Go 变异测试需要 gremlins。", "go-gremlins"),
+				checkExecutable("go-mutesting", "go-mutesting", "go", []string{"go-mutesting"}, []string{"--help"}, false, "Go 变异测试需要 go-mutesting。", "go-mutesting"),
 			},
 		},
 		{
@@ -441,11 +441,11 @@ func buildInstallPlan(tool string) (installPlan, error) {
 			return installPlan{}, errors.New("python is required before installing mutmut")
 		}
 		return pythonInstallPlan(tool, py, "mutmut"), nil
-	case "go-gremlins":
+	case "go-mutesting":
 		if _, err := exec.LookPath("go"); err != nil {
-			return installPlan{}, errors.New("go is required before installing gremlins")
+			return installPlan{}, errors.New("go is required before installing go-mutesting")
 		}
-		args := []string{"install", "github.com/go-gremlins/gremlins/cmd/gremlins@latest"}
+		args := []string{"install", "github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest"}
 		return installPlan{
 			Tool:           tool,
 			Command:        "go",

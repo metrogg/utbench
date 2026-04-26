@@ -10,6 +10,7 @@ type mutationStats struct {
 	Survived   int
 	NoTests    int
 	NotChecked int
+	Duplicated int
 	Timeout    int
 	Skipped    int
 	Suspicious int

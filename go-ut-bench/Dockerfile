@@ -84,8 +84,8 @@ RUN python3 -m venv /opt/venv && \
     ln -sf /opt/venv/bin/mutmut /usr/local/bin/mutmut && \
     ln -sf /opt/venv/bin/coverage /usr/local/bin/coverage
 
-# Install Go mutation testing tool (gremlins - modern replacement for go-mutesting)
-RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+# Install Go mutation testing tool
+RUN go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest
 
 WORKDIR /app
 

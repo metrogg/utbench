@@ -227,7 +227,7 @@ POST   /api/notification-channels/{id}/test
 
 - 基础能力：Go、Python、Java、Maven、CMake、Docker。
 - Python 评测：pytest、coverage、mutmut。
-- Go 评测：go test、gremlins。
+- Go 评测：go test、go-mutesting。
 - Java 评测：JDK 17+、Maven、JUnit/PITest 依赖解析能力。
 - C++ 评测：CMake、GoogleTest、gcov、mull。
 - 项目目录：datasets、artifacts、storage、configs/models.yaml。

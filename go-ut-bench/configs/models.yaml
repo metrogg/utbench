@@ -116,7 +116,7 @@ languages:
     compiler: "go build"
     test_framework: "go test"
     coverage_tool: "go tool cover"
-    mutation_tool: "gremlins"
+    mutation_tool: "go-mutesting"
     source_dir: "."
     test_dir: "."
 

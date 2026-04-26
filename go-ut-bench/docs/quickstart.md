@@ -20,7 +20,7 @@ pip install pytest coverage mutmut
 Go 变异测试：
 
 ```bash
-go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest
 ```
 
 Java:

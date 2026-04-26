@@ -163,7 +163,7 @@ func TestClassifyFailureOriginKeepsMutationToolErrorAsModelWhenTestsFailed(t *te
 		CompilePass:   true,
 		TestPass:      &testPass,
 		TestPassRate:  &rate,
-		MutationError: "gremlins parse error: failed to parse mutation output",
+		MutationError: "go-mutesting parse error: failed to parse mutation output",
 	}
 
 	origin, reason := classifyFailureOrigin(row)
@@ -179,7 +179,7 @@ func TestClassifyFailureOriginKeepsPureMutationToolErrorExcluded(t *testing.T) {
 		CompilePass:   true,
 		TestPass:      &testPass,
 		TestPassRate:  &rate,
-		MutationError: "gremlins parse error: failed to parse mutation output",
+		MutationError: "go-mutesting parse error: failed to parse mutation output",
 	}
 
 	origin, reason := classifyFailureOrigin(row)
@@ -188,19 +188,19 @@ func TestClassifyFailureOriginKeepsPureMutationToolErrorExcluded(t *testing.T) {
 	}
 }
 
-func TestClassifyFailureOriginTreatsGremlinsNoResultsAsTool(t *testing.T) {
+func TestClassifyFailureOriginTreatsGoMutestingNoResultsAsTool(t *testing.T) {
 	testPass := true
 	rate := 1.0
 	row := contracts.EvaluationResult{
 		CompilePass:   true,
 		TestPass:      &testPass,
 		TestPassRate:  &rate,
-		MutationError: "gremlins: gremlins no results to report",
+		MutationError: "go-mutesting: go-mutesting no results to report",
 	}
 
 	origin, reason := classifyFailureOrigin(row)
 	if origin != "tool" || reason == "" {
-		t.Fatalf("expected gremlins no-results to be tool origin, got origin=%q reason=%q", origin, reason)
+		t.Fatalf("expected go-mutesting no-results to be tool origin, got origin=%q reason=%q", origin, reason)
 	}
 }
 
@@ -305,9 +305,9 @@ func TestJavaPomTemplateIncludesPitestJUnit5Plugin(t *testing.T) {
 	}
 }
 
-func TestParseGremlinsOutputNoResultsToReport(t *testing.T) {
-	stats, parseErr := parseGremlinsOutput("gremlins: No results to report\n")
-	if parseErr != "gremlins no results to report" {
+func TestParseGoMutestingOutputNoResultsToReport(t *testing.T) {
+	stats, parseErr := parseGoMutestingOutput("No mutants generated\n")
+	if parseErr != "go-mutesting no results to report" {
 		t.Fatalf("expected explicit no-results error, got stats=%+v err=%q", stats, parseErr)
 	}
 	if stats.Total != 0 {
@@ -315,22 +315,27 @@ func TestParseGremlinsOutputNoResultsToReport(t *testing.T) {
 	}
 }
 
-func TestParseGremlinsOutputCounts(t *testing.T) {
+func TestParseGoMutestingOutputCounts(t *testing.T) {
 	output := strings.Join([]string{
-		"gremlins finished",
-		"Killed: 3",
-		"Lived: 2",
-		"Not covered: 1",
-		"Timed out: 4",
-		"Not viable: 6",
-		"Skipped: 5",
+		"The mutation score is 0.600000 (3 passed, 2 failed, 4 duplicated, 1 skipped, total is 6)",
 	}, "\n")
-	stats, parseErr := parseGremlinsOutput(output)
+	stats, parseErr := parseGoMutestingOutput(output)
 	if parseErr != "" {
 		t.Fatalf("unexpected parse error: %s", parseErr)
 	}
-	if stats.Killed != 3 || stats.Survived != 2 || stats.NoTests != 1 || stats.Timeout != 4 || stats.Skipped != 5 || stats.Suspicious != 6 || stats.Total != 21 {
-		t.Fatalf("unexpected gremlins stats: %+v", stats)
+	if stats.Killed != 3 || stats.Survived != 2 || stats.Duplicated != 4 || stats.Skipped != 1 || stats.Total != 6 {
+		t.Fatalf("unexpected go-mutesting stats: %+v", stats)
+	}
+}
+
+func TestParseGoMutestingOutputZeroMutantsSummary(t *testing.T) {
+	output := "The mutation score is 0.000000 (0 passed, 0 failed, 0 duplicated, 0 skipped, total is 0)"
+	stats, parseErr := parseGoMutestingOutput(output)
+	if parseErr != "" {
+		t.Fatalf("expected zero-mutant summary to parse successfully, got stats=%+v err=%q", stats, parseErr)
+	}
+	if stats.Total != 0 || stats.Killed != 0 || stats.Survived != 0 {
+		t.Fatalf("unexpected zero-mutant stats: %+v", stats)
 	}
 }
 

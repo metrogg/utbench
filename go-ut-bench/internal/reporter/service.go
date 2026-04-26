@@ -911,6 +911,8 @@ func classifyMutationError(msg string) string {
 		return "mutation_target_not_exercised"
 	case strings.Contains(msg, "gremlins no results to report") ||
 		strings.Contains(msg, "no gremlins output found") ||
+		strings.Contains(msg, "go-mutesting no results to report") ||
+		strings.Contains(msg, "no go-mutesting output found") ||
 		strings.Contains(msg, "no results to report"):
 		return "mutation_no_results"
 	case strings.Contains(msg, "no killed/survived") ||
@@ -2048,6 +2050,11 @@ func buildOverviewSection(payload contracts.ReportPayload, rows []contracts.Eval
       <div class="value">%.1f%%</div>
       <div class="sub">覆盖 %d 个场景</div>
     </div>
+    <div class="overview-card">
+      <div class="eyebrow">平均断言密度</div>
+      <div class="value">%.1f</div>
+      <div class="sub">每个测试方法的平均断言数</div>
+    </div>
   </div>
 </div>`,
 		statusTone(payload.Summary.CompilePassRate, 0.85, 0.65),
@@ -2058,7 +2065,8 @@ func buildOverviewSection(payload contracts.ReportPayload, rows []contracts.Eval
 		payload.Summary.TestCasePassRate*100,
 		payload.Summary.AvgLineCoverage*100,
 		payload.Summary.AvgMutationScore*100,
-		len(scenarioCount))
+		len(scenarioCount),
+		payload.Summary.AvgAssertionDensity)
 }
 
 func buildScenarioInsightsSection(rows []contracts.EvaluationResult) string {

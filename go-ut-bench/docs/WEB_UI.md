@@ -74,7 +74,7 @@ utbench web [flags]
 | 最大样本数 | 数字输入 | 每场景样本上限，0 = 不限 |
 | 并发数 | 数字输入 | 并发 worker 数，0 = 自动 |
 | 空跑模式 | 复选框 | 跳过真实 API 调用，验证流程 |
-| 变异测试 | 复选框 | 开启 mutmut/gremlins/pitest/mull |
+| 变异测试 | 复选框 | 开启 mutmut/go-mutesting/pitest/mull |
 | 变异超时 | 数字输入 | 秒数，默认 1800 |
 | 入库保存 | 复选框 | 完成后自动 ingest 到 SQLite |
 | Docker 执行 | 复选框 | 在 `utbench:latest` 容器中运行（Windows 下 mutmut/mull 必需） |
@@ -203,7 +203,7 @@ utbench web [flags]
   "image_name": "utbench:latest",
   "project_root": "f:/Code/ut-bench/...",
   "os": "windows",
-  "native_tools": { "mutmut": false, "gremlins": false, "pitest": false, "mull": false },
+  "native_tools": { "mutmut": false, "go-mutesting": false, "pitest": false, "mull": false },
   "recommendation": ""
 }
 ```

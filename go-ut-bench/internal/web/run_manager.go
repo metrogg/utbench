@@ -143,7 +143,7 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 //   - In-process: orchestrator.Run() called directly (default, fast path).
 //   - Docker:    `docker run utbench:latest ...` forked as a child process
 //     so the evaluation runs in a fully-provisioned Linux container
-//     (Windows mutmut, mull, gremlins etc. all work there).
+//     (Windows mutmut, mull, go-mutesting etc. all work there).
 type RunManager struct {
 	mu          sync.RWMutex
 	runs        map[string]*RunEntry
