@@ -35,28 +35,50 @@ type Server struct {
 	outputRoot string
 	dockerCfg  DockerConfig
 	mux        *http.ServeMux
+	db         *store.SQLiteStore // 持久化的数据库连接，避免每次请求重新打开
 }
 
 // NewServer wires up a Server with the given RunManager and build manager.
 // The DockerConfig is used by GET /api/env to report status and by the
 // BuildManager to locate the Dockerfile when POST /api/env/build-image fires.
-func NewServer(mgr *RunManager, bld *BuildManager, configPath, outputRoot string, cfg DockerConfig) *Server {
+// dbPath is the SQLite database path; the connection is opened and initialized
+// at startup and reused for all requests.
+func NewServer(mgr *RunManager, bld *BuildManager, configPath, outputRoot, dbPath string, cfg DockerConfig) (*Server, error) {
+	// 启动时打开并初始化数据库连接，避免每次请求重新打开
+	db, err := store.OpenSQLite(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	if err := db.Init(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("init sqlite: %w", err)
+	}
+
 	s := &Server{
 		mgr:        mgr,
 		bld:        bld,
 		configPath: configPath,
 		outputRoot: outputRoot,
 		dockerCfg:  cfg,
+		db:         db,
 	}
 	s.mux = http.NewServeMux()
 	s.registerRoutes()
-	return s
+	return s, nil
 }
 
 // Start begins listening on addr (e.g. ":8080").
 func (s *Server) Start(addr string) error {
 	fmt.Printf("UTBench Web UI  →  http://localhost%s\n", addr)
 	return http.ListenAndServe(addr, s)
+}
+
+// Close closes the database connection.
+func (s *Server) Close() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -125,16 +147,13 @@ func parseLimit(r *http.Request, def int) int {
 	return v
 }
 
+// openStore 返回Server启动时初始化的数据库连接。
+// 不再每次请求重新打开，避免SQLite锁竞争和性能问题。
 func (s *Server) openStore(ctx context.Context) (*store.SQLiteStore, error) {
-	sqliteStore, err := store.OpenSQLite(s.mgr.dbPath)
-	if err != nil {
-		return nil, err
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
 	}
-	if err := sqliteStore.Init(ctx); err != nil {
-		_ = sqliteStore.Close()
-		return nil, err
-	}
-	return sqliteStore, nil
+	return s.db, nil
 }
 
 // ─── /api/db/* ──────────────────────────────────────────────────────────────
@@ -149,7 +168,6 @@ func (s *Server) handleDBOverview(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer db.Close()
 	overview, err := db.Overview(r.Context(), parseLimit(r, 10))
 	if err != nil {
 		errJSON(w, http.StatusInternalServerError, err.Error())
@@ -168,7 +186,6 @@ func (s *Server) handleDBRuns(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer db.Close()
 	rows, err := db.ListRuns(r.Context(), parseLimit(r, 50))
 	if err != nil {
 		errJSON(w, http.StatusInternalServerError, err.Error())
@@ -187,7 +204,6 @@ func (s *Server) handleDBResults(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer db.Close()
 	q := r.URL.Query()
 	rows, err := db.ListResults(r.Context(), q.Get("run_id"), q.Get("model"), q.Get("language"), parseLimit(r, 200))
 	if err != nil {
@@ -207,7 +223,6 @@ func (s *Server) handleDBArtifacts(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer db.Close()
 	q := r.URL.Query()
 	rows, err := db.ListArtifacts(r.Context(), q.Get("run_id"), q.Get("kind"), parseLimit(r, 200))
 	if err != nil {
@@ -227,7 +242,6 @@ func (s *Server) handleDBFacets(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer db.Close()
 	facets, err := db.ReportFacets(r.Context(), parseLimit(r, 100))
 	if err != nil {
 		errJSON(w, http.StatusInternalServerError, err.Error())
@@ -264,7 +278,6 @@ func (s *Server) handleDBIngestRun(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer db.Close()
 	sum, err := db.IngestRun(r.Context(), store.IngestRunOptions{RunDir: runDir})
 	if err != nil {
 		errJSON(w, http.StatusBadRequest, err.Error())
@@ -301,7 +314,6 @@ func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer db.Close()
 	set, err := db.SelectEvaluationResultSet(r.Context(), outRunID, store.DBReportFilter{
 		RunIDs:            req.SourceRunIDs,
 		EvaluationRunIDs:  req.EvaluationRunIDs,

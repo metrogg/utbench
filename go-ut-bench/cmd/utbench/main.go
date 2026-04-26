@@ -181,7 +181,11 @@ func runWeb(args []string) error {
 	}
 	mgr := web.NewRunManager(*configPath, *datasetRoot, *outputRoot, *dbPath, dockerCfg)
 	bld := web.NewBuildManager(absProjectRoot)
-	server := web.NewServer(mgr, bld, *configPath, *outputRoot, dockerCfg)
+	server, err := web.NewServer(mgr, bld, *configPath, *outputRoot, *dbPath, dockerCfg)
+	if err != nil {
+		return fmt.Errorf("create web server: %w", err)
+	}
+	defer server.Close()
 	return server.Start(*addr)
 }
 
