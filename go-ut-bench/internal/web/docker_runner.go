@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"path"
 	"strings"
 
 	"go-ut-bench/internal/contracts"
@@ -183,7 +183,7 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		// Use explicit manifest path if provided, otherwise use source run's manifest
 		manifestPath := opts.ManifestPath
 		if manifestPath == "" {
-			manifestPath = filepath.Join("/app/artifacts", "runs", sourceRunID, "generated", "generated_manifest.json")
+			manifestPath = path.Join("/app/artifacts", "runs", sourceRunID, "generated", "generated_manifest.json")
 		}
 		// Convert host path to container path if it's absolute
 		if strings.HasPrefix(manifestPath, root) {
@@ -204,7 +204,7 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		// Use explicit evaluation path if provided, otherwise use source run's evaluation
 		evaluationPath := opts.EvaluationPath
 		if evaluationPath == "" {
-			evaluationPath = filepath.Join("/app/artifacts", "runs", sourceRunID, "evaluation", "evaluation_result.json")
+			evaluationPath = path.Join("/app/artifacts", "runs", sourceRunID, "evaluation", "evaluation_result.json")
 		}
 		// Convert host path to container path if it's absolute
 		if strings.HasPrefix(evaluationPath, root) {

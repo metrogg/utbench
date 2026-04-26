@@ -8,7 +8,7 @@ import (
 	"go-ut-bench/internal/orchestrator"
 )
 
-func TestBuildDockerRunArgsUsesMountedSource(t *testing.T) {
+func TestBuildDockerRunArgsUsesToolchainImage(t *testing.T) {
 	spec := contracts.RunSpec{
 		RunID:     "run-1",
 		Models:    []string{"deepseek"},
@@ -19,14 +19,14 @@ func TestBuildDockerRunArgsUsesMountedSource(t *testing.T) {
 	args := buildDockerRunArgs(spec, orchestrator.Options{}, cfg)
 	joined := strings.Join(args, " ")
 
-	mustContain(t, joined, "-v /repo:/workspace")
-	mustContain(t, joined, "-w /workspace")
-	mustContain(t, joined, "--entrypoint /bin/sh")
-	mustContain(t, joined, "utbench:latest -lc 'go' 'run' './cmd/utbench' 'run'")
-	mustContain(t, joined, "--output-root' '/app/artifacts")
+	mustContain(t, joined, "-v /repo/datasets:/app/datasets")
+	mustContain(t, joined, "-v /repo/artifacts:/app/artifacts")
+	mustContain(t, joined, "utbench:latest run")
+	mustContain(t, joined, "--output-root /app/artifacts")
+	mustContain(t, joined, "--models deepseek")
 }
 
-func TestBuildDockerEvaluateArgsUsesMountedSource(t *testing.T) {
+func TestBuildDockerEvaluateArgsUsesSourceRunManifest(t *testing.T) {
 	spec := contracts.RunSpec{
 		RunID:           "run-1",
 		MutationEnabled: true,
@@ -35,16 +35,17 @@ func TestBuildDockerEvaluateArgsUsesMountedSource(t *testing.T) {
 	}
 	cfg := DockerConfig{ImageName: "utbench:latest", ProjectRoot: "/repo"}
 
-	args := buildDockerSourceArgs(cfg, []string{
-		"go", "run", "./cmd/utbench", "evaluate",
-		"--run-id", spec.RunID,
-		"--manifest", "/app/artifacts/runs/" + spec.RunID + "/generated/generated_manifest.json",
-	})
+	args := buildDockerRunArgs(spec, orchestrator.Options{
+		Phase:       "evaluate",
+		SourceRunID: "source-run",
+	}, cfg)
 	joined := strings.Join(args, " ")
 
-	mustContain(t, joined, "-v /repo:/workspace")
-	mustContain(t, joined, "utbench:latest -lc 'go' 'run' './cmd/utbench' 'evaluate'")
-	mustContain(t, joined, "--manifest' '/app/artifacts/runs/run-1/generated/generated_manifest.json")
+	mustContain(t, joined, "utbench:latest evaluate")
+	mustContain(t, joined, "--run-id run-1")
+	mustContain(t, joined, "--manifest /app/artifacts/runs/source-run/generated/generated_manifest.json")
+	mustContain(t, joined, "--mutation-enabled")
+	mustContain(t, joined, "--mutation-timeout 120")
 }
 
 func mustContain(t *testing.T, haystack, needle string) {

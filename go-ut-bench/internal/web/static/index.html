@@ -41,12 +41,31 @@ body{font-family:"LXGW WenKai","PingFang SC","Hiragino Sans GB","Microsoft YaHei
 .kpi-running{color:var(--accent)}
 .kpi-completed{color:var(--green)}
 .kpi-failed{color:var(--red)}
+.db-hero{border:1px solid var(--border);border-radius:8px;background:linear-gradient(180deg,rgba(14,165,233,.08),rgba(11,15,23,.72));padding:20px}
+[data-theme="light"] .db-hero{background:linear-gradient(180deg,rgba(14,165,233,.08),rgba(255,255,255,.88))}
+.db-eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.db-title{font-size:22px;font-weight:700;letter-spacing:0;line-height:1.25;margin-top:4px}
+.db-path{display:inline-flex;align-items:center;gap:6px;max-width:100%;font-size:11px;color:var(--fg-muted);background:var(--badge-bg);border:1px solid var(--border-subtle);border-radius:6px;padding:5px 8px}
+.db-path code{min-width:0;overflow-wrap:anywhere}
+.db-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.db-tabbar{display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:16px}
+.db-tab-btn{display:flex;flex-direction:column;gap:2px;align-items:flex-start;border:1px solid transparent;border-radius:8px;padding:8px 11px;background:transparent;color:var(--fg-muted);transition:all .15s;min-width:112px}
+.db-tab-btn:hover{border-color:var(--border);background:var(--bg-elevated);color:var(--fg)}
+.db-tab-btn.active{border-color:rgba(14,165,233,.28);background:rgba(14,165,233,.09);color:var(--accent)}
+.db-tab-label{font-size:13px;font-weight:700}
+.db-tab-hint{font-size:10px;color:var(--fg-subtle)}
+.db-empty-state{border:1px dashed var(--border);border-radius:8px;background:var(--bg-elevated);padding:18px;display:flex;align-items:center;justify-content:space-between;gap:14px}
+.db-empty-title{font-size:14px;font-weight:700;color:var(--fg)}
+.db-empty-copy{font-size:12px;color:var(--fg-muted);margin-top:4px}
+@media (max-width:900px){.db-toolbar{width:100%}.db-toolbar .input-base{width:100%}.db-tab-btn{min-width:0;flex:1 1 140px}}
 .pct-null{color:var(--fg-subtle)}
 .pct-good{color:var(--green)}
 .pct-warn{color:var(--yellow)}
 .pct-bad{color:var(--red)}
 .form-section{background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:22px;transition:border-color .2s}
 .form-section:hover{border-color:#27354f}
+.section-title{font-size:13px;font-weight:700;color:var(--fg);letter-spacing:0}
+.section-title:not(.m-0){margin-bottom:14px}
 .input-base{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 11px;font-size:13px;color:var(--fg);width:100%;transition:all .15s;font-family:inherit}
 .input-base:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(14,165,233,.12)}
 .label-text{font-size:12px;font-weight:500;color:var(--fg-muted);margin-bottom:5px;display:block}
@@ -438,30 +457,46 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
       </div>
       <!-- DATABASE -->
       <div x-show="page === 'database'" class="max-w-none animate-fadeUp">
-        <div class="flex flex-wrap items-center gap-3 mb-4">
-          <div class="text-[12px]" style="color:var(--fg-muted)">
-            数据库: <code class="font-mono text-[11px]" x-text="dbOverview?.db_path || './storage/utbench.db'"></code>
-            <span x-show="dbLoading" class="ml-2">· 加载中...</span>
+        <div class="db-hero mb-4">
+          <div class="flex flex-wrap items-start gap-4">
+            <div class="min-w-0 flex-1">
+              <div class="db-eyebrow">数据管理</div>
+              <div class="db-title">评测结果工作台</div>
+              <div class="mt-3 db-path">
+                <span>SQLite</span>
+                <code class="font-mono" x-text="dbOverview?.db_path || './storage/utbench.db'"></code>
+                <span x-show="dbLoading">· 加载中...</span>
+              </div>
+            </div>
+            <div class="db-toolbar">
+              <input x-model="dbIngestRunID" type="text" placeholder="run_id" class="input-base w-64 font-mono text-[12px]">
+              <button @click="ingestRunToDB()" :disabled="dbIngesting || !dbIngestRunID" class="btn-warm text-[12px]">
+                <span x-text="dbIngesting ? '入库中...' : '补录任务'"></span>
+              </button>
+              <button @click="loadDBTabData()" class="btn-ghost text-[12px]">刷新</button>
+            </div>
           </div>
-          <input x-model="dbIngestRunID" type="text" placeholder="输入 run_id 补录已有结果" class="input-base w-72 ml-auto">
-          <button @click="ingestRunToDB()" :disabled="dbIngesting || !dbIngestRunID" class="btn-warm text-[12px]">
-            <span x-text="dbIngesting ? '入库中...' : '补录任务'"></span>
-          </button>
-          <button @click="loadDBTabData()" class="btn-ghost text-[12px]">刷新</button>
         </div>
 
         <!-- 子Tab导航 -->
-        <div class="flex flex-wrap gap-1 mb-4 border-b pb-2" style="border-color:var(--border)">
-          <template x-for="t in ['overview', 'runs', 'evaluation', 'dataset', 'config', 'reports', 'artifacts']" :key="t">
-            <button @click="dbTab = t; loadDBTabData()" class="px-3 py-1.5 text-[13px] rounded-t transition"
-                    :style="dbTab === t ? 'background:var(--accent);color:white' : 'background:transparent;color:var(--fg-muted)'">
-              <span x-text="{overview:'总览',runs:'运行',evaluation:'评测',dataset:'数据集',config:'配置',reports:'报告',artifacts:'Artifacts'}[t]"></span>
+        <div class="db-tabbar">
+          <template x-for="t in ['overview', 'runs', 'evaluation', 'assets']" :key="t">
+            <button @click="dbTab = t; loadDBTabData()" class="db-tab-btn" :class="dbTab === t ? 'active' : ''">
+              <span class="db-tab-label" x-text="{overview:'报告工作台',runs:'运行数据',evaluation:'评测明细',assets:'资产审计'}[t]"></span>
+              <span class="db-tab-hint" x-text="{overview:'排名与对比',runs:'生成链路',evaluation:'编译测试变异',assets:'样本/配置/文件'}[t]"></span>
             </button>
           </template>
         </div>
 
         <!-- 总览Tab -->
         <div x-show="dbTab === 'overview'" class="space-y-5">
+          <div x-show="!dbHasData" class="db-empty-state">
+            <div>
+              <div class="db-empty-title">还没有可分析的数据</div>
+              <div class="db-empty-copy">在顶部输入 run_id 补录已有任务，或在任务详情中点击入库。</div>
+            </div>
+          </div>
+
           <div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
             <template x-for="card in dbCards" :key="card.label">
               <div class="kpi-card">
@@ -473,12 +508,12 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
 
           <!-- 跨运行对比报告生成 -->
           <div class="form-section">
-            <div class="section-title flex items-center gap-2">
-              <span>跨运行对比报告</span>
-              <span class="text-[11px]" style="color:var(--fg-muted)">选择历史运行数据生成对比排名报告</span>
-            </div>
-            <div class="text-[12px] mb-4 p-3 rounded-lg" style="background:var(--surface);color:var(--fg-muted)">
-              <span>提示：选择多个运行的模型数据，系统会检查环境一致性。相同评测环境下生成的报告可作为正式排名参考。</span>
+            <div class="flex flex-wrap items-start gap-3 mb-4">
+              <div class="mr-auto">
+                <div class="section-title">跨运行对比报告</div>
+                <div class="text-[12px]" style="color:var(--fg-muted)">选择同一评测环境下的运行结果，生成模型排名和横向对比。</div>
+              </div>
+              <span class="tag-pill" :style="dbEnvCompatibilityStyle" x-text="dbEnvCompatibilityText"></span>
             </div>
             <div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
               <!-- 运行选择 -->
@@ -520,13 +555,10 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
               <!-- 生成操作 -->
               <div>
                 <div class="label-text">当前选择</div>
-                <div class="text-[12px] p-3 rounded-lg mb-3" style="background:var(--surface)">
+                <div class="text-[12px] p-3 rounded-lg mb-3" style="background:var(--bg-overlay)">
                   <div x-text="'运行: ' + (dbReportSelection.run_ids.length || '全部')"></div>
                   <div x-text="'模型: ' + (dbReportSelection.models.length || '全部')"></div>
                   <div x-text="'语言: ' + (dbReportSelection.languages.length || '全部')"></div>
-                </div>
-                <div class="text-[12px] p-2 rounded mb-3" :style="dbEnvCompatibilityStyle">
-                  <span x-text="dbEnvCompatibilityText"></span>
                 </div>
                 <button @click="generateDBReport()" :disabled="dbReportGenerating" class="btn-primary text-[12px] w-full py-2.5">
                   <span x-text="dbReportGenerating ? '生成中...' : '生成对比报告'"></span>
@@ -667,8 +699,8 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           </div>
         </div>
 
-        <!-- 数据集Tab -->
-        <div x-show="dbTab === 'dataset'" class="space-y-5">
+        <!-- 资产审计Tab：低频排查信息合并展示，避免顶层标签过多 -->
+        <div x-show="dbTab === 'assets'" class="space-y-5 mt-5">
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <div class="form-section p-0 overflow-hidden">
               <div class="px-4 py-3 border-b flex items-center gap-2" style="border-color:var(--border)">
@@ -718,8 +750,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           </div>
         </div>
 
-        <!-- 配置Tab -->
-        <div x-show="dbTab === 'config'" class="space-y-5">
+        <div x-show="dbTab === 'assets'" class="space-y-5">
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <div class="form-section p-0 overflow-hidden">
               <div class="px-4 py-3 border-b" style="border-color:var(--border)">
@@ -799,8 +830,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           </div>
         </div>
 
-        <!-- 报告Tab -->
-        <div x-show="dbTab === 'reports'" class="form-section p-0 overflow-hidden">
+        <div x-show="dbTab === 'assets'" class="form-section p-0 overflow-hidden mt-5">
           <div class="px-4 py-3 border-b flex items-center gap-2" style="border-color:var(--border)">
             <span class="text-[13px] font-medium">报告快照</span>
             <input x-model="dbReportFilter.run_id" @change="loadDBReports()" type="text" placeholder="run_id筛选" class="input-base w-40 font-mono text-[11px] ml-auto">
@@ -822,8 +852,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           <div x-show="!dbReports.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无报告记录</div>
         </div>
 
-        <!-- ArtifactsTab -->
-        <div x-show="dbTab === 'artifacts'" class="space-y-5">
+        <div x-show="dbTab === 'assets'" class="space-y-5 mt-5">
           <div class="form-section p-0 overflow-hidden">
             <div class="px-4 py-3 border-b flex flex-wrap items-center gap-2" style="border-color:var(--border)">
               <span class="text-[13px] font-medium mr-auto">Artifact 索引</span>
@@ -1439,7 +1468,7 @@ function app() {
     runFilter: '',
     statusFilter: '',
     // 数据库管理
-    dbTab: 'overview', // overview | runs | evaluation | dataset | config | reports | artifacts
+    dbTab: 'overview', // overview | runs | evaluation | assets
     dbOverview: null,
     dbRuns: [],
     dbResults: [],
@@ -2026,12 +2055,18 @@ function app() {
         await Promise.all([this.loadDBEvaluationRuns(), this.loadDBEvaluationStages()])
         await this.loadDBResults()
       }
-      else if (tab === 'dataset') await Promise.all([this.loadDBDatasetSamples(), this.loadDBDatasetSnapshots()])
-      else if (tab === 'config') await Promise.all([this.loadDBModelConfigs(), this.loadDBPromptProfiles(), this.loadDBEvaluationEnvs(), this.loadDBScorePolicies()])
-      else if (tab === 'reports') await this.loadDBReports()
-      else if (tab === 'artifacts') {
-        await this.loadDBArtifacts()
-        await this.loadDBRunArtifacts()
+      else if (tab === 'assets') {
+        await Promise.all([
+          this.loadDBDatasetSamples(),
+          this.loadDBDatasetSnapshots(),
+          this.loadDBModelConfigs(),
+          this.loadDBPromptProfiles(),
+          this.loadDBEvaluationEnvs(),
+          this.loadDBScorePolicies(),
+          this.loadDBReports(),
+          this.loadDBArtifacts(),
+          this.loadDBRunArtifacts(),
+        ])
       }
     },
 
@@ -2081,6 +2116,12 @@ function app() {
         { label:'Artifacts', value:d.artifacts ?? 0, color:'kpi-total' },
         { label:'报告', value:d.reports ?? 0, color:'kpi-running' },
       ]
+    },
+
+    get dbHasData() {
+      const d = this.dbOverview || {}
+      return ['generation_runs', 'evaluation_runs', 'generated_cases', 'evaluation_results', 'artifacts', 'reports']
+        .some(k => Number(d[k] || 0) > 0)
     },
 
     get dashStats() {
