@@ -655,7 +655,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                     <button @click="refreshDetail()" class="btn-ghost">刷新</button>
                   </span>
                 </template>
-                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="reevaluateRun(currentRun.run_id)" :disabled="runActionBusy === 'reevaluate'" class="btn-ghost" style="color:var(--accent)" title="使用已有 generated_manifest.json 重新执行评测">
+                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="reevaluateRun(currentRun.run_id)" :disabled="runActionBusy === 'reevaluate'" class="btn-ghost" style="color:var(--accent)" title="重新运行 evaluator：重新编译、运行测试、覆盖率和变异测试">
                   <span x-text="runActionBusy === 'reevaluate' ? '评测中...' : '重新评测'"></span>
                 </button>
                 <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="regenerateReport(currentRun.run_id)" :disabled="runActionBusy === 'report'" class="btn-ghost" style="color:var(--green)" title="根据 evaluation_result.json 重新生成报告">
@@ -1383,14 +1383,14 @@ function app() {
     },
 
     async reevaluateRun(runID) {
-      if (!confirm('重新评测该任务？会覆盖当前 evaluation_result.json。')) return
+      if (!confirm('重新运行 evaluator？会重新编译、运行测试、覆盖率和变异测试，并覆盖当前 evaluation_result.json。')) return
       this.runActionBusy = 'reevaluate'
       try {
         const r = await fetch('/api/runs/' + encodeURIComponent(runID) + '/reevaluate', { method: 'POST' })
         const data = await r.json()
         if (!r.ok) { this.showToast('重新评测失败：' + (data.error || 'HTTP ' + r.status), 'err', 6000); return }
         this.currentReport = null
-        this.showToast('重新评测完成：' + data.evaluation_path, 'ok', 6000)
+        this.showToast('evaluator 重新运行完成：' + data.evaluation_path, 'ok', 6000)
         await this.refreshDetail()
       } catch (e) {
         this.showToast('重新评测失败：' + e.message, 'err', 6000)

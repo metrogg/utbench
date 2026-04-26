@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"go-ut-bench/internal/contracts"
-	"go-ut-bench/internal/evaluator"
 	"go-ut-bench/internal/obs"
 	"go-ut-bench/internal/orchestrator"
 	"go-ut-bench/internal/reporter"
@@ -503,20 +502,89 @@ func (s *Server) handleRunReevaluate(w http.ResponseWriter, r *http.Request, run
 		errJSON(w, http.StatusNotFound, "generated manifest not found: "+manifestPath)
 		return
 	}
-
-	logDir := filepath.Join(s.outputRoot, "runs", runID, "logs")
-	logger := obs.NewLogger(true, logDir)
-	out, err := evaluator.NewService(logger).Evaluate(r.Context(), spec, manifestPath)
+	if !isDockerReady(s.dockerCfg) {
+		errJSON(w, http.StatusConflict, "Docker image is not ready; reevaluate requires Docker so evaluator tools are complete")
+		return
+	}
+	out, err := runEvaluateInDocker(r.Context(), runID, spec, s.dockerCfg)
 	if err != nil {
-		errJSON(w, http.StatusInternalServerError, "reevaluate failed: "+err.Error())
+		errJSON(w, http.StatusInternalServerError, "reevaluate failed: "+err.Error()+": "+tailString(string(out), 2000))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"run_id":          runID,
 		"manifest_path":   manifestPath,
-		"evaluation_path": out.ResultPath,
-		"result_count":    len(out.Result.Results),
+		"evaluation_path": filepath.Join(s.outputRoot, "runs", runID, "evaluation", "evaluation_result.json"),
+		"backend":         "docker",
+		"output_tail":     tailString(string(out), 2000),
 	})
+}
+
+func tailString(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[len(s)-max:]
+}
+
+func (s *Server) prepareManifestForHost(runID, manifestPath string) (string, error) {
+	manifest, err := contracts.ReadGeneratedManifest(manifestPath)
+	if err != nil {
+		return "", err
+	}
+
+	changed := false
+	convert := func(path string) string {
+		next := s.containerPathToHost(path)
+		if next != path {
+			changed = true
+		}
+		return next
+	}
+	manifest.Spec = s.normalizeRunSpec(runID, manifest.Spec)
+	manifest.PromptSnapshotDir = convert(manifest.PromptSnapshotDir)
+	for i := range manifest.Cases {
+		manifest.Cases[i].SamplePath = convert(manifest.Cases[i].SamplePath)
+		manifest.Cases[i].GeneratedTestPath = convert(manifest.Cases[i].GeneratedTestPath)
+		manifest.Cases[i].ResponsePath = convert(manifest.Cases[i].ResponsePath)
+		manifest.Cases[i].MetadataPath = convert(manifest.Cases[i].MetadataPath)
+		manifest.Cases[i].PromptPath = convert(manifest.Cases[i].PromptPath)
+	}
+	if !changed {
+		return manifestPath, nil
+	}
+
+	hostPath := filepath.Join(s.outputRoot, "runs", runID, "generated", "generated_manifest.host.json")
+	if err := contracts.WriteJSON(hostPath, manifest); err != nil {
+		return "", err
+	}
+	return hostPath, nil
+}
+
+func (s *Server) containerPathToHost(path string) string {
+	if path == "" {
+		return ""
+	}
+	clean := filepath.ToSlash(path)
+	prefixes := []struct {
+		container string
+		host      string
+	}{
+		{"/app/artifacts", s.outputRoot},
+		{"/app/datasets", s.mgr.datasetRoot},
+		{"/app/configs", filepath.Dir(s.configPath)},
+		{"/app/storage", filepath.Dir(s.mgr.dbPath)},
+	}
+	for _, p := range prefixes {
+		if clean == p.container {
+			return p.host
+		}
+		if strings.HasPrefix(clean, p.container+"/") {
+			rel := strings.TrimPrefix(clean, p.container+"/")
+			return filepath.Join(p.host, filepath.FromSlash(rel))
+		}
+	}
+	return path
 }
 
 type regenerateReportRequest struct {

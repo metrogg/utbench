@@ -3,7 +3,9 @@ package web
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"go-ut-bench/internal/contracts"
@@ -55,25 +57,8 @@ func runInDocker(ctx context.Context, entry *RunEntry, spec contracts.RunSpec, o
 // It deliberately mirrors the flag set that `utbench run` understands, so
 // behaviour matches the in-process backend one-to-one.
 func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg DockerConfig) []string {
-	a := []string{"run", "--rm"}
-
-	if cfg.EnvFile != "" {
-		a = append(a, "--env-file", cfg.EnvFile)
-	}
-
-	// Mounts: datasets (read-only is safer but writable matches current UX),
-	// artifacts, configs, storage. Paths on the container side are fixed and
-	// mirror those used in STARTUP_GUIDE.md.
-	root := strings.TrimRight(cfg.ProjectRoot, `/\`)
-	a = append(a,
-		"-v", root+`/datasets:/app/datasets`,
-		"-v", root+`/artifacts:/app/artifacts`,
-		"-v", root+`/configs:/app/configs`,
-		"-v", root+`/storage:/app/storage`,
-	)
-
-	a = append(a, cfg.ImageName, "run")
-	a = append(a,
+	cmd := []string{"go", "run", "./cmd/utbench", "run"}
+	cmd = append(cmd,
 		"--run-id", spec.RunID,
 		"--models", strings.Join(spec.Models, ","),
 		"--langs", strings.Join(spec.Languages, ","),
@@ -82,39 +67,121 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		"--config", "/app/configs/models.yaml",
 	)
 	if len(spec.DatasetClasses) > 0 {
-		a = append(a, "--class", strings.Join(spec.DatasetClasses, ","))
+		cmd = append(cmd, "--class", strings.Join(spec.DatasetClasses, ","))
 	}
 	if spec.DatasetScenario != "" {
-		a = append(a, "--scenario", spec.DatasetScenario)
+		cmd = append(cmd, "--scenario", spec.DatasetScenario)
 	}
 	if spec.DatasetLevel != "" {
-		a = append(a, "--level", spec.DatasetLevel)
+		cmd = append(cmd, "--level", spec.DatasetLevel)
 	}
 	if spec.MaxSamples > 0 {
-		a = append(a, "--max-samples", fmt.Sprintf("%d", spec.MaxSamples))
+		cmd = append(cmd, "--max-samples", fmt.Sprintf("%d", spec.MaxSamples))
 	}
 	if spec.Workers > 0 {
-		a = append(a, "--workers", fmt.Sprintf("%d", spec.Workers))
+		cmd = append(cmd, "--workers", fmt.Sprintf("%d", spec.Workers))
 	}
 	if spec.Mode != "" {
-		a = append(a, "--mode", string(spec.Mode))
+		cmd = append(cmd, "--mode", string(spec.Mode))
 	}
 	if spec.DryRun {
-		a = append(a, "--dry-run")
+		cmd = append(cmd, "--dry-run")
 	}
 	if spec.MutationEnabled {
-		a = append(a, "--mutation-enabled")
+		cmd = append(cmd, "--mutation-enabled")
 	}
 	if spec.MutationTimeout > 0 {
-		a = append(a, "--mutation-timeout", fmt.Sprintf("%d", spec.MutationTimeout))
+		cmd = append(cmd, "--mutation-timeout", fmt.Sprintf("%d", spec.MutationTimeout))
 	}
 	if spec.MutationPolicy != "" {
-		a = append(a, "--mutation-policy", spec.MutationPolicy)
+		cmd = append(cmd, "--mutation-policy", spec.MutationPolicy)
 	}
 	if opts.Ingest {
-		a = append(a, "--ingest", "--db-path", "/app/storage/utbench.db")
+		cmd = append(cmd, "--ingest", "--db-path", "/app/storage/utbench.db")
 	}
+	return buildDockerSourceArgs(cfg, cmd)
+}
+
+func runEvaluateInDocker(ctx context.Context, runID string, spec contracts.RunSpec, cfg DockerConfig) ([]byte, error) {
+	cmdArgs := []string{
+		"go", "run", "./cmd/utbench", "evaluate",
+		"--run-id", runID,
+		"--manifest", "/app/artifacts/runs/" + runID + "/generated/generated_manifest.json",
+		"--output-root", "/app/artifacts",
+		"--mutation-timeout", strconv.Itoa(defaultInt(spec.MutationTimeout, 600)),
+		"--mutation-policy", defaultString(spec.MutationPolicy, "warn"),
+	}
+	if spec.MutationEnabled {
+		cmdArgs = append(cmdArgs, "--mutation-enabled")
+	}
+	args := buildDockerSourceArgs(cfg, cmdArgs)
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return out, fmt.Errorf("docker evaluate failed: %w", err)
+	}
+	return out, nil
+}
+
+func buildDockerSourceArgs(cfg DockerConfig, cmd []string) []string {
+	a := buildDockerBaseArgs(cfg)
+	root := strings.TrimRight(cfg.ProjectRoot, `/\`)
+	a = append(a,
+		"-v", root+":/workspace",
+		"-w", "/workspace",
+		"--entrypoint", "/bin/sh",
+		cfg.ImageName,
+		"-lc", shellJoin(cmd),
+	)
 	return a
+}
+
+func buildDockerBaseArgs(cfg DockerConfig) []string {
+	a := []string{"run", "--rm"}
+	if cfg.EnvFile != "" && fileExists(cfg.EnvFile) {
+		a = append(a, "--env-file", cfg.EnvFile)
+	}
+	root := strings.TrimRight(cfg.ProjectRoot, `/\`)
+	return append(a,
+		"-v", root+`/datasets:/app/datasets`,
+		"-v", root+`/artifacts:/app/artifacts`,
+		"-v", root+`/configs:/app/configs`,
+		"-v", root+`/storage:/app/storage`,
+	)
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func defaultInt(v, fallback int) int {
+	if v == 0 {
+		return fallback
+	}
+	return v
+}
+
+func defaultString(v, fallback string) string {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	return v
+}
+
+func shellJoin(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = shellQuote(arg)
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuote(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
 }
 
 // redactArgs produces a single-line human-readable representation of the argv

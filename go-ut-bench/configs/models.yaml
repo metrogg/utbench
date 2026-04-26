@@ -45,151 +45,58 @@ languages:
         test_dir: tests
         test_framework: pytest
 models:
-  qwen:
-    enabled: true
-    provider: dashscope
-    config:
-      api_endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-      model: "qwen3.6-plus"
-      api_key_env: "DASHSCOPE_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
-
-  deepseek:
-    enabled: true
-    provider: deepseek
-    config:
-      api_endpoint: "https://api.deepseek.com/v1"
-      model: "deepseek-chat"
-      api_key_env: "DEEPSEEK_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
-
-  minimax:
-    enabled: true
-    provider: minimax
-    config:
-      api_endpoint: "https://api.minimax.chat/v1"
-      model: "MiniMax-M2.7"
-      api_key_env: "MINIMAX_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
-
-  doubao-seed:
-    enabled: true
-    provider: volcengine
-    config:
-      api_endpoint: "https://ark.cn-beijing.volces.com/api/coding/v3"
-      model: "doubao-seed-2.0-pro"
-      api_key_env: "VOLCENGINE_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
-
-  doubao-seed-2.0-lite:
-    enabled: true
-    provider: volcengine
-    config:
-      api_endpoint: "https://ark.cn-beijing.volces.com/api/v3"
-      model: "ep-20260423021121-552wl"
-      api_key_env: "ARK_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
-
-  doubao-seed-1.6:
-    enabled: true
-    provider: volcengine
-    config:
-      api_endpoint: "https://ark.cn-beijing.volces.com/api/v3"
-      model: "ep-20260423020928-pfb28"
-      api_key_env: "ARK_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
-
-  doubao-seed-2.0-pro-v2:
-    enabled: true
-    provider: volcengine
-    config:
-      api_endpoint: "https://ark.cn-beijing.volces.com/api/v3"
-      model: "ep-20260423020824-jd59z"
-      api_key_env: "ARK_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
-
-  glm-4.7:
-    enabled: true
-    provider: volcengine
-    config:
-      api_endpoint: "https://ark.cn-beijing.volces.com/api/v3"
-      model: "ep-20260423021013-zdd9s"
-      api_key_env: "ARK_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
-
-benchmark:
-  thresholds:
-    compile_rate: 0.7
-    execution_rate: 0.70
-    line_coverage: 0.7
-    branch_coverage: 0.6
-    function_coverage: 0.8
-    mutation_score: 0.70
-
-  timeouts:
-    api_call: 120000
-    compilation: 60000
-    test_execution: 30000
-    mutation_test: 120000
-
-  parallel:
-    max_concurrent_models: 6
-    max_concurrent_samples: 8
-
-languages:
-  java:
-    compiler: "javac"
-    test_framework: "junit"
-    test_framework_version: "4.13"
-    coverage_tool: "jacoco"
-    mutation_tool: "pitest"
-    source_dir: "src/main/java"
-    test_dir: "src/test/java"
-
-  python:
-    compiler: "pylint"
-    test_framework: "pytest"
-    coverage_tool: "coverage"
-    mutation_tool: "mutmut"
-    source_dir: "src"
-    test_dir: "tests"
-
-  go:
-    compiler: "go build"
-    test_framework: "go test"
-    coverage_tool: "go tool cover"
-    mutation_tool: "gremlins"
-    source_dir: "."
-    test_dir: "."
-
-  cpp:
-    compiler: "g++"
-    test_framework: "gtest"
-    coverage_tool: "gcov"
-    mutation_tool: "mull"
-    source_dir: "src"
-    test_dir: "tests"
+    deepseek:
+        config:
+            api_endpoint: https://api.deepseek.com
+            api_key_env: DEEPSEEK_API_KEY
+            model: deepseek-v4-flash
+            parameters:
+                max_tokens: 4096
+                temperature: 0.7
+                top_p: 0.9
+        enabled: true
+        provider: deepseek
+    doubao-seed:
+        config:
+            api_endpoint: https://ark.cn-beijing.volces.com/api/coding/v3
+            api_key_env: VOLCENGINE_API_KEY
+            model: doubao-seed-2.0-pro
+            parameters:
+                max_tokens: 4096
+                temperature: 0.7
+                top_p: 0.9
+        enabled: true
+        provider: volcengine
+    glm:
+        config:
+            api_endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
+            api_key_env: DASHSCOPE_API_KEY
+            model: glm-5
+            parameters:
+                max_tokens: 4096
+                temperature: 0.7
+                top_p: 0.9
+        enabled: true
+        provider: dashscope
+    minimax:
+        config:
+            api_endpoint: https://api.minimax.chat/v1
+            api_key_env: MINIMAX_API_KEY
+            model: MiniMax-M2.7
+            parameters:
+                max_tokens: 4096
+                temperature: 0.7
+                top_p: 0.9
+        enabled: true
+        provider: minimax
+    qwen:
+        config:
+            api_endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
+            api_key_env: DASHSCOPE_API_KEY
+            model: qwen3.6-flash
+            parameters:
+                max_tokens: 4096
+                temperature: 0.7
+                top_p: 0.9
+        enabled: true
+        provider: dashscope

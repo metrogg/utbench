@@ -1,5 +1,4 @@
-// evaluator 包提供单元测试评测功能
-// 负责编译、运行测试、收集覆盖率、执行变异测试并生成评测报告
+// evaluator 鍖呮彁渚涘崟鍏冩祴璇曡瘎娴嬪姛鑳?// 璐熻矗缂栬瘧銆佽繍琛屾祴璇曘€佹敹闆嗚鐩栫巼銆佹墽琛屽彉寮傛祴璇曞苟鐢熸垚璇勬祴鎶ュ憡
 package evaluator
 
 import (
@@ -20,51 +19,49 @@ import (
 	"go-ut-bench/internal/obs"
 )
 
-// Service 评测服务结构
-// 提供完整的测试评测流程管理
 type Service struct {
-	logger *obs.Logger // 日志记录器
+	logger *obs.Logger
 }
 
-// Output 评测操作的输出结果
-// 包含评测结果集和结果文件路径
 type Output struct {
-	Result     contracts.EvaluationResultSet // 评测结果集
-	ResultPath string                        // 结果JSON文件路径
+	Result     contracts.EvaluationResultSet
+	ResultPath string
 }
 
-// evalTask 评测任务结构
-// 用于在worker之间传递评测任务
+// evalTask is passed between evaluation workers.
 type evalTask struct {
-	item contracts.GeneratedCase // 要评测的生成案例
+	index int
+	item  contracts.GeneratedCase
 }
 
-// NewService 创建新的评测服务实例
-// 参数:
-//   - logger: 日志记录器实例
+type evalResultItem struct {
+	index int
+	row   contracts.EvaluationResult
+}
+
+// NewService 鍒涘缓鏂扮殑璇勬祴鏈嶅姟瀹炰緥
+// 鍙傛暟:
+//   - logger: 鏃ュ織璁板綍鍣ㄥ疄渚?//
 //
-// 返回值:
-//   - *Service: 新的服务实例
+// 杩斿洖鍊?
+//   - *Service: 鏂扮殑鏈嶅姟瀹炰緥
 func NewService(logger *obs.Logger) *Service {
 	SetMutationLogger(logger)
 	return &Service{logger: logger}
 }
 
-// Evaluate 执行完整的评测流程
-// 参数:
-//   - ctx: 上下文，用于取消操作
-//   - spec: 运行规格说明
-//   - manifestPath: 生成的测试清单文件路径
+// Evaluate 鎵ц瀹屾暣鐨勮瘎娴嬫祦绋?// 鍙傛暟:
+//   - ctx: 涓婁笅鏂囷紝鐢ㄤ簬鍙栨秷鎿嶄綔
+//   - spec: 杩愯瑙勬牸璇存槑
+//   - manifestPath: 鐢熸垚鐨勬祴璇曟竻鍗曟枃浠惰矾寰?//
 //
-// 返回值:
-//   - Output: 评测结果输出
-//   - error: 评测失败时的错误
+// 杩斿洖鍊?
+//   - Output: 璇勬祴缁撴灉杈撳嚭
+//   - error: 璇勬祴澶辫触鏃剁殑閿欒
 //
-// 功能说明:
-//  1. 读取生成的测试清单
-//  2. 使用worker池并行评测每个样本
-//  3. 对每个样本执行：编译 -> 测试 -> 覆盖率 -> 变异测试
-//  4. 汇总结果并写入JSON文件
+// 鍔熻兘璇存槑:
+//  1. 璇诲彇鐢熸垚鐨勬祴璇曟竻鍗?//  2. 浣跨敤worker姹犲苟琛岃瘎娴嬫瘡涓牱鏈?//  3. 瀵规瘡涓牱鏈墽琛岋細缂栬瘧 -> 娴嬭瘯 -> 瑕嗙洊鐜?-> 鍙樺紓娴嬭瘯
+//  4. 姹囨€荤粨鏋滃苟鍐欏叆JSON鏂囦欢
 func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifestPath string) (Output, error) {
 	s.logger.Debug(
 		"evaluate options",
@@ -77,26 +74,26 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return Output{}, err
 	}
 
-	// 计算worker数量
+	// 璁＄畻worker鏁伴噺
 	workerCount := spec.Workers
 	if workerCount <= 0 {
 		workerCount = min(8, max(2, runtime.NumCPU()))
 	}
 
-	// 输出评测配置信息
+	// 杈撳嚭璇勬祴閰嶇疆淇℃伅
 	total := len(manifest.Cases)
 	progress := obs.NewProgressReporter(total, "evaluate")
-	progress.PrintStageStart("评测测试", fmt.Sprintf("样本: %d | 变异: %v | Workers: %d",
+	progress.PrintStageStart("璇勬祴娴嬭瘯", fmt.Sprintf("鏍锋湰: %d | 鍙樺紓: %v | Workers: %d",
 		total, spec.MutationEnabled, workerCount))
 
-	// 创建输出目录
+	// 鍒涘缓杈撳嚭鐩綍
 	runRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID)
 	evalRoot := filepath.Join(runRoot, "evaluation")
 	if err := os.MkdirAll(evalRoot, 0o755); err != nil {
 		return Output{}, err
 	}
 	tasks := make(chan evalTask, workerCount*2)
-	results := make(chan contracts.EvaluationResult, workerCount*2)
+	results := make(chan evalResultItem, workerCount*2)
 
 	var wg sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
@@ -104,48 +101,47 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		go func() {
 			defer wg.Done()
 			defer func() {
-				// 捕获worker中的panic，防止整个程序崩溃
 				if r := recover(); r != nil {
 					fmt.Fprintf(os.Stderr, "[worker panic] %v\n", r)
 				}
 			}()
 			for t := range tasks {
-				item := s.evaluateOne(ctx, spec, t.item)
+				row := s.evaluateOne(ctx, spec, t.item)
 				select {
 				case <-ctx.Done():
 					return
-				case results <- item:
+				case results <- evalResultItem{index: t.index, row: row}:
 				}
 			}
 		}()
 	}
 
-	// 生产者：发送所有评测任务
 	go func() {
 		defer close(tasks)
-		for _, item := range manifest.Cases {
-			tasks <- evalTask{item: item}
+		for i, item := range manifest.Cases {
+			tasks <- evalTask{index: i, item: item}
 		}
 	}()
 
-	// 消费者：收集结果
+	// 娑堣垂鑰咃細鏀堕泦缁撴灉
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
-	// 收集并显示评测结果
-	rows := make([]contracts.EvaluationResult, 0, len(manifest.Cases))
+	// Collect and display first-pass evaluation results.
+	resultItems := make([]evalResultItem, 0, len(manifest.Cases))
 	completed := 0
-	for row := range results {
+	for result := range results {
 		completed++
-		rows = append(rows, row)
+		resultItems = append(resultItems, result)
+		row := result.row
 
 		taskResult := obs.TaskResult{
 			Model:         row.Model,
 			Language:      row.Language,
 			SampleID:      row.SampleID,
-			Success:       row.CompilePass,
+			Success:       !evaluationFailed(row),
 			CompilePass:   row.CompilePass,
 			TestPass:      row.TestPass != nil && *row.TestPass,
 			LineCoverage:  getCoverageValue(row.LineCoverage),
@@ -170,12 +166,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		}
 		progress.OnTaskDone(taskResult)
 
-		status := "PASS"
-		if !row.CompilePass {
-			status = "FAIL(compile)"
-		} else if row.TestPass != nil && !*row.TestPass {
-			status = "FAIL(test)"
-		}
+		status := evaluationStatus(row)
 		progress.PrintTaskLine(completed, total, row.Model, row.Language, row.SampleID, status, fmt.Sprintf("%dms", getRuntimeMS(row.RuntimeMS)))
 
 		if completed%5 == 0 {
@@ -186,16 +177,21 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 	progress.PrintStats()
 	progress.PrintStageDone("评测测试", obs.StageStats{
 		Total:    total,
-		Success:  completed,
+		Success:  countSuccessfulResults(resultItems),
 		Duration: time.Since(progress.GetStartTime()),
 	})
 
-	// 检查是否被取消
 	if err := ctx.Err(); err != nil {
 		return Output{}, err
 	}
 
-	// 排序结果：按模型 -> 语言 -> 样本ID
+	sort.Slice(resultItems, func(i, j int) bool { return resultItems[i].index < resultItems[j].index })
+	rows := make([]contracts.EvaluationResult, 0, len(resultItems))
+	for _, result := range resultItems {
+		rows = append(rows, result.row)
+	}
+
+	// 鎺掑簭缁撴灉锛氭寜妯″瀷 -> 璇█ -> 鏍锋湰ID
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Model == rows[j].Model {
 			if rows[i].Language == rows[j].Language {
@@ -206,7 +202,6 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return rows[i].Model < rows[j].Model
 	})
 
-	// 构建结果集
 	set := contracts.EvaluationResultSet{
 		SchemaVersion:  contracts.SchemaVersion,
 		RunID:          spec.RunID,
@@ -219,7 +214,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return Output{}, err
 	}
 
-	// 如果启用变异测试且策略为fail，检查是否有错误
+	// 濡傛灉鍚敤鍙樺紓娴嬭瘯涓旂瓥鐣ヤ负fail锛屾鏌ユ槸鍚︽湁閿欒
 	if spec.MutationEnabled && strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "fail") {
 		mutationErrCount := 0
 		for _, row := range rows {
@@ -234,6 +229,42 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 
 	s.logger.Info("evaluation finished", "run_id", spec.RunID, "total_results", len(rows), "path", resultPath)
 	return Output{Result: set, ResultPath: resultPath}, nil
+}
+
+func evaluationFailed(row contracts.EvaluationResult) bool {
+	if !row.CompilePass {
+		return true
+	}
+	if row.TestPass != nil && !*row.TestPass {
+		return true
+	}
+	if row.TestPassRate != nil && *row.TestPassRate < 1.0 {
+		return true
+	}
+	return false
+}
+
+func evaluationStatus(row contracts.EvaluationResult) string {
+	if !row.CompilePass {
+		return "FAIL(compile)"
+	}
+	if row.TestPass != nil && !*row.TestPass {
+		return "FAIL(test)"
+	}
+	if row.TestPassRate != nil && *row.TestPassRate < 1.0 {
+		return "FAIL(test)"
+	}
+	return "PASS"
+}
+
+func countSuccessfulResults(items []evalResultItem) int {
+	count := 0
+	for _, item := range items {
+		if !evaluationFailed(item.row) {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item contracts.GeneratedCase) (result contracts.EvaluationResult) {
