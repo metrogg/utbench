@@ -86,11 +86,13 @@ type EvaluationResult struct {
 }
 
 type EvaluationResultSet struct {
-	SchemaVersion  string             `json:"schema_version"`   // 数据结构版本号
-	RunID          string             `json:"run_id"`           // 关联的运行ID
-	EvaluatedAtUTC time.Time          `json:"evaluated_at_utc"` // 评测完成时间
-	ManifestPath   string             `json:"manifest_path"`    // 关联的GeneratedManifest文件路径
-	Results        []EvaluationResult `json:"results"`          // 所有评测结果列表
+	SchemaVersion         string             `json:"schema_version"`                    // 数据结构版本号
+	RunID                 string             `json:"run_id"`                            // 关联的运行ID
+	EvaluatedAtUTC        time.Time          `json:"evaluated_at_utc"`                  // 评测完成时间
+	ManifestPath          string             `json:"manifest_path"`                     // 关联的GeneratedManifest文件路径
+	Results               []EvaluationResult `json:"results"`                           // 所有评测结果列表
+	EnvironmentFingerprint string             `json:"environment_fingerprint,omitempty"` // 评测环境指纹（用于跨Run对比）
+	EnvironmentJSON       string             `json:"environment_json,omitempty"`        // 环境详情JSON
 }
 
 // ReportSummary 评测结果的汇总统计信息

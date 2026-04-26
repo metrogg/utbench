@@ -105,6 +105,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("/api/models/test-all", s.handleTestAllModels)
 	s.mux.HandleFunc("/api/models/", s.handleModelsSub)
+	// 数据库管理API
 	s.mux.HandleFunc("/api/db/overview", s.handleDBOverview)
 	s.mux.HandleFunc("/api/db/runs", s.handleDBRuns)
 	s.mux.HandleFunc("/api/db/results", s.handleDBResults)
@@ -112,6 +113,21 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/db/facets", s.handleDBFacets)
 	s.mux.HandleFunc("/api/db/ingest-run", s.handleDBIngestRun)
 	s.mux.HandleFunc("/api/db/report", s.handleDBReport)
+	// 新增：数据库完整管理API
+	s.mux.HandleFunc("/api/db/generation-runs", s.handleDBGenerationRuns)
+	s.mux.HandleFunc("/api/db/generated-cases", s.handleDBGeneratedCases)
+	s.mux.HandleFunc("/api/db/prompt-renderings", s.handleDBPromptRenderings)
+	s.mux.HandleFunc("/api/db/evaluation-runs", s.handleDBEvaluationRuns)
+	s.mux.HandleFunc("/api/db/evaluation-stages", s.handleDBEvaluationStages)
+	s.mux.HandleFunc("/api/db/dataset-samples", s.handleDBDatasetSamples)
+	s.mux.HandleFunc("/api/db/dataset-snapshots", s.handleDBDatasetSnapshots)
+	s.mux.HandleFunc("/api/db/model-configs", s.handleDBModelConfigs)
+	s.mux.HandleFunc("/api/db/prompt-profiles", s.handleDBPromptProfiles)
+	s.mux.HandleFunc("/api/db/evaluation-envs", s.handleDBEvaluationEnvs)
+	s.mux.HandleFunc("/api/db/score-policies", s.handleDBScorePolicies)
+	s.mux.HandleFunc("/api/db/reports", s.handleDBReports)
+	s.mux.HandleFunc("/api/db/run-artifacts", s.handleDBRunArtifacts)
+	s.mux.HandleFunc("/api/db/experiments", s.handleDBExperiments)
 
 	// Static SPA
 	sub, err := fs.Sub(staticFiles, "static")
@@ -1065,4 +1081,265 @@ func splitTrim(s string) []string {
 		}
 	}
 	return out
+}
+
+// ─── 新增数据库管理API handlers ─────────────────────────────────────────────
+
+func (s *Server) handleDBGenerationRuns(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows, err := db.ListGenerationRuns(r.Context(), parseLimit(r, 100))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBGeneratedCases(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	rows, err := db.ListGeneratedCases(r.Context(), q.Get("run_id"), q.Get("model"), q.Get("language"), parseLimit(r, 100))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBPromptRenderings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	rows, err := db.ListPromptRenderings(r.Context(), q.Get("run_id"), parseLimit(r, 100))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBEvaluationRuns(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	rows, err := db.ListEvaluationRuns(r.Context(), q.Get("run_id"), parseLimit(r, 100))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBEvaluationStages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	rows, err := db.ListEvaluationStages(r.Context(), q.Get("evaluation_run_id"), parseLimit(r, 100))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBDatasetSamples(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	rows, err := db.ListDatasetSamples(r.Context(), q.Get("language"), q.Get("class"), parseLimit(r, 100))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBDatasetSnapshots(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows, err := db.ListDatasetSnapshots(r.Context(), parseLimit(r, 50))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBModelConfigs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows, err := db.ListModelConfigs(r.Context(), parseLimit(r, 50))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBPromptProfiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows, err := db.ListPromptProfiles(r.Context(), parseLimit(r, 20))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBEvaluationEnvs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows, err := db.ListEvaluationEnvs(r.Context(), parseLimit(r, 20))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBScorePolicies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows, err := db.ListScorePolicies(r.Context(), parseLimit(r, 10))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBReports(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	rows, err := db.ListReports(r.Context(), q.Get("run_id"), parseLimit(r, 50))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBRunArtifacts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	rows, err := db.ListRunArtifacts(r.Context(), q.Get("run_id"), parseLimit(r, 100))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBExperiments(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows, err := db.ListExperiments(r.Context(), parseLimit(r, 20))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
 }

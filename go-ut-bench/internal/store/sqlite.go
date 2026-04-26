@@ -16,6 +16,7 @@ import (
 
 	"go-ut-bench/internal/contracts"
 
+	"gopkg.in/yaml.v3"
 	_ "modernc.org/sqlite"
 )
 
@@ -110,6 +111,130 @@ type DBReportEnvOption struct {
 	Fingerprint       string `json:"fingerprint"`
 	EvaluationRuns    int    `json:"evaluation_runs"`
 	EvaluationResults int    `json:"evaluation_results"`
+}
+
+// Phase 3: Database management list item types
+
+type DBGenerationRunItem struct {
+	RunID             string `json:"run_id"`
+	ExperimentID      string `json:"experiment_id,omitempty"`
+	SchemaVersion     string `json:"schema_version"`
+	CreatedAtUTC      string `json:"created_at_utc"`
+	PromptStrategy    string `json:"prompt_strategy,omitempty"`
+	PromptVersionID   string `json:"prompt_version_id,omitempty"`
+	DatasetFingerprint string `json:"dataset_fingerprint,omitempty"`
+	CreatedDBAtUTC    string `json:"created_db_at_utc"`
+}
+
+type DBGeneratedCaseItem struct {
+	GeneratedCaseID  string `json:"generated_case_id"`
+	RunID            string `json:"run_id"`
+	Model            string `json:"model"`
+	Language         string `json:"language"`
+	SampleID         string `json:"sample_id"`
+	Success          bool   `json:"success"`
+	Truncated        bool   `json:"truncated"`
+	LatencyMS        *int   `json:"latency_ms,omitempty"`
+	PromptTokens     *int   `json:"prompt_tokens,omitempty"`
+	CompletionTokens *int   `json:"completion_tokens,omitempty"`
+	GeneratedAtUTC   string `json:"generated_at_utc,omitempty"`
+}
+
+type DBPromptRenderingItem struct {
+	PromptRenderingID string `json:"prompt_rendering_id"`
+	RunID             string `json:"run_id"`
+	Model             string `json:"model"`
+	Language          string `json:"language"`
+	SampleID          string `json:"sample_id"`
+	PromptVersionID   string `json:"prompt_version_id,omitempty"`
+	PromptMode        string `json:"prompt_mode,omitempty"`
+	CreatedAtUTC      string `json:"created_at_utc"`
+}
+
+type DBEvaluationRunItem struct {
+	EvaluationRunID string `json:"evaluation_run_id"`
+	RunID           string `json:"run_id"`
+	SchemaVersion   string `json:"schema_version"`
+	EvaluatedAtUTC  string `json:"evaluated_at_utc"`
+	EnvID           string `json:"env_id,omitempty"`
+	ScorePolicyID   string `json:"score_policy_id,omitempty"`
+	CreatedDBAtUTC  string `json:"created_db_at_utc"`
+}
+
+type DBEvaluationStageItem struct {
+	StageResultID   string `json:"stage_result_id"`
+	EvaluationResultID string `json:"evaluation_result_id"`
+	Stage           string `json:"stage"`
+	Status          string `json:"status"`
+	ExitCode        *int   `json:"exit_code,omitempty"`
+	DurationMS      *int   `json:"duration_ms,omitempty"`
+	CreatedAtUTC    string `json:"created_at_utc"`
+}
+
+type DBDatasetSampleItem struct {
+	SampleUID   string `json:"sample_uid"`
+	SampleID    string `json:"sample_id"`
+	Language    string `json:"language"`
+	Class       string `json:"class,omitempty"`
+	Scenario    string `json:"scenario,omitempty"`
+	Path        string `json:"path"`
+	CreatedAtUTC string `json:"created_at_utc"`
+}
+
+type DBDatasetSnapshotItem struct {
+	SnapshotID  string `json:"snapshot_id"`
+	Fingerprint string `json:"fingerprint"`
+	SampleCount int    `json:"sample_count"`
+	CreatedAtUTC string `json:"created_at_utc"`
+}
+
+type DBModelConfigItem struct {
+	ModelConfigID string `json:"model_config_id"`
+	ModelName     string `json:"model_name"`
+	Provider      string `json:"provider,omitempty"`
+	ModelID       string `json:"model_id,omitempty"`
+	CreatedAtUTC  string `json:"created_at_utc"`
+}
+
+type DBPromptProfileItem struct {
+	ProfileID    string `json:"profile_id"`
+	Strategy     string `json:"strategy,omitempty"`
+	VersionID    string `json:"version_id,omitempty"`
+	CreatedAtUTC string `json:"created_at_utc"`
+}
+
+type DBEvaluationEnvItem struct {
+	EnvID        string `json:"env_id"`
+	Fingerprint  string `json:"fingerprint"`
+	CreatedAtUTC string `json:"created_at_utc"`
+}
+
+type DBScorePolicyItem struct {
+	ScorePolicyID string `json:"score_policy_id"`
+	Name          string `json:"name"`
+	CreatedAtUTC  string `json:"created_at_utc"`
+}
+
+type DBReportItem struct {
+	ReportID       string `json:"report_id"`
+	RunID          string `json:"run_id"`
+	GeneratedAtUTC string `json:"generated_at_utc"`
+	CreatedDBAtUTC string `json:"created_db_at_utc"`
+}
+
+type DBRunArtifactItem struct {
+	RunID       string `json:"run_id"`
+	ArtifactID  string `json:"artifact_id"`
+	Role        string `json:"role"`
+	CreatedAtUTC string `json:"created_at_utc"`
+}
+
+type DBExperimentItem struct {
+	ExperimentID  string `json:"experiment_id"`
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	CreatedAtUTC  string `json:"created_at_utc"`
+	UpdatedAtUTC  string `json:"updated_at_utc"`
 }
 
 type ReusableGeneratedCase struct {
@@ -997,17 +1122,21 @@ func (s *SQLiteStore) ingestManifestTx(ctx context.Context, tx *sql.Tx, path str
 		profileID, manifest.PromptStrategy, manifest.PromptVersionID, "", "{}", now); err != nil {
 		return fmt.Errorf("upsert prompt profile: %w", err)
 	}
+	// 入库模型配置：从models.yaml读取完整配置
+	modelConfigs := s.readModelConfigsFromYAML(manifest.Spec.ConfigPath)
 	seenModels := map[string]struct{}{}
 	for _, c := range manifest.Cases {
 		seenModels[c.Model] = struct{}{}
 	}
 	for model := range seenModels {
-		modelConfigID := stableID("model_config", model, string(specJSON))
+		cfg := modelConfigs[model]
+		modelConfigID := stableID("model_config", model, cfg.Provider, cfg.ModelID)
+		configJSON := mustJSON(cfg)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO model_configs(model_config_id, model_name, provider, model_id, config_json, created_at_utc)
 			VALUES(?, ?, ?, ?, ?, ?)
-			ON CONFLICT(model_config_id) DO UPDATE SET config_json=excluded.config_json`,
-			modelConfigID, model, "", "", string(specJSON), now); err != nil {
+			ON CONFLICT(model_config_id) DO UPDATE SET provider=excluded.provider, model_id=excluded.model_id, config_json=excluded.config_json`,
+			modelConfigID, model, cfg.Provider, cfg.ModelID, configJSON, now); err != nil {
 			return fmt.Errorf("upsert model config: %w", err)
 		}
 	}
@@ -1096,12 +1225,19 @@ func (s *SQLiteStore) ingestEvaluationTx(ctx context.Context, tx *sql.Tx, path s
 			return err
 		}
 	}
-	envID := stableID("evaluation_env", "unknown")
+	// 使用真实的环境指纹（如果存在）
+	envFingerprint := set.EnvironmentFingerprint
+	envJSON := set.EnvironmentJSON
+	if envFingerprint == "" {
+		envFingerprint = "unknown"
+		envJSON = `{"fingerprint":"unknown","note":"environment capture not available"}`
+	}
+	envID := stableID("evaluation_env", envFingerprint)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO evaluation_envs(env_id, fingerprint, env_json, created_at_utc)
 		VALUES(?, ?, ?, ?)
 		ON CONFLICT(fingerprint) DO NOTHING`,
-		envID, "unknown", `{"fingerprint":"unknown","note":"environment capture not implemented yet"}`, now); err != nil {
+		envID, envFingerprint, envJSON, now); err != nil {
 		return fmt.Errorf("upsert evaluation env: %w", err)
 	}
 	policyID := stableID("score_policy", "default-v2")
@@ -1665,4 +1801,479 @@ func fileExists(path string) bool {
 	}
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// Phase 3: Database management list methods
+
+func (s *SQLiteStore) ListGenerationRuns(ctx context.Context, limit int) ([]DBGenerationRunItem, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT run_id, COALESCE(experiment_id, ''), schema_version, COALESCE(created_at_utc, ''),
+		       COALESCE(prompt_strategy, ''), COALESCE(prompt_version_id, ''),
+		       COALESCE(dataset_fingerprint, ''), created_db_at_utc
+		FROM generation_runs
+		ORDER BY created_db_at_utc DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBGenerationRunItem
+	for rows.Next() {
+		var r DBGenerationRunItem
+		if err := rows.Scan(&r.RunID, &r.ExperimentID, &r.SchemaVersion, &r.CreatedAtUTC,
+			&r.PromptStrategy, &r.PromptVersionID, &r.DatasetFingerprint, &r.CreatedDBAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListGeneratedCases(ctx context.Context, runID, model, language string, limit int) ([]DBGeneratedCaseItem, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if runID != "" {
+		where = append(where, "run_id = ?")
+		args = append(args, runID)
+	}
+	if model != "" {
+		where = append(where, "model = ?")
+		args = append(args, model)
+	}
+	if language != "" {
+		where = append(where, "language = ?")
+		args = append(args, language)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT generated_case_id, run_id, model, language, sample_id, success, truncated,
+		       latency_ms, prompt_tokens, completion_tokens, COALESCE(generated_at_utc, '')
+		FROM generated_cases
+		WHERE `+strings.Join(where, " AND ")+`
+		ORDER BY created_db_at_utc DESC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBGeneratedCaseItem
+	for rows.Next() {
+		var r DBGeneratedCaseItem
+		var success, truncated int
+		var latency, promptTok, compTok sql.NullInt64
+		if err := rows.Scan(&r.GeneratedCaseID, &r.RunID, &r.Model, &r.Language, &r.SampleID,
+			&success, &truncated, &latency, &promptTok, &compTok, &r.GeneratedAtUTC); err != nil {
+			return nil, err
+		}
+		r.Success = success != 0
+		r.Truncated = truncated != 0
+		r.LatencyMS = nullableSQLInt(latency)
+		r.PromptTokens = nullableSQLInt(promptTok)
+		r.CompletionTokens = nullableSQLInt(compTok)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListPromptRenderings(ctx context.Context, runID string, limit int) ([]DBPromptRenderingItem, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	where := "1=1"
+	args := []any{}
+	if runID != "" {
+		where = "run_id = ?"
+		args = append(args, runID)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT prompt_rendering_id, run_id, model, language, sample_id,
+		       COALESCE(prompt_version_id, ''), COALESCE(prompt_mode, ''), created_at_utc
+		FROM prompt_renderings
+		WHERE `+where+`
+		ORDER BY created_at_utc DESC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBPromptRenderingItem
+	for rows.Next() {
+		var r DBPromptRenderingItem
+		if err := rows.Scan(&r.PromptRenderingID, &r.RunID, &r.Model, &r.Language, &r.SampleID,
+			&r.PromptVersionID, &r.PromptMode, &r.CreatedAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListEvaluationRuns(ctx context.Context, runID string, limit int) ([]DBEvaluationRunItem, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	where := "1=1"
+	args := []any{}
+	if runID != "" {
+		where = "run_id = ?"
+		args = append(args, runID)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT evaluation_run_id, run_id, schema_version, COALESCE(evaluated_at_utc, ''),
+		       COALESCE(env_id, ''), COALESCE(score_policy_id, ''), created_db_at_utc
+		FROM evaluation_runs
+		WHERE `+where+`
+		ORDER BY evaluated_at_utc DESC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBEvaluationRunItem
+	for rows.Next() {
+		var r DBEvaluationRunItem
+		if err := rows.Scan(&r.EvaluationRunID, &r.RunID, &r.SchemaVersion, &r.EvaluatedAtUTC,
+			&r.EnvID, &r.ScorePolicyID, &r.CreatedDBAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListEvaluationStages(ctx context.Context, evaluationRunID string, limit int) ([]DBEvaluationStageItem, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	where := "1=1"
+	args := []any{}
+	if evaluationRunID != "" {
+		where = "er.evaluation_run_id = ?"
+		args = append(args, evaluationRunID)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT sr.stage_result_id, sr.evaluation_result_id, sr.stage, sr.status,
+		       sr.exit_code, sr.duration_ms, sr.created_at_utc
+		FROM evaluation_stage_results sr
+		JOIN evaluation_results er ON er.evaluation_result_id = sr.evaluation_result_id
+		WHERE `+where+`
+		ORDER BY sr.created_at_utc DESC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBEvaluationStageItem
+	for rows.Next() {
+		var r DBEvaluationStageItem
+		var exitCode, duration sql.NullInt64
+		if err := rows.Scan(&r.StageResultID, &r.EvaluationResultID, &r.Stage, &r.Status,
+			&exitCode, &duration, &r.CreatedAtUTC); err != nil {
+			return nil, err
+		}
+		r.ExitCode = nullableSQLInt(exitCode)
+		r.DurationMS = nullableSQLInt(duration)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListDatasetSamples(ctx context.Context, language, class string, limit int) ([]DBDatasetSampleItem, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if language != "" {
+		where = append(where, "language = ?")
+		args = append(args, language)
+	}
+	if class != "" {
+		where = append(where, "class = ?")
+		args = append(args, class)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT sample_uid, sample_id, language, COALESCE(class, ''), COALESCE(scenario, ''),
+		       path, created_at_utc
+		FROM dataset_samples
+		WHERE `+strings.Join(where, " AND ")+`
+		ORDER BY created_at_utc DESC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBDatasetSampleItem
+	for rows.Next() {
+		var r DBDatasetSampleItem
+		if err := rows.Scan(&r.SampleUID, &r.SampleID, &r.Language, &r.Class, &r.Scenario,
+			&r.Path, &r.CreatedAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListDatasetSnapshots(ctx context.Context, limit int) ([]DBDatasetSnapshotItem, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT snapshot_id, fingerprint, sample_count, created_at_utc
+		FROM dataset_snapshots
+		ORDER BY created_at_utc DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBDatasetSnapshotItem
+	for rows.Next() {
+		var r DBDatasetSnapshotItem
+		if err := rows.Scan(&r.SnapshotID, &r.Fingerprint, &r.SampleCount, &r.CreatedAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListModelConfigs(ctx context.Context, limit int) ([]DBModelConfigItem, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT model_config_id, model_name, COALESCE(provider, ''), COALESCE(model_id, ''), created_at_utc
+		FROM model_configs
+		ORDER BY created_at_utc DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBModelConfigItem
+	for rows.Next() {
+		var r DBModelConfigItem
+		if err := rows.Scan(&r.ModelConfigID, &r.ModelName, &r.Provider, &r.ModelID, &r.CreatedAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListPromptProfiles(ctx context.Context, limit int) ([]DBPromptProfileItem, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT profile_id, COALESCE(strategy, ''), COALESCE(version_id, ''), created_at_utc
+		FROM prompt_profiles
+		ORDER BY created_at_utc DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBPromptProfileItem
+	for rows.Next() {
+		var r DBPromptProfileItem
+		if err := rows.Scan(&r.ProfileID, &r.Strategy, &r.VersionID, &r.CreatedAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListEvaluationEnvs(ctx context.Context, limit int) ([]DBEvaluationEnvItem, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT env_id, fingerprint, created_at_utc
+		FROM evaluation_envs
+		ORDER BY created_at_utc DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBEvaluationEnvItem
+	for rows.Next() {
+		var r DBEvaluationEnvItem
+		if err := rows.Scan(&r.EnvID, &r.Fingerprint, &r.CreatedAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListScorePolicies(ctx context.Context, limit int) ([]DBScorePolicyItem, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT score_policy_id, name, created_at_utc
+		FROM score_policies
+		ORDER BY created_at_utc DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBScorePolicyItem
+	for rows.Next() {
+		var r DBScorePolicyItem
+		if err := rows.Scan(&r.ScorePolicyID, &r.Name, &r.CreatedAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListReports(ctx context.Context, runID string, limit int) ([]DBReportItem, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	where := "1=1"
+	args := []any{}
+	if runID != "" {
+		where = "run_id = ?"
+		args = append(args, runID)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT report_id, run_id, COALESCE(generated_at_utc, ''), created_db_at_utc
+		FROM report_snapshots
+		WHERE `+where+`
+		ORDER BY generated_at_utc DESC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBReportItem
+	for rows.Next() {
+		var r DBReportItem
+		if err := rows.Scan(&r.ReportID, &r.RunID, &r.GeneratedAtUTC, &r.CreatedDBAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListRunArtifacts(ctx context.Context, runID string, limit int) ([]DBRunArtifactItem, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	where := "1=1"
+	args := []any{}
+	if runID != "" {
+		where = "run_id = ?"
+		args = append(args, runID)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT run_id, artifact_id, role, created_at_utc
+		FROM run_artifacts
+		WHERE `+where+`
+		ORDER BY created_at_utc DESC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBRunArtifactItem
+	for rows.Next() {
+		var r DBRunArtifactItem
+		if err := rows.Scan(&r.RunID, &r.ArtifactID, &r.Role, &r.CreatedAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListExperiments(ctx context.Context, limit int) ([]DBExperimentItem, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT experiment_id, name, COALESCE(description, ''), created_at_utc, updated_at_utc
+		FROM experiments
+		ORDER BY created_at_utc DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBExperimentItem
+	for rows.Next() {
+		var r DBExperimentItem
+		if err := rows.Scan(&r.ExperimentID, &r.Name, &r.Description, &r.CreatedAtUTC, &r.UpdatedAtUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ModelConfigInfo 模型配置信息（用于入库）
+type ModelConfigInfo struct {
+	Provider    string         `json:"provider"`
+	ModelID     string         `json:"model_id"`
+	APIEndpoint string         `json:"api_endpoint"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+// readModelConfigsFromYAML 从models.yaml读取模型配置
+func (s *SQLiteStore) readModelConfigsFromYAML(configPath string) map[string]ModelConfigInfo {
+	result := make(map[string]ModelConfigInfo)
+	if configPath == "" {
+		return result
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return result
+	}
+	var root map[string]any
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return result
+	}
+	models, ok := root["models"].(map[string]any)
+	if !ok {
+		return result
+	}
+	for name, v := range models {
+		node, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		cfg := ModelConfigInfo{}
+		cfg.Provider, _ = node["provider"].(string)
+		if config, ok := node["config"].(map[string]any); ok {
+			cfg.ModelID, _ = config["model"].(string)
+			cfg.APIEndpoint, _ = config["api_endpoint"].(string)
+			if params, ok := config["parameters"].(map[string]any); ok {
+				cfg.Parameters = params
+			}
+		}
+		result[name] = cfg
+	}
+	return result
 }
