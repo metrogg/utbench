@@ -784,11 +784,42 @@ func estimateCppAssertionDensity(testPath string) (int, int, float64) {
 	}
 	text := string(raw)
 
-	assertCount := strings.Count(text, "EXPECT_") + strings.Count(text, "ASSERT_")
+	// 统计各类断言（概念上都是验证点）
+	assertCount := 0
 
-	testPattern := regexp.MustCompile(`TEST\s*\(\s*[^,]+\s*,\s*[^)]+\s*\)`)
+	// 1. GoogleTest 断言宏
+	// EXPECT_*: 验证失败继续执行（软断言）
+	// ASSERT_*: 验证失败终止当前测试（硬断言）
+	assertCount += strings.Count(text, "EXPECT_")
+	assertCount += strings.Count(text, "ASSERT_")
+
+	// 2. gMock 验证（验证调用行为）
+	// EXPECT_CALL(mock, method()): 设置期望调用，测试结束时验证
+	// 这是 Mock 验证，概念上也是断言
+	assertCount += strings.Count(text, "EXPECT_CALL(")
+
+	// 3. Catch2 断言（另一个 C++ 测试框架）
+	// REQUIRE_*: 硬断言（失败终止）
+	// CHECK_*: 软断言（失败继续）
+	assertCount += strings.Count(text, "REQUIRE(")
+	assertCount += strings.Count(text, "CHECK(")
+	assertCount += strings.Count(text, "REQUIRE_")
+	assertCount += strings.Count(text, "CHECK_")
+
+	// 统计测试用例：TEST, TEST_F, TEST_P 宏
+	// GoogleTest 支持三种测试宏：
+	//   TEST(TestSuite, TestName) - 普通测试
+	//   TEST_F(TestFixture, TestName) - 固定测试（使用 fixture）
+	//   TEST_P(TestFixture, TestName) - 参数化测试
+	testPattern := regexp.MustCompile(`TEST(?:_F|_P)?\s*\(\s*[^,]+\s*,\s*[^)]+\s*\)`)
 	testMatches := testPattern.FindAllString(text, -1)
 	testCount := len(testMatches)
+
+	// 统计 Catch2 测试用例
+	// TEST_CASE("name") 或 TEST_CASE_METHOD(Fixture, "name")
+	catchPattern := regexp.MustCompile(`TEST_CASE(?:_METHOD)?\s*\(\s*`)
+	catchMatches := catchPattern.FindAllString(text, -1)
+	testCount += len(catchMatches)
 
 	if testCount <= 0 {
 		return assertCount, 0, 0

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"go-ut-bench/internal/orchestrator"
 	"go-ut-bench/internal/reporter"
 	"go-ut-bench/internal/runner"
+	"go-ut-bench/internal/store"
 )
 
 // RunStatus represents the lifecycle state of a benchmark run.
@@ -242,6 +244,31 @@ func (m *RunManager) execute(entry *RunEntry, spec contracts.RunSpec, opts orche
 	default:
 		entry.appendLog(fmt.Sprintf("[%s] FAILED: %v", logTS(), err))
 	}
+
+	m.ingestRunArtifacts(entry, spec)
+}
+
+func (m *RunManager) ingestRunArtifacts(entry *RunEntry, spec contracts.RunSpec) {
+	runDir := filepath.Join(m.outputRoot, "runs", spec.RunID)
+	sqliteStore, err := store.OpenSQLite(m.dbPath)
+	if err != nil {
+		entry.appendLog(fmt.Sprintf("[%s] db ingest skipped: open sqlite: %v", logTS(), err))
+		return
+	}
+	defer sqliteStore.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := sqliteStore.Init(ctx); err != nil {
+		entry.appendLog(fmt.Sprintf("[%s] db ingest skipped: init sqlite: %v", logTS(), err))
+		return
+	}
+	sum, err := sqliteStore.IngestRun(ctx, store.IngestRunOptions{RunDir: runDir})
+	if err != nil {
+		entry.appendLog(fmt.Sprintf("[%s] db ingest skipped: %v", logTS(), err))
+		return
+	}
+	entry.appendLog(fmt.Sprintf("[%s] db ingest ok: run=%s generated=%d evaluated=%d artifacts=%d",
+		logTS(), sum.RunID, sum.GenerationCases, sum.EvaluationResults, sum.ArtifactsIndexed))
 }
 
 // Pause 请求挂起任务。

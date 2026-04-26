@@ -87,8 +87,6 @@ func (s *Service) Run(ctx context.Context, spec contracts.RunSpec, opts Options)
 		evaluationPath = defaultEvaluationPath
 	}
 
-	var evalOut *evaluator.Output
-
 	// Phase "generate": discover samples and generate tests only.
 	if phase == "generate" || phase == "full" {
 		if err := s.dataset.ValidateSpec(spec); err != nil {
@@ -119,7 +117,6 @@ func (s *Service) Run(ctx context.Context, spec contracts.RunSpec, opts Options)
 		if err != nil {
 			return Result{}, err
 		}
-		evalOut = &out
 		evaluationPath = out.ResultPath
 	}
 
@@ -140,9 +137,10 @@ func (s *Service) Run(ctx context.Context, spec contracts.RunSpec, opts Options)
 		reportOut = &out
 	}
 
-	// Ingest only makes sense for full or evaluate phase
+	// Ingest the run directory into the v2 SQLite store. The store indexes the
+	// manifest, evaluation result, report and linked artifacts when present.
 	ingested := false
-	if opts.Ingest && (phase == "full" || phase == "evaluate") && evalOut != nil {
+	if opts.Ingest {
 		sqliteStore, err := store.OpenSQLite(opts.DBPath)
 		if err != nil {
 			return Result{}, err
@@ -152,7 +150,8 @@ func (s *Service) Run(ctx context.Context, spec contracts.RunSpec, opts Options)
 		if err := sqliteStore.Init(ctx); err != nil {
 			return Result{}, err
 		}
-		if err := sqliteStore.IngestEvaluation(ctx, evalOut.Result); err != nil {
+		runDir := filepath.Join(spec.OutputRoot, "runs", spec.RunID)
+		if _, err := sqliteStore.IngestRun(ctx, store.IngestRunOptions{RunDir: runDir}); err != nil {
 			return Result{}, err
 		}
 		ingested = true
@@ -160,8 +159,8 @@ func (s *Service) Run(ctx context.Context, spec contracts.RunSpec, opts Options)
 
 	// Build result paths
 	result := Result{
-		RunID:     spec.RunID,
-		Ingested:  ingested,
+		RunID:    spec.RunID,
+		Ingested: ingested,
 	}
 	if manifestPath != "" {
 		result.ManifestPath = manifestPath

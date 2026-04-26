@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -44,8 +45,10 @@ func main() {
 		err = runEvaluate(args)
 	case "report":
 		err = runReport(args)
+	case "db":
+		err = runDB(args)
 	case "ingest":
-		err = runIngest(args)
+		err = fmt.Errorf("utbench ingest has been replaced by `utbench db ingest-evaluation --evaluation <path>`")
 	case "dataset":
 		err = runDataset(args)
 	case "doctor":
@@ -74,7 +77,7 @@ Usage:
   utbench generate     Generate unit tests only
   utbench evaluate     Evaluate existing generated tests
   utbench report       Generate reports from evaluation results
-  utbench ingest       Ingest evaluation results into SQLite
+  utbench db           Manage SQLite benchmark database
   utbench dataset      Dataset management (index, manifest, stats)
   utbench doctor       Check evaluator toolchains with canary tests
   utbench web          Launch Web management UI
@@ -204,6 +207,7 @@ func runRun(args []string) error {
 	mode := fs.String("mode", "full", "Run mode (full, incremental)")
 	resetCheckpoint := fs.Bool("reset-checkpoint", false, "Reset checkpoint")
 	dryRun := fs.Bool("dry-run", false, "Dry run (skip API calls)")
+	reuseGenerated := fs.Bool("reuse-generated", false, "Reuse matching generated tests from SQLite before calling models")
 	mutationEnabled := fs.Bool("mutation-enabled", true, "Enable mutation testing")
 	mutationTimeout := fs.Int("mutation-timeout", 600, "Mutation timeout (seconds)")
 	mutationPolicy := fs.String("mutation-policy", "warn", "Mutation policy (warn, fail)")
@@ -234,6 +238,8 @@ func runRun(args []string) error {
 		Mode:            contracts.RunMode(*mode),
 		ResetCheckpoint: *resetCheckpoint,
 		DryRun:          *dryRun,
+		ReuseGenerated:  *reuseGenerated,
+		DBPath:          *dbPath,
 		MutationEnabled: *mutationEnabled,
 		MutationTimeout: *mutationTimeout,
 		MutationPolicy:  policy,
@@ -361,6 +367,7 @@ func runEvaluate(args []string) error {
 	mutationEnabled := fs.Bool("mutation-enabled", true, "Enable mutation testing")
 	mutationTimeout := fs.Int("mutation-timeout", 600, "Mutation timeout (seconds)")
 	mutationPolicy := fs.String("mutation-policy", "warn", "Mutation policy")
+	testTimeout := fs.Int("test-timeout", 180, "Test execution timeout (seconds)")
 	runID := fs.String("run-id", "", "Run ID")
 
 	if err := fs.Parse(args); err != nil {
@@ -380,6 +387,7 @@ func runEvaluate(args []string) error {
 		MutationEnabled: *mutationEnabled,
 		MutationTimeout: *mutationTimeout,
 		MutationPolicy:  policy,
+		TestTimeout:     *testTimeout,
 		RunID:           *runID,
 		CreatedAtUTC:    time.Now().UTC(),
 	}
@@ -441,51 +449,366 @@ func runReport(args []string) error {
 	return nil
 }
 
-func runIngest(args []string) error {
-	fs := flag.NewFlagSet("utbench ingest", flag.ContinueOnError)
+func runDB(args []string) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		printDBUsage()
+		return nil
+	}
+	switch args[0] {
+	case "init":
+		return runDBInit(args[1:])
+	case "ingest-manifest":
+		return runDBIngestManifest(args[1:])
+	case "ingest-evaluation":
+		return runDBIngestEvaluation(args[1:])
+	case "ingest-report":
+		return runDBIngestReport(args[1:])
+	case "ingest-run":
+		return runDBIngestRun(args[1:])
+	case "overview":
+		return runDBOverview(args[1:])
+	case "list-runs":
+		return runDBListRuns(args[1:])
+	case "list-results":
+		return runDBListResults(args[1:])
+	case "report":
+		return runDBReport(args[1:])
+	case "help", "-h", "--help":
+		printDBUsage()
+		return nil
+	default:
+		return fmt.Errorf("unknown db subcommand: %s", args[0])
+	}
+}
+
+func printDBUsage() {
+	fmt.Println(`Usage: utbench db <subcommand> [flags]
+
+Subcommands:
+  init                Initialize SQLite schema
+  ingest-manifest     Ingest generated_manifest.json and linked artifacts
+  ingest-evaluation   Ingest evaluation_result.json and linked manifest/artifacts
+  ingest-report       Ingest report_summary.json and linked report HTML
+  ingest-run          Ingest all known artifacts from artifacts/runs/<run-id>
+  overview            Print database counts and latest runs
+  list-runs           List runs stored in database
+  list-results        List evaluation results stored in database
+  report              Generate report from database-selected results`)
+}
+
+func openInitializedStore(ctx context.Context, dbPath string) (*store.SQLiteStore, error) {
+	sqliteStore, err := store.OpenSQLite(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	if err := sqliteStore.Init(ctx); err != nil {
+		_ = sqliteStore.Close()
+		return nil, fmt.Errorf("init sqlite: %w", err)
+	}
+	return sqliteStore, nil
+}
+
+func runDBInit(args []string) error {
+	fs := flag.NewFlagSet("utbench db init", flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Println("Usage: utbench ingest [flags]")
+		fmt.Println("Usage: utbench db init [flags]")
 		fmt.Println("Flags:")
 		fs.PrintDefaults()
 	}
-
-	verbose := fs.Bool("v", false, "Verbose output")
 	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
-	evaluationPath := fs.String("evaluation", "", "Path to evaluation_result.json (required)")
-
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	fmt.Printf("Initialized database: %s\n", *dbPath)
+	return nil
+}
 
+func runDBIngestManifest(args []string) error {
+	fs := flag.NewFlagSet("utbench db ingest-manifest", flag.ContinueOnError)
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	manifestPath := fs.String("manifest", "", "Path to generated_manifest.json (required)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *manifestPath == "" {
+		return fmt.Errorf("--manifest is required")
+	}
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	sum, err := sqliteStore.IngestManifestFile(ctx, *manifestPath)
+	if err != nil {
+		return fmt.Errorf("ingest manifest: %w", err)
+	}
+	printIngestSummary(sum, *dbPath)
+	return nil
+}
+
+func runDBIngestEvaluation(args []string) error {
+	fs := flag.NewFlagSet("utbench db ingest-evaluation", flag.ContinueOnError)
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	evaluationPath := fs.String("evaluation", "", "Path to evaluation_result.json (required)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	if *evaluationPath == "" {
 		return fmt.Errorf("--evaluation is required")
 	}
-
-	logger := obs.NewLogger(*verbose, "")
-	_ = logger
-
-	sqliteStore, err := store.OpenSQLite(*dbPath)
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
 	if err != nil {
-		return fmt.Errorf("open sqlite: %w", err)
+		return err
 	}
 	defer sqliteStore.Close()
-
-	ctx := context.Background()
-	if err := sqliteStore.Init(ctx); err != nil {
-		return fmt.Errorf("init sqlite: %w", err)
-	}
-
-	resultSet, err := contracts.ReadEvaluationResultSet(*evaluationPath)
+	sum, err := sqliteStore.IngestEvaluationFile(ctx, *evaluationPath)
 	if err != nil {
-		return fmt.Errorf("read evaluation: %w", err)
+		return fmt.Errorf("ingest evaluation: %w", err)
 	}
-
-	if err := sqliteStore.IngestEvaluation(ctx, resultSet); err != nil {
-		return fmt.Errorf("ingest: %w", err)
-	}
-
-	fmt.Printf("Ingested %d results into %s\n", len(resultSet.Results), *dbPath)
+	printIngestSummary(sum, *dbPath)
 	return nil
+}
+
+func runDBIngestReport(args []string) error {
+	fs := flag.NewFlagSet("utbench db ingest-report", flag.ContinueOnError)
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	reportPath := fs.String("report", "", "Path to report_summary.json (required)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *reportPath == "" {
+		return fmt.Errorf("--report is required")
+	}
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	sum, err := sqliteStore.IngestReportFile(ctx, *reportPath)
+	if err != nil {
+		return fmt.Errorf("ingest report: %w", err)
+	}
+	printIngestSummary(sum, *dbPath)
+	return nil
+}
+
+func runDBIngestRun(args []string) error {
+	fs := flag.NewFlagSet("utbench db ingest-run", flag.ContinueOnError)
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	outputRoot := fs.String("output-root", "./artifacts", "Output root directory")
+	runID := fs.String("run-id", "", "Run ID")
+	runDir := fs.String("run-dir", "", "Run directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	dir := *runDir
+	if dir == "" {
+		if *runID == "" {
+			return fmt.Errorf("--run-id or --run-dir is required")
+		}
+		dir = filepath.Join(*outputRoot, "runs", *runID)
+	}
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	sum, err := sqliteStore.IngestRun(ctx, store.IngestRunOptions{RunDir: dir})
+	if err != nil {
+		return fmt.Errorf("ingest run: %w", err)
+	}
+	printIngestSummary(sum, *dbPath)
+	return nil
+}
+
+func runDBOverview(args []string) error {
+	fs := flag.NewFlagSet("utbench db overview", flag.ContinueOnError)
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	limit := fs.Int("limit", 10, "Latest run limit")
+	jsonOut := fs.Bool("json", false, "Print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	overview, err := sqliteStore.Overview(ctx, *limit)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return printJSON(overview)
+	}
+	fmt.Printf("Database: %s\n", overview.DBPath)
+	fmt.Printf("  schema: %s\n", overview.SchemaVersion)
+	fmt.Printf("  generation_runs: %d\n", overview.GenerationRuns)
+	fmt.Printf("  evaluation_runs: %d\n", overview.EvaluationRuns)
+	fmt.Printf("  generated_cases: %d\n", overview.GeneratedCases)
+	fmt.Printf("  evaluation_results: %d\n", overview.EvaluationResults)
+	fmt.Printf("  artifacts: %d\n", overview.Artifacts)
+	fmt.Printf("  reports: %d\n", overview.Reports)
+	for _, r := range overview.LatestRuns {
+		fmt.Printf("  [run] %s generated=%d evaluated=%d models=%d langs=%d\n", r.RunID, r.GeneratedCases, r.EvaluationResults, r.Models, r.Languages)
+	}
+	return nil
+}
+
+func runDBListRuns(args []string) error {
+	fs := flag.NewFlagSet("utbench db list-runs", flag.ContinueOnError)
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	limit := fs.Int("limit", 50, "Limit")
+	jsonOut := fs.Bool("json", false, "Print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	rows, err := sqliteStore.ListRuns(ctx, *limit)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return printJSON(rows)
+	}
+	for _, r := range rows {
+		fmt.Printf("%s\tgenerated=%d\tevaluated=%d\tmodels=%d\tlangs=%d\n", r.RunID, r.GeneratedCases, r.EvaluationResults, r.Models, r.Languages)
+	}
+	return nil
+}
+
+func runDBListResults(args []string) error {
+	fs := flag.NewFlagSet("utbench db list-results", flag.ContinueOnError)
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	runID := fs.String("run-id", "", "Run ID filter")
+	model := fs.String("model", "", "Model filter")
+	lang := fs.String("lang", "", "Language filter")
+	limit := fs.Int("limit", 50, "Limit")
+	jsonOut := fs.Bool("json", false, "Print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	rows, err := sqliteStore.ListResults(ctx, *runID, *model, *lang, *limit)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return printJSON(rows)
+	}
+	for _, r := range rows {
+		testPass := "nil"
+		if r.TestPass != nil {
+			testPass = fmt.Sprintf("%v", *r.TestPass)
+		}
+		fmt.Printf("%s\t%s\t%s\t%s\tcompile=%v\ttest=%s\tmutation=%s\n", r.RunID, r.Model, r.Language, r.SampleID, r.CompilePass, testPass, formatNullableFloat(r.MutationScore))
+	}
+	return nil
+}
+
+func runDBReport(args []string) error {
+	fs := flag.NewFlagSet("utbench db report", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Println("Usage: utbench db report [flags]")
+		fmt.Println("Flags:")
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	outputRoot := fs.String("output-root", "./artifacts", "Output root directory")
+	configPath := fs.String("config", "./configs/models.yaml", "Model config path")
+	runIDs := fs.String("run-ids", "", "Comma-separated source run IDs")
+	evaluationRunIDs := fs.String("evaluation-run-ids", "", "Comma-separated evaluation run IDs")
+	models := fs.String("models", "", "Comma-separated model filter")
+	langs := fs.String("langs", "", "Comma-separated language filter")
+	runID := fs.String("run-id", "", "Output report run ID")
+	scoreEligibleOnly := fs.Bool("score-eligible-only", false, "Only include score-eligible rows")
+	ingestReport := fs.Bool("ingest-report", true, "Ingest generated DB report back into SQLite")
+	verbose := fs.Bool("v", false, "Verbose output")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	outRunID := strings.TrimSpace(*runID)
+	if outRunID == "" {
+		outRunID = contracts.NewRunID() + "_db_report"
+	}
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	filter := store.DBReportFilter{
+		RunIDs:            parseCommaList(*runIDs),
+		EvaluationRunIDs:  parseCommaList(*evaluationRunIDs),
+		Models:            parseCommaList(*models),
+		Languages:         parseCommaList(*langs),
+		ScoreEligibleOnly: *scoreEligibleOnly,
+	}
+	set, err := sqliteStore.SelectEvaluationResultSet(ctx, outRunID, filter)
+	if err != nil {
+		return fmt.Errorf("select db results: %w", err)
+	}
+	logger := obs.NewLogger(*verbose, filepath.Join(*outputRoot, "runs", outRunID, "logs"))
+	reporterSvc := reporter.NewService(logger)
+	spec := contracts.RunSpec{
+		RunID:      outRunID,
+		OutputRoot: *outputRoot,
+		ConfigPath: *configPath,
+	}
+	source := "db://" + *dbPath
+	output, err := reporterSvc.GenerateFromResultSet(spec, set, source)
+	if err != nil {
+		return fmt.Errorf("generate db report: %w", err)
+	}
+	if *ingestReport {
+		if _, err := sqliteStore.IngestReportFile(ctx, output.ReportJSONPath); err != nil {
+			return fmt.Errorf("ingest db report: %w", err)
+		}
+	}
+	fmt.Printf("DB report generated from %d results\n", len(set.Results))
+	fmt.Printf("Report JSON: %s\n", output.ReportJSONPath)
+	fmt.Printf("Report HTML: %s\n", output.ReportHTMLPath)
+	return nil
+}
+
+func printIngestSummary(sum store.IngestSummary, dbPath string) {
+	fmt.Printf("Ingested run %s into %s\n", sum.RunID, dbPath)
+	fmt.Printf("  manifest=%v evaluation=%v report=%v\n", sum.ManifestIngested, sum.EvaluationIngested, sum.ReportIngested)
+	fmt.Printf("  generated_cases=%d evaluation_results=%d artifacts=%d unavailable_artifacts=%d\n", sum.GenerationCases, sum.EvaluationResults, sum.ArtifactsIndexed, sum.UnavailableArtifacts)
+}
+
+func printJSON(v any) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+func formatNullableFloat(v *float64) string {
+	if v == nil {
+		return "nil"
+	}
+	return fmt.Sprintf("%.2f", *v)
 }
 
 func runDataset(args []string) error {

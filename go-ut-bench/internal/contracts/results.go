@@ -157,6 +157,106 @@ type ContinuationStats struct {
 	AvgContinuationRounds float64 `json:"avg_continuation_rounds"` // 平均续写轮数
 }
 
+// InsightItem 单条洞察结论
+type InsightItem struct {
+	Category string `json:"category"` // 类别：best_model, weak_scenario, language_gap, recommendation, benchmark
+	Title    string `json:"title"`    // 标题
+	Detail   string `json:"detail"`   // 详细说明
+	Icon     string `json:"icon"`     // 图标标识
+	Priority int    `json:"priority"` // 优先级（1最高）
+}
+
+// Insights 自动洞察结论集合
+type Insights struct {
+	BestModel      InsightItem   `json:"best_model"`       // 最佳模型洞察
+	WeakScenarios  []InsightItem `json:"weak_scenarios"`   // 弱项场景
+	StrongScenarios []InsightItem `json:"strong_scenarios"` // 强项场景
+	LanguageGaps   []InsightItem `json:"language_gaps"`    // 语言差异洞察
+	Recommendations []InsightItem `json:"recommendations"`  // 改进建议
+	BenchmarkNotes []InsightItem `json:"benchmark_notes"`  // 评测说明
+}
+
+// EfficiencyStats 效率统计
+type EfficiencyStats struct {
+	TokenEfficiency []TokenEfficiencyRow `json:"token_efficiency"` // Token效率排名（得分/1000token）
+	TimeEfficiency  []TimeEfficiencyRow  `json:"time_efficiency"`  // 时间效率排名（得分/秒）
+	CostEstimate    CostEstimate         `json:"cost_estimate"`    // 成本估算
+}
+
+// TokenEfficiencyRow Token效率数据
+type TokenEfficiencyRow struct {
+	Model         string  `json:"model"`          // 模型名称
+	ScorePerToken float64 `json:"score_per_token"` // 每千Token得分
+	AvgTokens     float64 `json:"avg_tokens"`      // 平均Token消耗
+	CompositeScore float64 `json:"composite_score"` // 综合得分
+	Rank          int     `json:"rank"`           // 效率排名
+}
+
+// TimeEfficiencyRow 时间效率数据
+type TimeEfficiencyRow struct {
+	Model         string  `json:"model"`          // 模型名称
+	ScorePerSecond float64 `json:"score_per_second"` // 每秒得分
+	AvgLatencyMS  float64 `json:"avg_latency_ms"`  // 平均延迟（毫秒）
+	CompositeScore float64 `json:"composite_score"` // 综合得分
+	Rank          int     `json:"rank"`           // 效率排名
+}
+
+// CostEstimate 成本估算
+type CostEstimate struct {
+	TotalTokens     int     `json:"total_tokens"`      // 总Token消耗
+	EstimatedCostUSD float64 `json:"estimated_cost_usd"` // 估算成本（美元）
+	ModelCostBreakdown []ModelCostRow `json:"model_cost_breakdown"` // 各模型成本分解
+}
+
+// ModelCostRow 模型成本数据
+type ModelCostRow struct {
+	Model       string  `json:"model"`        // 模型名称
+	TotalTokens int     `json:"total_tokens"` // 该模型总Token
+	AvgCostPerSample float64 `json:"avg_cost_per_sample"` // 平均每样本成本
+}
+
+// ErrorDiagnosis 错误诊断
+type ErrorDiagnosis struct {
+	CompileErrors  []ErrorCategory `json:"compile_errors"`  // 编译错误分类
+	TestErrors     []ErrorCategory `json:"test_errors"`     // 测试错误分类
+	MutationErrors []ErrorCategory `json:"mutation_errors"` // 变异错误分类
+	CommonPatterns []ErrorPattern  `json:"common_patterns"` // 常见错误模式
+	Recommendations []string       `json:"recommendations"` // 针对性改进建议
+}
+
+// ErrorCategory 错误分类
+type ErrorCategory struct {
+	Type        string   `json:"type"`         // 错误类型：syntax_error, import_error, type_error, etc
+	Count       int      `json:"count"`        // 出现次数
+	Rate        float64  `json:"rate"`         // 占比
+	ExampleMsg  string   `json:"example_msg"`  // 示例错误信息
+	AffectedModels []string `json:"affected_models"` // 受影响的模型
+	AffectedLangs  []string `json:"affected_langs"`  // 受影响的语言
+}
+
+// ErrorPattern 常见错误模式
+type ErrorPattern struct {
+	Pattern     string   `json:"pattern"`      // 错误模式描述
+	Count       int      `json:"count"`        // 出现次数
+	Advice      string   `json:"advice"`       // 改进建议
+}
+
+// RunConfig 运行配置信息
+type RunConfig struct {
+	Models         []string `json:"models"`          // 评测的模型列表
+	Languages      []string `json:"languages"`       // 评测的语言列表
+	DatasetClass   string   `json:"dataset_class"`   // 数据集类别
+	DatasetLevel   string   `json:"dataset_level"`   // 数据集难度级别
+	MaxSamples     int      `json:"max_samples"`     // 最大样本数
+	MutationEnabled bool    `json:"mutation_enabled"` // 是否启用变异测试
+	MaxTokens      int      `json:"max_tokens,omitempty"` // max_tokens 参数
+	Temperature    float64  `json:"temperature,omitempty"` // temperature 参数
+	PromptVersion  string   `json:"prompt_version"` // 提示词版本
+	StartedAtUTC   time.Time `json:"started_at_utc"` // 开始时间
+	EndedAtUTC     time.Time `json:"ended_at_utc"`   // 结束时间
+	DurationSeconds int     `json:"duration_seconds"` // 运行时长（秒）
+}
+
 // ReportPayload 报告的完整数据结构
 // 包含汇总信息、多维度分析和失败案例详情，用于生成可视化报告
 type ReportPayload struct {
@@ -176,9 +276,15 @@ type ReportPayload struct {
 	TokenStats        TokenStats          `json:"token_stats"`                   // Token 使用统计
 	Failures          []FailureRow        `json:"failures"`                      // 失败案例详情
 	ScoreExclusions   []ScoreExclusionRow `json:"score_exclusions,omitempty"`    // 排名剔除原因分布
+	ZeroMutantSamples []ZeroMutantSample  `json:"zero_mutant_samples,omitempty"` // 零变异体样本（源代码结构简单）
 	Thresholds        Thresholds          `json:"thresholds"`                    // 评估阈值配置
 	Prompts           map[string]string   `json:"prompts"`                       // 按语言的提示词模板（key为语言，如"python"）
 	TruncationStats   TruncationStats     `json:"truncation_stats"`              // 截断统计信息
+	// 新增字段
+	Insights          Insights            `json:"insights,omitempty"`            // 自动洞察结论
+	EfficiencyStats   EfficiencyStats     `json:"efficiency_stats,omitempty"`    // 效率统计
+	ErrorDiagnosis    ErrorDiagnosis      `json:"error_diagnosis,omitempty"`     // 错误诊断
+	RunConfig         RunConfig           `json:"run_config,omitempty"`          // 运行配置信息
 }
 
 // Dimensions 多维度分析数据
@@ -208,6 +314,7 @@ type ModelDim struct {
 	AvgPromptTokens     float64 `json:"avg_prompt_tokens,omitempty"`     // 平均提示词Token
 	AvgCompletionTokens float64 `json:"avg_completion_tokens,omitempty"` // 平均生成Token
 	AvgTotalTokens      float64 `json:"avg_total_tokens,omitempty"`      // 平均总Token
+	AvgAssertionDensity float64 `json:"avg_assertion_density,omitempty"` // 平均断言密度（断言数/测试用例数）
 }
 
 // LanguageDim 按语言维度的分析结果
@@ -240,6 +347,8 @@ type ModelRank struct {
 	AvgPromptTokens     float64 `json:"avg_prompt_tokens,omitempty"`     // 平均提示词Token
 	AvgCompletionTokens float64 `json:"avg_completion_tokens,omitempty"` // 平均生成Token
 	AvgTotalTokens      float64 `json:"avg_total_tokens,omitempty"`      // 平均总Token
+	AvgAssertionDensity float64 `json:"avg_assertion_density,omitempty"` // 平均断言密度
+	TotalSamples        int     `json:"total_samples"`                   // 样本总数
 }
 
 // FailureRow 失败案例详情
@@ -261,6 +370,16 @@ type ScoreExclusionRow struct {
 	ExampleModel   string `json:"example_model,omitempty"`   // 示例模型
 	ExampleSample  string `json:"example_sample,omitempty"`  // 示例样本
 	ExampleMessage string `json:"example_message,omitempty"` // 示例说明
+}
+
+// ZeroMutantSample 记录因源代码结构简单无法产生变异体的样本
+type ZeroMutantSample struct {
+	SampleID    string `json:"sample_id"`             // 样本ID
+	Language    string `json:"language"`              // 语言
+	SourcePath  string `json:"source_path"`           // 源文件路径
+	Reason      string `json:"reason"`                // 原因说明（如：无条件语句、无算术运算等）
+	ExampleMsg  string `json:"example_msg,omitempty"` // 变异工具返回的消息
+	Count       int    `json:"count"`                 // 出现次数（多个模型遇到同一样本）
 }
 
 // Thresholds 评估阈值配置

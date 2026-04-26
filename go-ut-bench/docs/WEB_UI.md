@@ -76,7 +76,7 @@ utbench web [flags]
 | 空跑模式 | 复选框 | 跳过真实 API 调用，验证流程 |
 | 变异测试 | 复选框 | 开启 mutmut/go-mutesting/pitest/mull |
 | 变异超时 | 数字输入 | 秒数，默认 1800 |
-| 入库保存 | 复选框 | 完成后自动 ingest 到 SQLite |
+| 入库保存 | 复选框 | 完成后自动写入 v2 SQLite 数据库 |
 | Docker 执行 | 复选框 | 在 `utbench:latest` 容器中运行（Windows 下 mutmut/mull 必需） |
 
 提交后自动跳转到任务详情页，开始实时跟踪日志。
@@ -87,6 +87,19 @@ utbench web [flags]
 - 支持按 **任务 ID / 模型名 / 语言** 文本过滤
 - 支持按 **状态** 过滤：等待中 / 运行中 / 已完成 / 失败
 - 显示模型、语言、场景、样本上限、开始时间、耗时
+
+### 数据管理
+
+面向可复现评测和横向对比的数据管理入口：
+
+- 查看当前 SQLite 数据库路径和核心计数：生成运行、评测运行、生成样本、评测结果、artifact、报告
+- 列出数据库中的运行记录，点击某个 run 可联动筛选评测结果和 artifact
+- 查看评测结果表：模型、语言、样本、编译、测试、覆盖率、变异分
+- 查看 artifact 索引：`generated_manifest`、`generated_test`、`model_response`、`generation_metadata`、`evaluation_result`、`report_summary`、`report_html` 等
+- 输入已有 `run_id` 可补录 `artifacts/runs/<run_id>` 中的 manifest、evaluation、report 和关联 artifact
+- 按当前 run/model/language 筛选生成新的数据库报告，用于把多个历史运行中的模型结果放到同一份报告中比较
+
+数据库 schema 见 [database-design.md](database-design.md)。Web 仍会保留基于 `artifacts/runs` 的任务列表，数据库页负责长期保存和跨运行查询。
 
 ### 任务详情
 
@@ -169,6 +182,7 @@ utbench web [flags]
 | `internal/web/docker_runner.go` | Docker 容器执行后端，自动挂载产物目录 |
 | `internal/web/env_handlers.go` | `/api/env` 和 `/api/env/build-image` API 端点 |
 | `internal/web/static/index.html` | 完整 SPA：Alpine.js 状态管理 + Tailwind 样式 + Chart.js 可视化 |
+| `internal/store/sqlite.go` | v2 SQLite schema、manifest/evaluation/report 入库和数据库查询接口 |
 
 ---
 

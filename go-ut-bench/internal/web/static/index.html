@@ -308,8 +308,12 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
             <div class="section-title">执行设置</div>
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="label-text">最大样本数 <span class="font-normal" style="color:var(--fg-subtle)">（0 = 无限制）</span></label>
+                <label class="label-text">每语言/场景样本上限 <span class="font-normal" style="color:var(--fg-subtle)">（0 = 无限制）</span></label>
                 <input x-model.number="form.max_samples" type="number" min="0" class="input-base">
+                <div class="text-[11px] mt-1" style="color:var(--fg-subtle)">
+                  预计生成任务：<span style="color:var(--fg)" x-text="estimatedTaskCount"></span>
+                  <span x-text="estimatedTaskFormula"></span>
+                </div>
               </div>
               <div>
                 <label class="label-text">并发数 <span class="font-normal" style="color:var(--fg-subtle)">（0 = 自动）</span></label>
@@ -338,7 +342,14 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                 <input type="checkbox" x-model="form.ingest" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
                 <div>
                   <div class="text-[13px] font-medium">入库保存</div>
-                  <div class="text-[12px]" style="color:var(--fg-muted)">将结果写入 SQLite</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">完成后写入 SQLite，供数据管理和跨运行报告使用</div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors">
+                <input type="checkbox" x-model="form.reuse_generated" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
+                <div>
+                  <div class="text-[13px] font-medium">复用历史生成</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">同模型、同源码、同 prompt 版本时复用数据库里的测试代码</div>
                 </div>
               </label>
               <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors"
@@ -388,7 +399,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
             <thead>
               <tr>
                 <th>任务 ID</th><th>状态</th><th>模型</th><th>语言</th><th>场景</th><th>样本数</th>
-                <th>启动时间</th><th>耗时</th><th style="width:160px" class="text-right">操作</th>
+                <th>启动时间</th><th>耗时</th><th style="width:210px" class="text-right">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -415,6 +426,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                         <button @click.stop="runControl(run.run_id, 'cancel')" class="text-[12px]" style="color:var(--red)" title="取消">取消</button>
                       </span>
                     </template>
+                    <button x-show="run.status === 'completed' || run.status === 'failed' || run.status === 'canceled'" @click.stop="ingestRunToDB(run.run_id)" :disabled="dbIngesting" class="text-[12px] mr-2" style="color:var(--green)" title="补录该任务到数据库">入库</button>
                     <button @click.stop="rerunRun(run.run_id)" class="text-[12px] mr-2" style="color:var(--yellow)" title="以相同配置再跑一次">重跑</button>
                     <button @click.stop="openRun(run.run_id)" class="text-[12px]" style="color:var(--accent)">详情 →</button>
                   </td>
@@ -422,6 +434,165 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
               </template>
             </tbody>
           </table>
+        </div>
+      </div>
+      <!-- DATABASE -->
+      <div x-show="page === 'database'" class="max-w-none animate-fadeUp">
+        <div class="flex flex-wrap items-center gap-3 mb-4">
+          <div class="text-[12px]" style="color:var(--fg-muted)">
+            数据库: <code class="font-mono text-[11px]" x-text="dbOverview?.db_path || './storage/utbench.db'"></code>
+            <span x-show="dbLoading" class="ml-2">· 加载中...</span>
+          </div>
+          <input x-model="dbIngestRunID" type="text" placeholder="输入 run_id 补录已有结果" class="input-base w-72 ml-auto">
+          <button @click="ingestRunToDB()" :disabled="dbIngesting || !dbIngestRunID" class="btn-warm text-[12px]">
+            <span x-text="dbIngesting ? '入库中...' : '补录任务'"></span>
+          </button>
+          <button @click="generateDBReport()" :disabled="dbReportGenerating" class="btn-primary text-[12px]">
+            <span x-text="dbReportGenerating ? '生成中...' : '按当前筛选生成报告'"></span>
+          </button>
+          <button @click="loadDatabase()" class="btn-ghost text-[12px]">刷新</button>
+        </div>
+
+        <div class="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-5">
+          <template x-for="card in dbCards" :key="card.label">
+            <div class="kpi-card">
+              <div class="kpi-value" :class="card.color" x-text="card.value"></div>
+              <div class="kpi-label" x-text="card.label"></div>
+            </div>
+          </template>
+        </div>
+
+        <div class="form-section mb-5">
+          <div class="section-title flex items-center justify-between">
+            <span>数据库报告选择</span>
+            <span class="text-[11px] font-normal" style="color:var(--fg-muted)" x-text="dbReportSelectionSummary"></span>
+          </div>
+          <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div>
+              <div class="label-text">来源运行</div>
+              <div class="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                <template x-for="run in dbFacets.runs" :key="run.evaluation_run_id">
+                  <label class="flex items-start gap-2 text-[12px] cursor-pointer p-1.5 rounded hover-surface">
+                    <input type="checkbox" :checked="dbReportSelection.run_ids.includes(run.run_id)" @change="toggleReportSelection('run_ids', run.run_id)" class="mt-0.5" style="accent-color:var(--accent)">
+                    <span class="min-w-0">
+                      <span class="font-mono block truncate" x-text="run.run_id"></span>
+                      <span style="color:var(--fg-muted)" x-text="`${run.evaluation_results} results · ${run.prompt_version_id || 'prompt unknown'}`"></span>
+                    </span>
+                  </label>
+                </template>
+                <div x-show="!dbFacets.runs.length" class="text-[12px]" style="color:var(--fg-muted)">暂无可选运行</div>
+              </div>
+            </div>
+            <div>
+              <div class="label-text">模型</div>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="m in dbFacets.models" :key="m">
+                  <button @click="toggleReportSelection('models', m)" class="chip" :class="dbReportSelection.models.includes(m) ? 'active' : ''" x-text="m"></button>
+                </template>
+              </div>
+              <div class="label-text mt-4">语言</div>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="lang in dbFacets.languages" :key="lang">
+                  <button @click="toggleReportSelection('languages', lang)" class="chip" :class="dbReportSelection.languages.includes(lang) ? 'active' : ''" x-text="lang"></button>
+                </template>
+              </div>
+            </div>
+            <div>
+              <div class="label-text">环境一致性</div>
+              <div class="text-[12px] p-3 rounded-lg" :style="dbEnvWarning ? 'background:var(--warn-bg);color:var(--yellow)' : 'background:var(--success-bg);color:var(--green)'">
+                <span x-text="dbEnvWarning || '当前数据库结果处于同一评测环境分组，可作为正式排名候选。'"></span>
+              </div>
+              <label class="flex items-center gap-2 text-[12px] mt-3 cursor-pointer">
+                <input type="checkbox" x-model="dbReportSelection.score_eligible_only" style="accent-color:var(--accent)">
+                <span>仅使用 score_eligible=true 的样本</span>
+              </label>
+              <div class="flex gap-2 mt-4">
+                <button @click="clearReportSelection()" class="btn-ghost text-[12px]">清空选择</button>
+                <button @click="generateDBReport()" :disabled="dbReportGenerating" class="btn-primary text-[12px]">
+                  <span x-text="dbReportGenerating ? '生成中...' : '生成对比报告'"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+          <div class="form-section p-0 overflow-hidden">
+            <div class="px-5 py-3.5 border-b flex items-center justify-between" style="border-color:var(--border)">
+              <span class="text-[13px] font-medium">数据库运行</span>
+              <span class="text-[11px]" style="color:var(--fg-muted)" x-text="dbRuns.length + ' 条'"></span>
+            </div>
+            <table class="data-table">
+              <thead><tr><th>Run ID</th><th>模型</th><th>语言</th><th>生成</th><th>评测</th><th>报告</th></tr></thead>
+              <tbody>
+                <template x-for="row in dbRuns" :key="row.run_id">
+                  <tr @click="selectDBRun(row.run_id)">
+                    <td class="font-mono text-[12px]" style="color:var(--fg-muted)" x-text="row.run_id"></td>
+                    <td x-text="row.models"></td>
+                    <td x-text="row.languages"></td>
+                    <td x-text="row.generated_cases"></td>
+                    <td x-text="row.evaluation_results"></td>
+                    <td x-text="row.reports"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div x-show="!dbRuns.length" class="px-5 py-10 text-center text-[13px]" style="color:var(--fg-muted)">暂无数据库运行记录</div>
+          </div>
+
+          <div class="form-section p-0 overflow-hidden">
+            <div class="px-5 py-3.5 border-b flex flex-wrap items-center gap-2" style="border-color:var(--border)">
+              <span class="text-[13px] font-medium mr-auto">评测结果</span>
+              <input x-model="dbFilters.run_id" @change="loadDBResults()" type="text" placeholder="run_id" class="input-base w-56 font-mono text-[11px]">
+              <input x-model="dbFilters.model" @change="loadDBResults()" type="text" placeholder="model" class="input-base w-36">
+              <select x-model="dbFilters.language" @change="loadDBResults()" class="input-base w-28">
+                <option value="">全部语言</option>
+                <option value="python">python</option>
+                <option value="go">go</option>
+                <option value="java">java</option>
+                <option value="cpp">cpp</option>
+              </select>
+            </div>
+            <table class="data-table">
+              <thead><tr><th>模型</th><th>语言</th><th>样本</th><th>编译</th><th>测试</th><th>覆盖</th><th>变异</th></tr></thead>
+              <tbody>
+                <template x-for="row in dbResults" :key="row.evaluation_result_id">
+                  <tr>
+                    <td x-text="row.model"></td>
+                    <td x-text="row.language"></td>
+                    <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.sample_id"></td>
+                    <td :style="row.compile_pass ? 'color:var(--green)' : 'color:var(--red)'" x-text="row.compile_pass ? 'PASS' : 'FAIL'"></td>
+                    <td :style="row.test_pass ? 'color:var(--green)' : 'color:var(--red)'" x-text="row.test_pass == null ? '—' : (row.test_pass ? 'PASS' : 'FAIL')"></td>
+                    <td x-text="metricPct(row.line_coverage)"></td>
+                    <td x-text="metricPct(row.mutation_score)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div x-show="!dbResults.length" class="px-5 py-10 text-center text-[13px]" style="color:var(--fg-muted)">暂无结果记录</div>
+          </div>
+        </div>
+
+        <div class="form-section p-0 overflow-hidden mt-5">
+          <div class="px-5 py-3.5 border-b flex flex-wrap items-center gap-2" style="border-color:var(--border)">
+            <span class="text-[13px] font-medium mr-auto">Artifact 索引</span>
+            <input x-model="dbArtifactFilters.run_id" @change="loadDBArtifacts()" type="text" placeholder="run_id" class="input-base w-56 font-mono text-[11px]">
+            <input x-model="dbArtifactFilters.kind" @change="loadDBArtifacts()" type="text" placeholder="kind" class="input-base w-40">
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Kind</th><th>Path</th><th>Size</th><th>SHA256</th></tr></thead>
+            <tbody>
+              <template x-for="row in dbArtifacts" :key="row.artifact_id">
+                <tr>
+                  <td x-text="row.kind"></td>
+                  <td class="font-mono text-[11px]" style="color:var(--fg-muted);overflow-wrap:anywhere" x-text="row.path"></td>
+                  <td x-text="fmtBytes(row.size_bytes)"></td>
+                  <td class="font-mono text-[11px]" style="color:var(--fg-subtle)" x-text="row.sha256.slice(0, 16)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div x-show="!dbArtifacts.length" class="px-5 py-10 text-center text-[13px]" style="color:var(--fg-muted)">暂无 artifact 记录</div>
         </div>
       </div>
       <!-- ENVIRONMENT -->
@@ -702,6 +873,9 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                 <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="regenerateReport(currentRun.run_id)" :disabled="runActionBusy === 'report'" class="btn-ghost" style="color:var(--green)" title="根据 evaluation_result.json 重新生成报告">
                   <span x-text="runActionBusy === 'report' ? '生成中...' : '从 JSON 生成报告'"></span>
                 </button>
+                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="ingestRunToDB(currentRun.run_id)" :disabled="dbIngesting" class="btn-ghost" style="color:var(--green)" title="补录该任务到数据库">
+                  <span x-text="dbIngesting ? '入库中...' : '入库'"></span>
+                </button>
                 <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="rerunRun(currentRun.run_id)" class="btn-ghost" style="color:var(--yellow)" title="以相同配置再跑一次">重跑</button>
                 <button @click="goto('runs')" class="btn-ghost">返回</button>
                 <button x-show="currentRun.status === 'completed'" @click="openHtmlReport()" class="btn-warm text-[12px]">
@@ -981,6 +1155,7 @@ function app() {
       { id:'dashboard', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>', label:'总览' },
       { id:'new-run',   icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>', label:'新建任务' },
       { id:'runs',      icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>', label:'任务列表' },
+      { id:'database',  icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>', label:'数据管理' },
       // { id:'environment', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-5"/></svg>', label:'环境检查' },
       { id:'models',    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 10v6m11-11h-6m-10 0H1m15.5-6.5l-4.25 4.25M7.75 16.25L3.5 20.5M20.5 20.5l-4.25-4.25M7.75 7.75L3.5 3.5"/></svg>', label:'模型管理' },
     ],
@@ -989,11 +1164,23 @@ function app() {
     runsLoading: false,
     runFilter: '',
     statusFilter: '',
+    dbOverview: null,
+    dbRuns: [],
+    dbResults: [],
+    dbArtifacts: [],
+    dbFacets: { runs: [], models: [], languages: [], env_groups: [] },
+    dbLoading: false,
+    dbIngesting: false,
+    dbReportGenerating: false,
+    dbIngestRunID: '',
+    dbFilters: { run_id:'', model:'', language:'' },
+    dbArtifactFilters: { run_id:'', kind:'' },
+    dbReportSelection: { run_ids: [], models: [], languages: [], score_eligible_only: false },
     form: {
       run_id:'', models:[], languages:[], class:'self_contained', scenario:'', level:'',
       max_samples:5, workers:0, mode:'full', phase:'full', source_run_id:'', manifest_path:'', evaluation_path:'',
-      dry_run:false, mutation_enabled:false,
-      mutation_timeout:1800, mutation_policy:'warn', ingest:false, use_docker:false,
+      dry_run:false, reuse_generated:true, mutation_enabled:false,
+      mutation_timeout:1800, mutation_policy:'warn', ingest:true, use_docker:false,
     },
     env: null,
     envChecking: false,
@@ -1052,7 +1239,9 @@ function app() {
       await this.loadModels()
       await this.loadEnv()
       await this.loadRuns()
+      await this.loadDatabase()
       setInterval(() => this.loadRuns(), 4000)
+      setInterval(() => this.loadDatabase(), 12000)
       setInterval(() => this.loadEnv(), 15000)
     },
 
@@ -1262,6 +1451,184 @@ function app() {
       return this.runs.filter(r => r.status === 'completed')
     },
 
+    get selectedScenarioCount() {
+      if (this.form.phase !== 'full' && this.form.phase !== 'generate') return 0
+      if (this.form.scenario) return 1
+      return (this.config?.scenarios ?? []).length || 4
+    },
+
+    get selectedLanguageCount() {
+      return this.form.languages.length
+    },
+
+    get selectedModelCount() {
+      return this.form.models.length
+    },
+
+    get estimatedTaskCount() {
+      const samples = Number(this.form.max_samples || 0)
+      if (samples <= 0 || this.selectedModelCount === 0 || this.selectedLanguageCount === 0) return '—'
+      return this.selectedModelCount * this.selectedLanguageCount * this.selectedScenarioCount * samples
+    },
+
+    get estimatedTaskFormula() {
+      const samples = Number(this.form.max_samples || 0)
+      if (samples <= 0) return '（样本无限制，实际数量由数据集决定）'
+      return `（${this.selectedModelCount} 模型 × ${this.selectedLanguageCount} 语言 × ${this.selectedScenarioCount} 场景 × ${samples} 样本）`
+    },
+
+    async loadDatabase() {
+      this.dbLoading = true
+      try {
+        const [overview, runs, results, artifacts, facets] = await Promise.all([
+          fetch('/api/db/overview?limit=8', { cache: 'no-store' }).then(r => r.json()),
+          fetch('/api/db/runs?limit=50', { cache: 'no-store' }).then(r => r.json()),
+          fetch('/api/db/results?limit=80', { cache: 'no-store' }).then(r => r.json()),
+          fetch('/api/db/artifacts?limit=80', { cache: 'no-store' }).then(r => r.json()),
+          fetch('/api/db/facets?limit=100', { cache: 'no-store' }).then(r => r.json()),
+        ])
+        this.dbOverview = overview
+        this.dbRuns = Array.isArray(runs) ? runs : []
+        this.dbResults = Array.isArray(results) ? results : []
+        this.dbArtifacts = Array.isArray(artifacts) ? artifacts : []
+        this.dbFacets = facets && !facets.error ? facets : { runs: [], models: [], languages: [], env_groups: [] }
+      } catch(e) {
+        this.showToast('加载数据库失败：' + (e.message || String(e)), 'err')
+      } finally {
+        this.dbLoading = false
+      }
+    },
+
+    async loadDBResults() {
+      const q = new URLSearchParams()
+      if (this.dbFilters.run_id) q.set('run_id', this.dbFilters.run_id)
+      if (this.dbFilters.model) q.set('model', this.dbFilters.model)
+      if (this.dbFilters.language) q.set('language', this.dbFilters.language)
+      q.set('limit', '120')
+      try {
+        const r = await fetch('/api/db/results?' + q.toString(), { cache: 'no-store' })
+        this.dbResults = await r.json()
+      } catch(e) { this.showToast('加载结果失败：' + (e.message || String(e)), 'err') }
+    },
+
+    async loadDBArtifacts() {
+      const q = new URLSearchParams()
+      if (this.dbArtifactFilters.run_id) q.set('run_id', this.dbArtifactFilters.run_id)
+      if (this.dbArtifactFilters.kind) q.set('kind', this.dbArtifactFilters.kind)
+      q.set('limit', '120')
+      try {
+        const r = await fetch('/api/db/artifacts?' + q.toString(), { cache: 'no-store' })
+        this.dbArtifacts = await r.json()
+      } catch(e) { this.showToast('加载 artifact 失败：' + (e.message || String(e)), 'err') }
+    },
+
+    selectDBRun(runID) {
+      this.dbFilters.run_id = runID
+      this.dbArtifactFilters.run_id = runID
+      if (!this.dbReportSelection.run_ids.includes(runID)) {
+        this.dbReportSelection.run_ids = [runID]
+      }
+      this.loadDBResults()
+      this.loadDBArtifacts()
+    },
+
+    async ingestRunToDB(runID = '') {
+      const targetRunID = runID || this.dbIngestRunID
+      if (!targetRunID || this.dbIngesting) return
+      this.dbIngesting = true
+      try {
+        const r = await fetch('/api/db/ingest-run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ run_id: targetRunID }),
+        })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.showToast(`已入库 ${data.run_id} · 结果 ${data.evaluation_results || 0} 条`, 'ok')
+        if (!runID) this.dbIngestRunID = ''
+        await this.loadDatabase()
+      } catch(e) {
+        this.showToast('入库失败：' + (e.message || String(e)), 'err', 6000)
+      } finally {
+        this.dbIngesting = false
+      }
+    },
+
+    async generateDBReport() {
+      if (this.dbReportGenerating) return
+      this.dbReportGenerating = true
+      try {
+        const body = {
+          source_run_ids: this.dbReportSelection.run_ids.length ? this.dbReportSelection.run_ids : (this.dbFilters.run_id ? [this.dbFilters.run_id] : []),
+          models: this.dbReportSelection.models.length ? this.dbReportSelection.models : (this.dbFilters.model ? [this.dbFilters.model] : []),
+          languages: this.dbReportSelection.languages.length ? this.dbReportSelection.languages : (this.dbFilters.language ? [this.dbFilters.language] : []),
+          score_eligible_only: !!this.dbReportSelection.score_eligible_only,
+        }
+        const r = await fetch('/api/db/report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.showToast(`DB 报告已生成：${data.result_count || 0} 条结果`, 'ok')
+        await this.loadRuns()
+        await this.loadDatabase()
+      } catch(e) {
+        this.showToast('生成 DB 报告失败：' + (e.message || String(e)), 'err', 6000)
+      } finally {
+        this.dbReportGenerating = false
+      }
+    },
+
+    toggleReportSelection(key, value) {
+      const list = this.dbReportSelection[key] || []
+      if (list.includes(value)) {
+        this.dbReportSelection[key] = list.filter(v => v !== value)
+      } else {
+        this.dbReportSelection[key] = [...list, value]
+      }
+    },
+
+    clearReportSelection() {
+      this.dbReportSelection = { run_ids: [], models: [], languages: [], score_eligible_only: false }
+    },
+
+    get dbReportSelectionSummary() {
+      const s = this.dbReportSelection
+      const runs = s.run_ids.length || '全部'
+      const models = s.models.length || '全部'
+      const langs = s.languages.length || '全部'
+      return `运行 ${runs} · 模型 ${models} · 语言 ${langs}`
+    },
+
+    get selectedDBReportRuns() {
+      const selected = this.dbReportSelection.run_ids
+      if (!selected.length) return this.dbFacets.runs || []
+      return (this.dbFacets.runs || []).filter(r => selected.includes(r.run_id))
+    },
+
+    get dbEnvWarning() {
+      const runs = this.selectedDBReportRuns
+      if (!runs.length) return ''
+      const envs = [...new Set(runs.map(r => r.env_id || 'unknown'))]
+      if (envs.length > 1) return `当前选择包含 ${envs.length} 个评测环境，报告只能作为参考，不建议作为正式排名。`
+      if (envs[0] === 'unknown' || envs[0] === 'evaluation_env_2c26b46b68ffc68f') return '当前环境 fingerprint 仍是基础占位；正式复用前还需要记录 Docker digest 和工具版本。'
+      return ''
+    },
+
+    get dbCards() {
+      const d = this.dbOverview || {}
+      return [
+        { label:'生成运行', value:d.generation_runs ?? 0, color:'kpi-total' },
+        { label:'评测运行', value:d.evaluation_runs ?? 0, color:'kpi-running' },
+        { label:'生成样本', value:d.generated_cases ?? 0, color:'kpi-completed' },
+        { label:'评测结果', value:d.evaluation_results ?? 0, color:'kpi-completed' },
+        { label:'Artifacts', value:d.artifacts ?? 0, color:'kpi-total' },
+        { label:'报告', value:d.reports ?? 0, color:'kpi-running' },
+      ]
+    },
+
     get dashStats() {
       const total = this.runs.length
       const running = this.runs.filter(r => r.status === 'running').length
@@ -1308,10 +1675,11 @@ function app() {
     goto(id) {
       this.stopSSE(); this.page = id
       if (id === 'models') this.loadModels()
+      if (id === 'database') this.loadDatabase()
       if (id === 'environment' && !this.environment) this.loadEnvironment()
     },
     get pageTitle() {
-      const map = { dashboard:'总览', 'new-run':'新建任务', runs:'任务列表', 'run-detail':'任务详情', environment:'环境检查', models:'模型管理' }
+      const map = { dashboard:'总览', 'new-run':'新建任务', runs:'任务列表', database:'数据管理', 'run-detail':'任务详情', environment:'环境检查', models:'模型管理' }
       return map[this.page] ?? ''
     },
 
@@ -1564,11 +1932,16 @@ function app() {
 
     startSSE(runId) {
       this.sseSource = new EventSource(`/api/runs/${runId}/events`)
-      this.sseSource.onmessage = (e) => {
+      this.sseSource.onmessage = async (e) => {
         try {
           const obj = JSON.parse(e.data)
           if (obj.type === 'log') { this.currentLogs.push(obj.payload); this.$nextTick(() => this.scrollLogsBottom()) }
-          else if (obj.type === 'done') { this.stopSSE(); if (this.currentRun) this.currentRun.status = obj.payload; this.loadRuns() }
+          else if (obj.type === 'done') {
+            this.stopSSE()
+            if (this.currentRun) this.currentRun.status = obj.payload
+            await this.loadRuns()
+            await this.loadDatabase()
+          }
         } catch {}
       }
       this.sseSource.onerror = () => this.stopSSE()
@@ -1658,12 +2031,22 @@ function app() {
     },
     pct(v) { return pct(v) },
     pctColor(v) { return pctColor(v) },
+    metricPct(v) {
+      if (v == null) return '—'
+      return (v > 1 ? v : v * 100).toFixed(1) + '%'
+    },
     fmtInt(v) { return (v==null || v===0) ? '—' : Math.round(v).toLocaleString('zh-CN') },
     fmtMs(v) {
       if (v==null || v===0) return '—'
       if (v < 1000) return Math.round(v) + 'ms'
       if (v < 60000) return (v/1000).toFixed(1) + 's'
       return (v/60000).toFixed(1) + 'm'
+    },
+    fmtBytes(v) {
+      if (v == null) return '—'
+      if (v < 1024) return v + ' B'
+      if (v < 1024 * 1024) return (v / 1024).toFixed(1) + ' KB'
+      return (v / 1024 / 1024).toFixed(1) + ' MB'
     },
 
     renderRadar() {

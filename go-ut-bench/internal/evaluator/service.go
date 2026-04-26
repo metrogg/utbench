@@ -824,18 +824,18 @@ func finalizeEvaluationResult(row *contracts.EvaluationResult, start time.Time) 
 }
 
 func ensureTestCountsFromPass(row *contracts.EvaluationResult) {
-	if row.TestPass == nil || row.TestPassCount != nil || row.TestTotalCount != nil {
+	// 如果已经有用例级数据，不需要补充
+	if row.TestPassCount != nil || row.TestTotalCount != nil {
 		return
 	}
-	total := 1
-	passed := 0
-	if *row.TestPass {
-		passed = 1
+	// 如果没有 TestPass 信息，无法推断，保持 nil 表示"未知"
+	if row.TestPass == nil {
+		return
 	}
-	rateValue := float64(passed)
-	row.TestPassCount = &passed
-	row.TestTotalCount = &total
-	row.TestPassRate = &rateValue
+	// 注意：这里设置的是样本级数据（样本整体是否通过）
+	// 用例级数据应该通过解析测试框架输出获得
+	// 如果解析失败，保持 nil 是正确的做法，不应该强制设置默认值
+	// 因为这会混淆样本级和用例级的概念
 }
 
 func shouldRunMutationAfterSampleTests(row contracts.EvaluationResult) bool {
@@ -1443,8 +1443,47 @@ func estimateAssertionDensity(path, language string) (int, int, float64) {
 }
 
 func estimatePythonAssertionDensity(text string) (int, int, float64) {
-	assertCount := strings.Count(text, "assert ") + strings.Count(text, "pytest.raises")
+	// 统计各类断言（概念上都是验证点）
+	assertCount := 0
+
+	// 1. 基础 assert 关键字
+	assertCount += strings.Count(text, "assert ")
+
+	// 2. pytest 异常/警告检查（上下文管理器也是验证点）
+	assertCount += strings.Count(text, "pytest.raises")
+	assertCount += strings.Count(text, "pytest.warns")
+
+	// 3. Mock 断言（验证调用行为）
+	// 统计 assert_called 模式（覆盖 assert_called, assert_called_once, assert_called_with 等）
+	assertCount += strings.Count(text, "assert_called")
+	assertCount += strings.Count(text, "assert_not_called")
+
+	// 4. unittest.TestCase 断言方法
+	assertCount += strings.Count(text, "assertEqual")
+	assertCount += strings.Count(text, "assertNotEqual")
+	assertCount += strings.Count(text, "assertTrue")
+	assertCount += strings.Count(text, "assertFalse")
+	assertCount += strings.Count(text, "assertIs")
+	assertCount += strings.Count(text, "assertIsNot")
+	assertCount += strings.Count(text, "assertIsNone")
+	assertCount += strings.Count(text, "assertIsNotNone")
+	assertCount += strings.Count(text, "assertIn")
+	assertCount += strings.Count(text, "assertNotIn")
+	assertCount += strings.Count(text, "assertRaises")
+
+	// 统计测试用例数（pytest 风格：def test_xxx）
 	testCount := strings.Count(text, "def test_")
+
+	// 统计 unittest 风格测试方法（以 test 开头的方法）
+	// 但要排除 pytest 的 def test_
+ unittestPattern := regexp.MustCompile(`(?m)^\s+def test_\w+\s*\(`)
+ unittestMatches := unittestPattern.FindAllString(text, -1)
+ unittestCount := len(unittestMatches)
+
+	// 如果有 unittest 风格的测试方法，也计入
+	// 注意：unittest 方法通常缩进在类内部，所以单独统计
+	testCount += unittestCount
+
 	if testCount <= 0 {
 		return assertCount, 0, 0
 	}
@@ -1452,11 +1491,47 @@ func estimatePythonAssertionDensity(text string) (int, int, float64) {
 }
 
 func estimateGoAssertionDensity(text string) (int, int, float64) {
-	assertCount := strings.Count(text, "if ") +
-		strings.Count(text, "assert.") +
-		strings.Count(text, "Expect(") +
-		strings.Count(text, "require.")
+	// 统计各类断言（概念上都是验证点）
+	assertCount := 0
+
+	// 1. testify 断言库（最常用）
+	// assert.Equal, assert.NotNil, require.Equal 等
+	assertCount += strings.Count(text, "assert.")
+	assertCount += strings.Count(text, "require.")
+
+	// 2. gomega 断言库
+	assertCount += strings.Count(text, "Expect(")
+	assertCount += strings.Count(text, "ExpectWithOffset(")
+	assertCount += strings.Count(text, "Eventually(")
+	assertCount += strings.Count(text, "Consistently(")
+	assertCount += strings.Count(text, "Ω(")      // Omega 别名
+	assertCount += strings.Count(text, "Should(") // gomega 的 Should
+
+	// 3. Go 原生 testing 包的失败标记
+	// t.Error/t.Errorf - 标记失败但继续执行
+	// t.Fatal/t.Fatalf - 标记失败并终止
+	// 注意：这些是"验证点"，表示测试发现了问题
+	assertCount += strings.Count(text, "t.Error(")
+	assertCount += strings.Count(text, "t.Errorf(")
+	assertCount += strings.Count(text, "t.Fatal(")
+	assertCount += strings.Count(text, "t.Fatalf(")
+
+	// 4. check 断言库（较少用）
+	assertCount += strings.Count(text, "check.")
+
+	// 注意：不再统计 "if "，因为它是控制流，不一定是断言
+	// 正确的做法是统计 t.Error/t.Fatal 等失败标记
+
+	// 统计测试用例
 	testCount := strings.Count(text, "func Test")
+
+	// 统计子测试：t.Run("name", func(t *testing.T) { ... })
+	// 表格驱动测试中，每个 t.Run 是一个独立测试
+	assertCount += strings.Count(text, "t.Run(")
+
+	// 统计 Example 测试（可验证输出）
+	testCount += strings.Count(text, "func Example")
+
 	if testCount <= 0 {
 		return assertCount, 0, 0
 	}
@@ -1464,37 +1539,65 @@ func estimateGoAssertionDensity(text string) (int, int, float64) {
 }
 
 func estimateJavaAssertionDensity(text string) (int, int, float64) {
-	// JUnit 5 Assertions.* methods
-	junit5Asserts := strings.Count(text, "Assertions.assertEquals") +
-		strings.Count(text, "Assertions.assertTrue") +
-		strings.Count(text, "Assertions.assertFalse") +
-		strings.Count(text, "Assertions.assertNull") +
-		strings.Count(text, "Assertions.assertNotNull") +
-		strings.Count(text, "Assertions.assertThrows") +
-		strings.Count(text, "Assertions.assertThat") +
-		strings.Count(text, "Assertions.assertSame") +
-		strings.Count(text, "Assertions.assertNotSame") +
-		strings.Count(text, "Assertions.assertArrayEquals") +
-		strings.Count(text, "Assertions.assertLinesMatch") +
-		strings.Count(text, "Assertions.assertTimeout") +
-		strings.Count(text, "Assertions.assertTimeoutPreemptively") +
-		strings.Count(text, "Assertions.assertIterableEquals") +
-		strings.Count(text, "Assertions.assertNotEquals")
+	// 统计各类断言（概念上都是验证点）
+	assertCount := 0
 
-	// JUnit 4 style (without Assertions prefix, static import)
-	junit4Asserts := strings.Count(text, "assertEquals(") +
-		strings.Count(text, "assertTrue(") +
-		strings.Count(text, "assertFalse(") +
-		strings.Count(text, "assertNull(") +
-		strings.Count(text, "assertNotNull(") +
-		strings.Count(text, "assertSame(") +
-		strings.Count(text, "assertThrows(") +
-		strings.Count(text, "assertThat(") +
-		strings.Count(text, "assertArrayEquals(") +
-		strings.Count(text, "expect(")
+	// 1. JUnit 5 Assertions.* methods
+	assertCount += strings.Count(text, "Assertions.assertEquals")
+	assertCount += strings.Count(text, "Assertions.assertTrue")
+	assertCount += strings.Count(text, "Assertions.assertFalse")
+	assertCount += strings.Count(text, "Assertions.assertNull")
+	assertCount += strings.Count(text, "Assertions.assertNotNull")
+	assertCount += strings.Count(text, "Assertions.assertThrows")
+	assertCount += strings.Count(text, "Assertions.assertThat")
+	assertCount += strings.Count(text, "Assertions.assertSame")
+	assertCount += strings.Count(text, "Assertions.assertNotSame")
+	assertCount += strings.Count(text, "Assertions.assertArrayEquals")
+	assertCount += strings.Count(text, "Assertions.assertLinesMatch")
+	assertCount += strings.Count(text, "Assertions.assertTimeout")
+	assertCount += strings.Count(text, "Assertions.assertTimeoutPreemptively")
+	assertCount += strings.Count(text, "Assertions.assertIterableEquals")
+	assertCount += strings.Count(text, "Assertions.assertNotEquals")
+	assertCount += strings.Count(text, "Assertions.assertDoesNotThrow")
+	assertCount += strings.Count(text, "Assertions.fail")
 
-	assertCount := junit5Asserts + junit4Asserts
+	// 2. JUnit 4 style (static import, without Assertions prefix)
+	assertCount += strings.Count(text, "assertEquals(")
+	assertCount += strings.Count(text, "assertTrue(")
+	assertCount += strings.Count(text, "assertFalse(")
+	assertCount += strings.Count(text, "assertNull(")
+	assertCount += strings.Count(text, "assertNotNull(")
+	assertCount += strings.Count(text, "assertSame(")
+	assertCount += strings.Count(text, "assertNotSame(")
+	assertCount += strings.Count(text, "assertThrows(")
+	assertCount += strings.Count(text, "assertThat(")
+	assertCount += strings.Count(text, "assertArrayEquals(")
+	assertCount += strings.Count(text, "assertDoesNotThrow(")
+	assertCount += strings.Count(text, "expect(")
+	assertCount += strings.Count(text, "fail(")
+
+	// 3. Mockito 验证（验证调用行为）
+	// verify(mock).method() 是验证点，确认 mock 被正确调用
+	assertCount += strings.Count(text, "verify(")
+	assertCount += strings.Count(text, "verifyNoMoreInteractions")
+	assertCount += strings.Count(text, "verifyZeroInteractions")
+	assertCount += strings.Count(text, "verifyNoInteractions")
+	assertCount += strings.Count(text, "Mockito.verify")
+	assertCount += strings.Count(text, "InOrder.verify")
+
+	// 4. AssertJ 流式断言（现代 Java 测试常用）
+	// assertThat(actual).isEqualTo(expected)
+	assertCount += strings.Count(text, "assertThat(")
+	assertCount += strings.Count(text, "Assertions.assertThat(") // 已在上面统计，但 AssertJ 也用这个
+
+	// 5. Hamcrest matchers（虽然 assertThat 已统计，但 matcher 本身也是验证概念）
+	// 注意：matcher 通常在 assertThat 内部，所以不重复统计
+
+	// 统计测试用例：@Test 注解
 	testCount := strings.Count(text, "@Test")
+
+	// 注意：不统计 @Before/@After 等，它们不是测试方法
+
 	if testCount <= 0 {
 		return assertCount, 0, 0
 	}
@@ -1502,20 +1605,41 @@ func estimateJavaAssertionDensity(text string) (int, int, float64) {
 }
 
 func parsePytestCounts(output string) (*int, *int) {
+	// 解析 pytest 摘要行，如 "2 passed, 1 failed, 1 skipped, 1 xfailed"
+	// 注意：passed 和 failed 是实际执行并产生结果的测试
+	// skipped/xfailed/xpassed/error 是特殊状态，不计入通过率分母
 	passed := extractFirstInt(output, `(\d+)\s+passed`)
 	failed := extractFirstInt(output, `(\d+)\s+failed`)
+	skipped := extractFirstInt(output, `(\d+)\s+skipped`)
+	xfailed := extractFirstInt(output, `(\d+)\s+xfailed`)
+	xpassed := extractFirstInt(output, `(\d+)\s+xpassed`)
+	errors := extractFirstInt(output, `(\d+)\s+error`)
+	_ = skipped // 用于判断是否有特殊状态
+	_ = xfailed
+	_ = xpassed
+	_ = errors
+
+	// 如果有明确的 passed 或 failed 数字，优先使用
 	if passed != nil || failed != nil {
-		if passed != nil && failed != nil {
-			total := *passed + *failed
-			return passed, &total
-		}
+		// 只统计真正执行的测试（passed + failed）
+		// skipped/xfailed 等不计入分母，因为它们没有实际验证行为
+		passCount := 0
 		if passed != nil {
-			total := *passed
-			return passed, &total
+			passCount = *passed
+		}
+		totalCount := passCount
+		if failed != nil {
+			totalCount = passCount + *failed
+		}
+		if totalCount > 0 {
+			return &passCount, &totalCount
 		}
 		return nil, nil
 	}
 
+	// 备用：解析进度条 [100%] 行
+	// pytest 输出进度时，每个字符代表一个测试状态
+	// . = passed, F = failed, E = error, s = skipped, x = xfailed, X = xpassed
 	lines := strings.Split(output, "\n")
 	var shortLine string
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -1523,7 +1647,8 @@ func parsePytestCounts(output string) (*int, *int) {
 		if line == "" {
 			continue
 		}
-		if strings.Contains(line, "[100%]") {
+		// pytest 7.0+ 使用不同的进度显示格式
+		if strings.Contains(line, "[100%]") || strings.Contains(line, "passed") || strings.Contains(line, "failed") {
 			shortLine = line
 			break
 		}
@@ -1532,27 +1657,34 @@ func parsePytestCounts(output string) (*int, *int) {
 		return nil, nil
 	}
 
+	// 从进度条字符统计
 	passedCount := 0
 	failedCount := 0
 	for _, ch := range shortLine {
 		switch ch {
-		case '.', 's', 'S':
+		case '.': // passed
 			passedCount++
-		case 'F', 'E', 'x', 'X', '!':
+		case 'F', 'E', '!': // failed/error
 			failedCount++
+		// 's' = skipped, 'x' = xfailed, 'X' = xpassed - 不计入通过/失败分母
 		}
 	}
+
 	if passedCount == 0 && failedCount == 0 {
+		// 如果进度条没有字符，尝试从摘要行推断
+		// 检查是否有特殊状态的测试但没有 passed/failed
+		if skipped != nil || xfailed != nil || xpassed != nil || errors != nil {
+			// 有特殊状态但没有 passed/failed，返回 nil
+			return nil, nil
+		}
 		return nil, nil
 	}
+
 	total := passedCount + failedCount
-	if failedCount == 0 {
+	if total > 0 {
 		return &passedCount, &total
 	}
-	if passedCount == 0 {
-		return nil, &total
-	}
-	return &passedCount, &total
+	return nil, nil
 }
 
 func extractFirstInt(text, pattern string) *int {
