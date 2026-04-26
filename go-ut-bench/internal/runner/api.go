@@ -28,10 +28,10 @@ type apiClient struct {
 
 // Global per-model rate limiter: stagger calls to the same model provider/endpoint
 var (
-	globalRateLimiter   sync.Mutex
-	modelLastCall       = make(map[string]time.Time)
-	modelMinInterval    = 200 * time.Millisecond // minimum interval between calls to the same model
-	modelJitter         = 100 * time.Millisecond // max random jitter
+	globalRateLimiter sync.Mutex
+	modelLastCall     = make(map[string]time.Time)
+	modelMinInterval  = 200 * time.Millisecond // minimum interval between calls to the same model
+	modelJitter       = 100 * time.Millisecond // max random jitter
 )
 
 func newAPIClient() *apiClient {
@@ -600,7 +600,7 @@ func coverageTargetsText() string {
 func languageFramework(language string) string {
 	switch language {
 	case "java":
-		return "JUnit 4"
+		return "JUnit 5 (Jupiter)"
 	case "python":
 		return "pytest"
 	case "go":
