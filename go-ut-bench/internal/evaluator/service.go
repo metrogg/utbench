@@ -79,6 +79,10 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return Output{}, err
 	}
 
+	// 采集评测环境指纹
+	envFingerprint := CaptureEnvironmentFingerprint(ctx, false, "")
+	s.logger.Debug("environment fingerprint captured", "fingerprint", envFingerprint.FingerprintHash())
+
 	// 计算worker数量
 	workerCount := spec.Workers
 	if workerCount <= 0 {
@@ -230,11 +234,13 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 
 	// 构建结果集
 	set := contracts.EvaluationResultSet{
-		SchemaVersion:  contracts.SchemaVersion,
-		RunID:          spec.RunID,
-		EvaluatedAtUTC: time.Now().UTC(),
-		ManifestPath:   manifestPath,
-		Results:        rows,
+		SchemaVersion:          contracts.SchemaVersion,
+		RunID:                  spec.RunID,
+		EvaluatedAtUTC:         time.Now().UTC(),
+		ManifestPath:           manifestPath,
+		Results:                rows,
+		EnvironmentFingerprint: envFingerprint.FingerprintHash(),
+		EnvironmentJSON:        envFingerprint.ToJSON(),
 	}
 	resultPath := filepath.Join(evalRoot, "evaluation_result.json")
 	if err := contracts.WriteJSON(resultPath, set); err != nil {
