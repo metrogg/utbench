@@ -83,6 +83,64 @@ func TestBuildSummaryUsesSampleLevelTestPassRateWhenCountsMissing(t *testing.T) 
 	}
 }
 
+func TestBuildSummarySeparatesSampleAndTestCasePassRate(t *testing.T) {
+	pass := true
+	fail := false
+	lineCov := 0.8
+	casePass1, caseTotal1 := 1, 2
+	casePass2, caseTotal2 := 3, 3
+
+	rows := []contracts.EvaluationResult{
+		{
+			Model:          "m1",
+			Language:       "python",
+			SampleID:       "boundary_000",
+			CompilePass:    true,
+			TestPass:       &fail,
+			TestPassCount:  &casePass1,
+			TestTotalCount: &caseTotal1,
+			LineCoverage:   &lineCov,
+		},
+		{
+			Model:          "m1",
+			Language:       "python",
+			SampleID:       "boundary_001",
+			CompilePass:    true,
+			TestPass:       &pass,
+			TestPassCount:  &casePass2,
+			TestTotalCount: &caseTotal2,
+			LineCoverage:   &lineCov,
+		},
+	}
+
+	s := buildSummary(rows)
+	if s.SampleTestPassCount != 1 || s.SampleTestPassRate != 0.5 {
+		t.Fatalf("expected sample-level pass rate 0.5, got %+v", s)
+	}
+	if s.TestPassCount != 1 || s.TestPassRate != 0.5 {
+		t.Fatalf("expected compatibility sample-level test metrics, got %+v", s)
+	}
+	if s.TestCasePassCount != 4 || s.TestCasePassRate != (4.0/5.0) {
+		t.Fatalf("expected case-level pass rate 0.8, got %+v", s)
+	}
+
+	dims := buildDimensions(rows, nil)
+	if len(dims.ByModel) != 1 {
+		t.Fatalf("expected single model dimension, got %+v", dims.ByModel)
+	}
+	if dims.ByModel[0].AvgTestPassRate != 0.5 {
+		t.Fatalf("expected model sample-level rate 0.5, got %+v", dims.ByModel[0])
+	}
+	if dims.ByModel[0].AvgTestCasePassRate != 0.8 {
+		t.Fatalf("expected model case-level rate 0.8, got %+v", dims.ByModel[0])
+	}
+
+	top := buildTopModels(dims.ByModel)
+	if len(top) != 1 || top[0].AvgTestPassRate != 0.5 || top[0].AvgTestCasePassRate != 0.8 {
+		t.Fatalf("unexpected top model metrics: %+v", top)
+	}
+}
+
 func TestScoreEligibilityExcludesNonModelFailuresFromRanking(t *testing.T) {
 	pass := true
 	fail := false
@@ -125,5 +183,43 @@ func TestScoreEligibilityExcludesNonModelFailuresFromRanking(t *testing.T) {
 	exclusions := buildScoreExclusions(rows)
 	if len(exclusions) != 1 || exclusions[0].Origin != "environment" || exclusions[0].Count != 1 {
 		t.Fatalf("unexpected exclusions: %+v", exclusions)
+	}
+}
+
+func TestClassifyMutationError(t *testing.T) {
+	cases := map[string]string{
+		"Mull: baseline tests failed, skipping mutation":                           "mutation_skipped_baseline_failed",
+		"mutmut: generated tests do not import mutation target, skipping mutation": "mutation_target_not_exercised",
+		"gremlins: gremlins no results to report":                                  "mutation_no_results",
+		"pitest: pitest no killed/survived results":                                "mutation_no_coverage",
+		"mutmut produced zero mutants":                                             "mutation_no_effective_mutants",
+		"mull timed out after 120s":                                                "mutation_timeout",
+		"pitest parse error: stats file not found":                                 "mutation_tool_error",
+		"unexpected mutation failure from generated tests":                         "mutation_error",
+	}
+
+	for input, want := range cases {
+		if got := classifyMutationError(input); got != want {
+			t.Fatalf("classifyMutationError(%q)=%q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestBuildFailureRowsUsesMutationErrorCategories(t *testing.T) {
+	rows := []contracts.EvaluationResult{
+		{Model: "m1", SampleID: "s1", MutationError: "Mull: baseline tests failed, skipping mutation"},
+		{Model: "m1", SampleID: "s2", MutationError: "gremlins no results to report"},
+	}
+
+	failures := buildFailureRows(rows)
+	got := map[string]int{}
+	for _, f := range failures {
+		got[f.ErrorType] = f.Count
+	}
+	if got["mutation_skipped_baseline_failed"] != 1 || got["mutation_no_results"] != 1 {
+		t.Fatalf("expected categorized mutation failures, got %+v", failures)
+	}
+	if got["mutation_error"] != 0 {
+		t.Fatalf("did not expect generic mutation_error bucket, got %+v", failures)
 	}
 }

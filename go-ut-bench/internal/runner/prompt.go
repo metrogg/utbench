@@ -333,7 +333,9 @@ func promptLanguageRules(lang, moduleName string) []string {
 		}
 	case "java":
 		return []string{
-			"Use JUnit 4 with `@Test` and standard `Assert` methods.",
+			"Use JUnit 5 (Jupiter) with `@Test` from `org.junit.jupiter.api.Test`.",
+			"Use `Assertions.*` methods from `org.junit.jupiter.api.Assertions`.",
+			"Test methods should be `void` (no need for `public` modifier in JUnit 5).",
 			"Name the test class `ClassNameTest` and keep package declarations consistent with source.",
 			"Do not access private members directly unless the source makes that the intended API surface.",
 			"If the source file has no `package` declaration, the test file must also have no `package` declaration.",

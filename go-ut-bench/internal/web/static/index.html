@@ -203,7 +203,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
         <form @submit.prevent="submitRun()" class="space-y-5">
           <div class="form-section">
             <div class="section-title">任务配置</div>
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-3 gap-4">
               <div>
                 <label class="label-text">任务 ID <span class="font-normal" style="color:var(--fg-subtle)">（可选，留空自动生成）</span></label>
                 <input x-model="form.run_id" type="text" placeholder="auto-generated" class="input-base">
@@ -215,9 +215,50 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                   <option value="incremental">增量</option>
                 </select>
               </div>
+              <div>
+                <label class="label-text">执行阶段</label>
+                <select x-model="form.phase" class="input-base">
+                  <option value="full">全量运行 (生成 → 评测 → 报告)</option>
+                  <option value="generate">仅生成</option>
+                  <option value="evaluate">仅评测</option>
+                  <option value="report">仅报告</option>
+                </select>
+              </div>
+            </div>
+            <div x-show="form.phase !== 'full'" class="mt-3 text-[12px] rounded-lg p-2.5" style="background:var(--warn-bg);color:var(--yellow);border:1px solid var(--warn-border)">
+              <span x-show="form.phase === 'generate'">仅执行生成阶段，生成测试代码并保存 manifest。</span>
+              <span x-show="form.phase === 'evaluate'">仅执行评测阶段，需要已有 manifest 文件（<code class="font-mono text-[11px]">generated_manifest.json</code>）。</span>
+              <span x-show="form.phase === 'report'">仅生成报告，需要已有评测结果（<code class="font-mono text-[11px]">evaluation_result.json</code>）。</span>
             </div>
           </div>
-          <div class="form-section">
+          <!-- 数据源选择区域：仅evaluate/report阶段显示 -->
+          <div x-show="form.phase === 'evaluate' || form.phase === 'report'" class="form-section">
+            <div class="section-title">数据源</div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="label-text">来源任务 <span class="font-normal" style="color:var(--fg-subtle)">（选择已有任务作为数据源）</span></label>
+                <select x-model="form.source_run_id" class="input-base">
+                  <option value="">— 选择任务 —</option>
+                  <template x-for="r in completedRuns" :key="r.run_id">
+                    <option :value="r.run_id" x-text="r.run_id + ' (' + fmtTime(r.started_at) + ')'"></option>
+                  </template>
+                </select>
+              </div>
+              <div x-show="form.phase === 'evaluate'">
+                <label class="label-text">Manifest 路径 <span class="font-normal" style="color:var(--fg-subtle)">（可选，覆盖默认路径）</span></label>
+                <input x-model="form.manifest_path" type="text" placeholder="留空使用来源任务的 manifest" class="input-base font-mono text-[12px]">
+              </div>
+              <div x-show="form.phase === 'report'">
+                <label class="label-text">评测结果路径 <span class="font-normal" style="color:var(--fg-subtle)">（可选，覆盖默认路径）</span></label>
+                <input x-model="form.evaluation_path" type="text" placeholder="留空使用来源任务的 evaluation_result.json" class="input-base font-mono text-[12px]">
+              </div>
+            </div>
+            <div x-show="form.source_run_id" class="mt-2 text-[11px]" style="color:var(--fg-muted)">
+              <span x-show="form.phase === 'evaluate'">将使用 <code class="font-mono">artifacts/runs/<span x-text="form.source_run_id"></span>/generated/generated_manifest.json</code></span>
+              <span x-show="form.phase === 'report'">将使用 <code class="font-mono">artifacts/runs/<span x-text="form.source_run_id"></span>/evaluation/evaluation_result.json</code></span>
+            </div>
+          </div>
+          <div class="form-section" x-show="form.phase === 'full' || form.phase === 'generate'">
             <div class="section-title">模型</div>
             <div class="flex flex-wrap gap-2.5">
               <template x-for="m in config?.models ?? []" :key="m.name">
@@ -229,7 +270,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
               </template>
             </div>
           </div>
-          <div class="form-section">
+          <div class="form-section" x-show="form.phase === 'full' || form.phase === 'generate'">
             <div class="section-title">语言</div>
             <div class="flex flex-wrap gap-2.5">
               <template x-for="lang in config?.languages ?? []" :key="lang">
@@ -240,7 +281,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
               </template>
             </div>
           </div>
-          <div class="form-section">
+          <div class="form-section" x-show="form.phase === 'full' || form.phase === 'generate'">
             <div class="section-title">数据集筛选</div>
             <div class="grid grid-cols-3 gap-4">
               <div>
@@ -318,8 +359,8 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
             </div>
           </div>
           <div class="flex items-center gap-3 pt-1">
-            <button type="submit" :disabled="formSubmitting || form.models.length === 0 || form.languages.length === 0" class="btn-primary">
-              <span x-show="!formSubmitting">开始评测</span>
+            <button type="submit" :disabled="formSubmitting || submitDisabled" class="btn-primary">
+              <span x-show="!formSubmitting" x-text="submitButtonText"></span>
               <span x-show="formSubmitting">启动中...</span>
             </button>
             <span x-show="formError" class="text-[13px]" style="color:var(--red)" x-text="formError"></span>
@@ -770,7 +811,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                       <thead>
                         <tr>
                           <th style="width:50px">排名</th><th>模型</th>
-                          <th class="text-right">编译</th><th class="text-right">测试</th>
+                          <th class="text-right">编译</th><th class="text-right">样测</th>
                           <th class="text-right">覆盖率</th><th class="text-right">变异</th>
                           <th class="text-right" title="每通过样本所需的平均生成 token 数，越小越高效">tokens/通过</th>
                           <th class="text-right" title="每通过样本所需的平均耗时，越小越快">ms/通过</th>
@@ -950,7 +991,8 @@ function app() {
     statusFilter: '',
     form: {
       run_id:'', models:[], languages:[], class:'self_contained', scenario:'', level:'',
-      max_samples:5, workers:0, mode:'full', dry_run:false, mutation_enabled:false,
+      max_samples:5, workers:0, mode:'full', phase:'full', source_run_id:'', manifest_path:'', evaluation_path:'',
+      dry_run:false, mutation_enabled:false,
       mutation_timeout:1800, mutation_policy:'warn', ingest:false, use_docker:false,
     },
     env: null,
@@ -1007,6 +1049,7 @@ function app() {
     async init() {
       this.applyTheme()
       await this.loadConfig()
+      await this.loadModels()
       await this.loadEnv()
       await this.loadRuns()
       setInterval(() => this.loadRuns(), 4000)
@@ -1214,6 +1257,11 @@ function app() {
       })
     },
 
+    get completedRuns() {
+      // 返回已完成的任务，用于数据源选择
+      return this.runs.filter(r => r.status === 'completed')
+    },
+
     get dashStats() {
       const total = this.runs.length
       const running = this.runs.filter(r => r.status === 'running').length
@@ -1226,6 +1274,30 @@ function app() {
         { label:'已完成',    value: completed,color:'kpi-completed' },
         { label:'失败/取消', value: failed + canceled, color: 'kpi-failed' },
       ]
+    },
+
+    get submitButtonText() {
+      const phaseLabels = {
+        full: '开始评测',
+        generate: '开始生成',
+        evaluate: '开始评测',
+        report: '生成报告',
+      }
+      return phaseLabels[this.form.phase] || '开始评测'
+    },
+
+    get submitDisabled() {
+      if (this.form.phase === 'generate' || this.form.phase === 'full') {
+        return this.form.models.length === 0 || this.form.languages.length === 0
+      }
+      // evaluate 和 report 需要有数据源（source_run_id 或自定义路径）
+      if (this.form.phase === 'evaluate') {
+        return !this.form.source_run_id && !this.form.manifest_path
+      }
+      if (this.form.phase === 'report') {
+        return !this.form.source_run_id && !this.form.evaluation_path
+      }
+      return false
     },
 
     statusText(s, paused) {
@@ -1454,8 +1526,23 @@ function app() {
 
     async submitRun() {
       this.formError = ''
-      if (!this.form.models.length) { this.formError = '请至少选择一个模型'; return }
-      if (!this.form.languages.length) { this.formError = '请至少选择一种语言'; return }
+      // 只有 generate 和 full 阶段需要模型和语言选择
+      if (this.form.phase === 'generate' || this.form.phase === 'full') {
+        if (!this.form.models.length) { this.formError = '请至少选择一个模型'; return }
+        if (!this.form.languages.length) { this.formError = '请至少选择一种语言'; return }
+      }
+      // evaluate 阶段需要数据源（source_run_id 或 manifest_path）
+      if (this.form.phase === 'evaluate') {
+        if (!this.form.source_run_id && !this.form.manifest_path) {
+          this.formError = '请选择来源任务或填写 manifest 路径'; return
+        }
+      }
+      // report 阶段需要数据源（source_run_id 或 evaluation_path）
+      if (this.form.phase === 'report') {
+        if (!this.form.source_run_id && !this.form.evaluation_path) {
+          this.formError = '请选择来源任务或填写评测结果路径'; return
+        }
+      }
       this.formSubmitting = true
       try {
         const r = await fetch('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.form) })
@@ -1525,7 +1612,7 @@ function app() {
           labels,
           datasets: [
             { label:'编译',  data: dims.map(d => +((d.compile_pass_rate||0)*100).toFixed(1)), backgroundColor:'rgba(14,165,233,.7)' },
-            { label:'测试',  data: dims.map(d => +((d.avg_test_pass_rate||0)*100).toFixed(1)), backgroundColor:'rgba(16,185,129,.7)' },
+            { label:'样测',  data: dims.map(d => +((d.avg_test_pass_rate||0)*100).toFixed(1)), backgroundColor:'rgba(16,185,129,.7)' },
             { label:'覆盖率',data: dims.map(d => +((d.avg_line_coverage||0)*100).toFixed(1)), backgroundColor:'rgba(245,158,11,.7)' },
             { label:'变异',  data: dims.map(d => +((d.avg_mutation_score||0)*100).toFixed(1)), backgroundColor:'rgba(239,68,68,.7)' },
           ]
@@ -1546,7 +1633,8 @@ function app() {
       return [
         { label:'样本数',  value: s.total_samples ?? 0, color:'kpi-total' },
         { label:'编译通过率',  value: pct(s.compile_pass_rate), color: pctColor(s.compile_pass_rate) },
-        { label:'测试通过率',  value: pct(s.test_pass_rate), color: pctColor(s.test_pass_rate) },
+        { label:'样本测试通过率',  value: pct(s.sample_test_pass_rate ?? s.test_pass_rate), color: pctColor(s.sample_test_pass_rate ?? s.test_pass_rate) },
+        { label:'用例测试通过率',  value: pct(s.test_case_pass_rate), color: pctColor(s.test_case_pass_rate) },
         { label:'平均行覆盖率', value: pct(s.avg_line_coverage), color: pctColor(s.avg_line_coverage) },
         { label:'平均变异分', value: pct(s.avg_mutation_score), color: pctColor(s.avg_mutation_score) },
       ]

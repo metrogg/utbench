@@ -96,16 +96,20 @@ type EvaluationResultSet struct {
 // ReportSummary 评测结果的汇总统计信息
 // 用于快速了解整体评测效果，包含通过率、覆盖率等关键指标的平均值
 type ReportSummary struct {
-	TotalSamples        int     `json:"total_samples"`         // 总样本数量
-	EligibleSamples     int     `json:"eligible_samples"`      // 参与排名计分的样本数
-	ExcludedSamples     int     `json:"excluded_samples"`      // 因环境/数据集/工具问题剔除的样本数
-	CompilePassCount    int     `json:"compile_pass_count"`    // 编译通过的样本数
-	CompilePassRate     float64 `json:"compile_pass_rate"`     // 编译通过率（百分比）
-	TestPassCount       int     `json:"test_pass_count"`       // 测试通过的样本数
-	TestPassRate        float64 `json:"test_pass_rate"`        // 测试通过率（百分比）
-	AvgLineCoverage     float64 `json:"avg_line_coverage"`     // 平均行覆盖率（百分比）
-	AvgMutationScore    float64 `json:"avg_mutation_score"`    // 平均变异测试得分（百分比）
-	AvgAssertionDensity float64 `json:"avg_assertion_density"` // 平均断言密度
+	TotalSamples        int     `json:"total_samples"`          // 总样本数量
+	EligibleSamples     int     `json:"eligible_samples"`       // 参与排名计分的样本数
+	ExcludedSamples     int     `json:"excluded_samples"`       // 因环境/数据集/工具问题剔除的样本数
+	CompilePassCount    int     `json:"compile_pass_count"`     // 编译通过的样本数
+	CompilePassRate     float64 `json:"compile_pass_rate"`      // 编译通过率（样本级）
+	TestPassCount       int     `json:"test_pass_count"`        // 兼容字段：样本级测试通过数
+	TestPassRate        float64 `json:"test_pass_rate"`         // 兼容字段：样本级测试通过率
+	SampleTestPassCount int     `json:"sample_test_pass_count"` // 样本级测试通过数
+	SampleTestPassRate  float64 `json:"sample_test_pass_rate"`  // 样本级测试通过率
+	TestCasePassCount   int     `json:"test_case_pass_count"`   // 用例级测试通过数
+	TestCasePassRate    float64 `json:"test_case_pass_rate"`    // 用例级测试通过率
+	AvgLineCoverage     float64 `json:"avg_line_coverage"`      // 平均行覆盖率（百分比）
+	AvgMutationScore    float64 `json:"avg_mutation_score"`     // 平均变异测试得分（百分比）
+	AvgAssertionDensity float64 `json:"avg_assertion_density"`  // 平均断言密度
 }
 
 // TruncationStats 截断统计信息
@@ -194,7 +198,8 @@ type ModelDim struct {
 	Provider            string  `json:"provider,omitempty"`              // 提供商
 	TotalSamples        int     `json:"total_samples"`                   // 该模型的样本总数
 	CompilePassRate     float64 `json:"compile_pass_rate"`               // 编译通过率
-	AvgTestPassRate     float64 `json:"avg_test_pass_rate"`              // 平均测试通过率
+	AvgTestPassRate     float64 `json:"avg_test_pass_rate"`              // 兼容字段：样本级测试通过率
+	AvgTestCasePassRate float64 `json:"avg_test_case_pass_rate"`         // 用例级测试通过率
 	AvgLineCoverage     float64 `json:"avg_line_coverage"`               // 平均行覆盖率
 	AvgBranchCoverage   float64 `json:"avg_branch_coverage"`             // 平均分支覆盖率
 	AvgMutationScore    float64 `json:"avg_mutation_score"`              // 平均变异测试得分
@@ -208,13 +213,14 @@ type ModelDim struct {
 // LanguageDim 按语言维度的分析结果
 // 统计特定语言在各指标上的表现
 type LanguageDim struct {
-	Language          string  `json:"language"`            // 编程语言名称
-	TotalSamples      int     `json:"total_samples"`       // 该语言的样本总数
-	CompilePassRate   float64 `json:"compile_pass_rate"`   // 编译通过率
-	AvgTestPassRate   float64 `json:"avg_test_pass_rate"`  // 平均测试通过率
-	AvgLineCoverage   float64 `json:"avg_line_coverage"`   // 平均行覆盖率
-	AvgBranchCoverage float64 `json:"avg_branch_coverage"` // 平均分支覆盖率
-	AvgMutationScore  float64 `json:"avg_mutation_score"`  // 平均变异测试得分
+	Language            string  `json:"language"`                // 编程语言名称
+	TotalSamples        int     `json:"total_samples"`           // 该语言的样本总数
+	CompilePassRate     float64 `json:"compile_pass_rate"`       // 编译通过率
+	AvgTestPassRate     float64 `json:"avg_test_pass_rate"`      // 兼容字段：样本级测试通过率
+	AvgTestCasePassRate float64 `json:"avg_test_case_pass_rate"` // 用例级测试通过率
+	AvgLineCoverage     float64 `json:"avg_line_coverage"`       // 平均行覆盖率
+	AvgBranchCoverage   float64 `json:"avg_branch_coverage"`     // 平均分支覆盖率
+	AvgMutationScore    float64 `json:"avg_mutation_score"`      // 平均变异测试得分
 }
 
 // ModelRank 模型排名信息
@@ -225,7 +231,8 @@ type ModelRank struct {
 	ModelID             string  `json:"model_id,omitempty"`              // 具体型号
 	Provider            string  `json:"provider,omitempty"`              // 提供商
 	CompilePassRate     float64 `json:"compile_pass_rate"`               // 编译通过率
-	AvgTestPassRate     float64 `json:"avg_test_pass_rate"`              // 平均测试通过率
+	AvgTestPassRate     float64 `json:"avg_test_pass_rate"`              // 兼容字段：样本级测试通过率
+	AvgTestCasePassRate float64 `json:"avg_test_case_pass_rate"`         // 用例级测试通过率
 	AvgLineCoverage     float64 `json:"avg_line_coverage"`               // 平均行覆盖率
 	AvgMutationScore    float64 `json:"avg_mutation_score"`              // 平均变异测试得分
 	CompositeScore      float64 `json:"composite_score"`                 // 综合得分（加权）
@@ -278,34 +285,36 @@ type ModelInfo struct {
 // ScenarioDim 按场景维度的统计结果
 // 统计特定场景（如 boundary、simple_function）在各指标上的表现
 type ScenarioDim struct {
-	Scenario          string  `json:"scenario"`            // 场景名称
-	Language          string  `json:"language"`            // 编程语言
-	TotalSamples      int     `json:"total_samples"`       // 该场景的样本总数
-	CompilePassRate   float64 `json:"compile_pass_rate"`   // 编译通过率
-	AvgTestPassRate   float64 `json:"avg_test_pass_rate"`  // 平均测试通过率
-	AvgLineCoverage   float64 `json:"avg_line_coverage"`   // 平均行覆盖率
-	AvgBranchCoverage float64 `json:"avg_branch_coverage"` // 平均分支覆盖率
-	AvgMutationScore  float64 `json:"avg_mutation_score"`  // 平均变异测试得分
-	AvgLatencyMS      float64 `json:"avg_latency_ms"`      // 平均耗时（毫秒）
-	AvgTokens         float64 `json:"avg_tokens"`          // 平均 Token 使用量
+	Scenario            string  `json:"scenario"`                // 场景名称
+	Language            string  `json:"language"`                // 编程语言
+	TotalSamples        int     `json:"total_samples"`           // 该场景的样本总数
+	CompilePassRate     float64 `json:"compile_pass_rate"`       // 编译通过率
+	AvgTestPassRate     float64 `json:"avg_test_pass_rate"`      // 兼容字段：样本级测试通过率
+	AvgTestCasePassRate float64 `json:"avg_test_case_pass_rate"` // 用例级测试通过率
+	AvgLineCoverage     float64 `json:"avg_line_coverage"`       // 平均行覆盖率
+	AvgBranchCoverage   float64 `json:"avg_branch_coverage"`     // 平均分支覆盖率
+	AvgMutationScore    float64 `json:"avg_mutation_score"`      // 平均变异测试得分
+	AvgLatencyMS        float64 `json:"avg_latency_ms"`          // 平均耗时（毫秒）
+	AvgTokens           float64 `json:"avg_tokens"`              // 平均 Token 使用量
 }
 
 // ModelScenarioDim 模型+场景交叉统计
 // 统计特定模型在特定场景下的表现
 type ModelScenarioDim struct {
-	Model               string  `json:"model"`                 // 模型标识
-	Scenario            string  `json:"scenario"`              // 场景名称
-	Language            string  `json:"language"`              // 编程语言
-	TotalSamples        int     `json:"total_samples"`         // 样本数
-	CompilePassRate     float64 `json:"compile_pass_rate"`     // 编译通过率
-	AvgTestPassRate     float64 `json:"avg_test_pass_rate"`    // 测试通过率
-	AvgLineCoverage     float64 `json:"avg_line_coverage"`     // 行覆盖率
-	AvgBranchCoverage   float64 `json:"avg_branch_coverage"`   // 分支覆盖率
-	AvgMutationScore    float64 `json:"avg_mutation_score"`    // 变异得分
-	AvgLatencyMS        float64 `json:"avg_latency_ms"`        // 平均耗时
-	AvgPromptTokens     float64 `json:"avg_prompt_tokens"`     // 平均提示词Token
-	AvgCompletionTokens float64 `json:"avg_completion_tokens"` // 平均生成Token
-	AvgTotalTokens      float64 `json:"avg_total_tokens"`      // 平均总Token
+	Model               string  `json:"model"`                   // 模型标识
+	Scenario            string  `json:"scenario"`                // 场景名称
+	Language            string  `json:"language"`                // 编程语言
+	TotalSamples        int     `json:"total_samples"`           // 样本数
+	CompilePassRate     float64 `json:"compile_pass_rate"`       // 编译通过率
+	AvgTestPassRate     float64 `json:"avg_test_pass_rate"`      // 兼容字段：样本级测试通过率
+	AvgTestCasePassRate float64 `json:"avg_test_case_pass_rate"` // 用例级测试通过率
+	AvgLineCoverage     float64 `json:"avg_line_coverage"`       // 行覆盖率
+	AvgBranchCoverage   float64 `json:"avg_branch_coverage"`     // 分支覆盖率
+	AvgMutationScore    float64 `json:"avg_mutation_score"`      // 变异得分
+	AvgLatencyMS        float64 `json:"avg_latency_ms"`          // 平均耗时
+	AvgPromptTokens     float64 `json:"avg_prompt_tokens"`       // 平均提示词Token
+	AvgCompletionTokens float64 `json:"avg_completion_tokens"`   // 平均生成Token
+	AvgTotalTokens      float64 `json:"avg_total_tokens"`        // 平均总Token
 }
 
 // TokenStats Token 使用统计

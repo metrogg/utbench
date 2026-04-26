@@ -75,8 +75,7 @@ artifacts/runs/<run-id>/
   generated/           # 生成的测试文件
   evaluation/          # 评测结果 JSON
   report/              # HTML 报告
-  run.log              # 运行日志
-  api.log              # API 调用日志
+  logs/                # run/evaluator/api/errors 结构化日志
 ```
 
 ## 特性
@@ -91,6 +90,16 @@ artifacts/runs/<run-id>/
 ## 数据集说明
 
 当前仓库内置数据集实际为 `self_contained`：Python、Go、Java、C++ 各 4 个场景，每个场景 50 个样本。正式运行请显式使用 `--class self_contained`，避免旧文档中的 module-level 说明造成样本集合不一致。
+
+## 报告口径
+
+- `compile_pass_rate`、`sample_test_pass_rate`、`avg_test_pass_rate` 都是样本级口径。
+- `test_case_pass_rate`、`avg_test_case_pass_rate` 是测试用例级口径，用来补充说明单个样本内部测试函数通过情况。
+- 排名和综合分默认使用样本级测试通过率，避免样本内测试函数数量差异放大分数。
+- `avg_latency_ms` 现在表示单样本完整评测耗时，不再是某个子阶段的局部时间。
+- 所有语言都必须样本级测试通过后才运行变异测试；基线测试失败的样本变异分记 0，并归入模型问题。
+- 变异测试失败会按原因细分展示：`mutation_skipped_baseline_failed`、`mutation_target_not_exercised`、`mutation_no_results`、`mutation_no_coverage`、`mutation_no_effective_mutants`、`mutation_timeout`、`mutation_tool_error`、`mutation_error`。
+- 工具/环境/数据集问题不进入模型排名分母；模型生成代码导致的编译或测试失败仍进入排名。
 
 ```bash
 ./utbench doctor --langs python,go,java,cpp --mutation-enabled --mutation-timeout 120

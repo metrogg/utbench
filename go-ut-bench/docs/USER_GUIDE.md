@@ -243,14 +243,10 @@ datasets/
 
 | 类别 | 说明 | 适用语言 |
 |------|------|---------|
-| `self_contained` | 自包含代码 | Java, C++ |
-| `module_level` | 模块级别 | Python, Go |
+| `self_contained` | 自包含代码 | Python, Go, Java, C++ |
+| `module_level` | 模块级别(需要workspace上下文) | (待扩展) |
 
-**注意**：Python 和 Go 数据集全部是 `module_level`，使用时需指定：
-```bash
---class module_level  # Python/Go
---class self_contained  # Java/C++
-```
+**当前数据集均为 `self_contained`**，默认 `--class self_contained` 即可正常工作。若后续新增真正的 module_level 样本（需要 meta.json 和 workspace_root），则需指定 `--class module_level`。
 
 ### 场景类型
 

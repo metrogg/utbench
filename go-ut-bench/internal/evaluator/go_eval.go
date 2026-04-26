@@ -22,9 +22,12 @@ func goCompileCheck(workdir, testFile string) (bool, string) {
 	}
 	defer os.Remove(tempOutput)
 
-	cmd := exec.Command("go", "test", "-c", "-o", tempOutput, ".")
-	cmd.Dir = workdir
-	output, err := cmd.CombinedOutput()
+	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
+	defer cancel()
+	output, err := runCommandWithProcessGroupKill(runCtx, "go", []string{"test", "-c", "-o", tempOutput, "."}, workdir, nil)
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("go compile timed out after %ds", defaultTestTimeoutSeconds)
+	}
 	if err == nil {
 		return true, ""
 	}
@@ -72,11 +75,15 @@ func prepareGoWorkspace(testPath, samplePath string) (string, string, string, st
 }
 
 func executeGoTests(workdir, testFile, sourceFile string) (bool, string, int) {
-	cmd := exec.Command("go", "test", "-v", filepath.Base(testFile), filepath.Base(sourceFile))
-	cmd.Dir = workdir
+	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
+	defer cancel()
 	started := time.Now()
-	output, err := cmd.CombinedOutput()
+	args := []string{"test", "-v", fmt.Sprintf("-timeout=%ds", defaultTestTimeoutSeconds), filepath.Base(testFile), filepath.Base(sourceFile)}
+	output, err := runCommandWithProcessGroupKill(runCtx, "go", args, workdir, nil)
 	latency := int(time.Since(started).Milliseconds())
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("go test timed out after %ds", defaultTestTimeoutSeconds), latency
+	}
 	if err == nil {
 		return true, string(output), latency
 	}
@@ -109,9 +116,16 @@ func parseGoTestCounts(output string) (*int, *int) {
 
 func collectGoCoverage(workdir, testFile, sourceBase string) (float64, float64, string) {
 	coverFile := filepath.Join(workdir, "cover.out")
-	cmd := exec.Command("go", "test", "-coverprofile="+filepath.Base(coverFile), filepath.Base(testFile), filepath.Base(sourceBase))
-	cmd.Dir = workdir
-	cmd.Run()
+	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
+	defer cancel()
+	args := []string{"test", fmt.Sprintf("-timeout=%ds", defaultTestTimeoutSeconds), "-coverprofile=" + filepath.Base(coverFile), filepath.Base(testFile), filepath.Base(sourceBase)}
+	out, err := runCommandWithProcessGroupKill(runCtx, "go", args, workdir, nil)
+	if runCtx.Err() != nil {
+		return 0, 0, fmt.Sprintf("go coverage timed out after %ds", defaultTestTimeoutSeconds)
+	}
+	if err != nil {
+		return 0, 0, "go coverage failed: " + trimErr(string(out), 1000)
+	}
 
 	raw, err := os.ReadFile(coverFile)
 	if err != nil {
@@ -280,20 +294,20 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 
 	stats, parseErr := parseGremlinsOutput(string(runOut))
 	if parseErr != "" {
-		return 0, stats, formatMutationError("gremlins parse error", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("gremlins", parseErr, runErr, runOut, nil, nil)
 	}
 
 	if stats.Total <= 0 {
-		return 0, stats, formatMutationError("gremlins produced zero mutants", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("gremlins", "gremlins produced zero mutants", runErr, runOut, nil, nil)
 	}
 
 	processed := stats.Killed + stats.Survived + stats.NoTests + stats.Timeout + stats.Skipped + stats.Suspicious
 	if processed <= 0 {
-		return 0, stats, formatMutationError("gremlins did not execute any mutants", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("gremlins", "gremlins did not execute any mutants", runErr, runOut, nil, nil)
 	}
 
 	if stats.Killed+stats.Survived <= 0 {
-		return 0, stats, formatMutationError("gremlins no killed/survived results", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("gremlins", "gremlins no killed/survived results", runErr, runOut, nil, nil)
 	}
 
 	effectiveTotal := stats.Killed + stats.Survived + stats.NoTests
@@ -323,16 +337,24 @@ func findGremlins() string {
 
 func parseGremlinsOutput(output string) (mutationStats, string) {
 	stats := mutationStats{}
+	normalized := strings.ToLower(output)
+	if strings.Contains(normalized, "no results to report") {
+		return stats, "gremlins no results to report"
+	}
 
 	stats.Killed = extractFirstIntOrZero(output, `Killed:\s*(\d+)`)
 	stats.Survived = extractFirstIntOrZero(output, `Survived:\s*(\d+)`)
+	if stats.Survived == 0 {
+		stats.Survived = extractFirstIntOrZero(output, `Lived:\s*(\d+)`)
+	}
 	stats.NoTests = extractFirstIntOrZero(output, `Not covered:\s*(\d+)`)
-	stats.Timeout = extractFirstIntOrZero(output, `Timeout:\s*(\d+)`)
+	stats.Timeout = extractFirstIntOrZero(output, `(?:Timed out|Timeout):\s*(\d+)`)
 	stats.Skipped = extractFirstIntOrZero(output, `Skipped:\s*(\d+)`)
+	stats.Suspicious = extractFirstIntOrZero(output, `Not viable:\s*(\d+)`)
 
-	stats.Total = stats.Killed + stats.Survived + stats.NoTests + stats.Timeout + stats.Skipped
+	stats.Total = stats.Killed + stats.Survived + stats.NoTests + stats.Timeout + stats.Skipped + stats.Suspicious
 
-	if stats.Total == 0 && !strings.Contains(output, "gremlins") {
+	if stats.Total == 0 && !strings.Contains(normalized, "gremlins") {
 		return stats, "no gremlins output found"
 	}
 	return stats, ""

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
+	"path/filepath"
 	"strings"
 
 	"go-ut-bench/internal/contracts"
@@ -56,83 +56,160 @@ func runInDocker(ctx context.Context, entry *RunEntry, spec contracts.RunSpec, o
 // buildDockerRunArgs assembles the argv for `docker run`.
 // It deliberately mirrors the flag set that `utbench run` understands, so
 // behaviour matches the in-process backend one-to-one.
+// When opts.Phase is set to "generate", "evaluate", or "report", the command
+// switches to the corresponding CLI subcommand instead of "run".
 func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg DockerConfig) []string {
-	cmd := []string{"go", "run", "./cmd/utbench", "run"}
-	cmd = append(cmd,
-		"--run-id", spec.RunID,
-		"--models", strings.Join(spec.Models, ","),
-		"--langs", strings.Join(spec.Languages, ","),
-		"--dataset-root", "/app/datasets",
-		"--output-root", "/app/artifacts",
-		"--config", "/app/configs/models.yaml",
-	)
-	if len(spec.DatasetClasses) > 0 {
-		cmd = append(cmd, "--class", strings.Join(spec.DatasetClasses, ","))
-	}
-	if spec.DatasetScenario != "" {
-		cmd = append(cmd, "--scenario", spec.DatasetScenario)
-	}
-	if spec.DatasetLevel != "" {
-		cmd = append(cmd, "--level", spec.DatasetLevel)
-	}
-	if spec.MaxSamples > 0 {
-		cmd = append(cmd, "--max-samples", fmt.Sprintf("%d", spec.MaxSamples))
-	}
-	if spec.Workers > 0 {
-		cmd = append(cmd, "--workers", fmt.Sprintf("%d", spec.Workers))
-	}
-	if spec.Mode != "" {
-		cmd = append(cmd, "--mode", string(spec.Mode))
-	}
-	if spec.DryRun {
-		cmd = append(cmd, "--dry-run")
-	}
-	if spec.MutationEnabled {
-		cmd = append(cmd, "--mutation-enabled")
-	}
-	if spec.MutationTimeout > 0 {
-		cmd = append(cmd, "--mutation-timeout", fmt.Sprintf("%d", spec.MutationTimeout))
-	}
-	if spec.MutationPolicy != "" {
-		cmd = append(cmd, "--mutation-policy", spec.MutationPolicy)
-	}
-	if opts.Ingest {
-		cmd = append(cmd, "--ingest", "--db-path", "/app/storage/utbench.db")
-	}
-	return buildDockerSourceArgs(cfg, cmd)
-}
+	a := []string{"run", "--rm"}
 
-func runEvaluateInDocker(ctx context.Context, runID string, spec contracts.RunSpec, cfg DockerConfig) ([]byte, error) {
-	cmdArgs := []string{
-		"go", "run", "./cmd/utbench", "evaluate",
-		"--run-id", runID,
-		"--manifest", "/app/artifacts/runs/" + runID + "/generated/generated_manifest.json",
-		"--output-root", "/app/artifacts",
-		"--mutation-timeout", strconv.Itoa(defaultInt(spec.MutationTimeout, 600)),
-		"--mutation-policy", defaultString(spec.MutationPolicy, "warn"),
+	if cfg.EnvFile != "" {
+		a = append(a, "--env-file", cfg.EnvFile)
 	}
-	if spec.MutationEnabled {
-		cmdArgs = append(cmdArgs, "--mutation-enabled")
-	}
-	args := buildDockerSourceArgs(cfg, cmdArgs)
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return out, fmt.Errorf("docker evaluate failed: %w", err)
-	}
-	return out, nil
-}
 
-func buildDockerSourceArgs(cfg DockerConfig, cmd []string) []string {
-	a := buildDockerBaseArgs(cfg)
+	// Mounts: datasets (read-only is safer but writable matches current UX),
+	// artifacts, configs, storage. Paths on the container side are fixed and
+	// mirror those used in STARTUP_GUIDE.md.
 	root := strings.TrimRight(cfg.ProjectRoot, `/\`)
 	a = append(a,
-		"-v", root+":/workspace",
-		"-w", "/workspace",
-		"--entrypoint", "/bin/sh",
-		cfg.ImageName,
-		"-lc", shellJoin(cmd),
+		"-v", root+`/datasets:/app/datasets`,
+		"-v", root+`/artifacts:/app/artifacts`,
+		"-v", root+`/configs:/app/configs`,
+		"-v", root+`/storage:/app/storage`,
 	)
+
+	// Determine the CLI subcommand based on phase.
+	// Phase "full" (or empty) uses "run" command.
+	// Phase "generate", "evaluate", "report" uses the corresponding subcommand.
+	phase := opts.Phase
+	if phase == "" {
+		phase = "full"
+	}
+	cliCmd := "run"
+	switch phase {
+	case "generate":
+		cliCmd = "generate"
+	case "evaluate":
+		cliCmd = "evaluate"
+	case "report":
+		cliCmd = "report"
+	}
+
+	a = append(a, cfg.ImageName, cliCmd)
+
+	// Common flags for all commands
+	a = append(a,
+		"--run-id", spec.RunID,
+		"--output-root", "/app/artifacts",
+	)
+
+	// Determine source run ID for artifact paths
+	sourceRunID := opts.SourceRunID
+	if sourceRunID == "" {
+		sourceRunID = spec.RunID
+	}
+
+	// Phase-specific flags
+	switch cliCmd {
+	case "run":
+		a = append(a,
+			"--models", strings.Join(spec.Models, ","),
+			"--langs", strings.Join(spec.Languages, ","),
+			"--dataset-root", "/app/datasets",
+			"--config", "/app/configs/models.yaml",
+		)
+		if len(spec.DatasetClasses) > 0 {
+			a = append(a, "--class", strings.Join(spec.DatasetClasses, ","))
+		}
+		if spec.DatasetScenario != "" {
+			a = append(a, "--scenario", spec.DatasetScenario)
+		}
+		if spec.DatasetLevel != "" {
+			a = append(a, "--level", spec.DatasetLevel)
+		}
+		if spec.MaxSamples > 0 {
+			a = append(a, "--max-samples", fmt.Sprintf("%d", spec.MaxSamples))
+		}
+		if spec.Workers > 0 {
+			a = append(a, "--workers", fmt.Sprintf("%d", spec.Workers))
+		}
+		if spec.Mode != "" {
+			a = append(a, "--mode", string(spec.Mode))
+		}
+		if spec.DryRun {
+			a = append(a, "--dry-run")
+		}
+		if spec.MutationEnabled {
+			a = append(a, "--mutation-enabled")
+		}
+		if spec.MutationTimeout > 0 {
+			a = append(a, "--mutation-timeout", fmt.Sprintf("%d", spec.MutationTimeout))
+		}
+		if spec.MutationPolicy != "" {
+			a = append(a, "--mutation-policy", spec.MutationPolicy)
+		}
+		if opts.Ingest {
+			a = append(a, "--ingest", "--db-path", "/app/storage/utbench.db")
+		}
+
+	case "generate":
+		a = append(a,
+			"--models", strings.Join(spec.Models, ","),
+			"--langs", strings.Join(spec.Languages, ","),
+			"--dataset-root", "/app/datasets",
+			"--config", "/app/configs/models.yaml",
+		)
+		if len(spec.DatasetClasses) > 0 {
+			a = append(a, "--class", strings.Join(spec.DatasetClasses, ","))
+		}
+		if spec.DatasetScenario != "" {
+			a = append(a, "--scenario", spec.DatasetScenario)
+		}
+		if spec.DatasetLevel != "" {
+			a = append(a, "--level", spec.DatasetLevel)
+		}
+		if spec.MaxSamples > 0 {
+			a = append(a, "--max-samples", fmt.Sprintf("%d", spec.MaxSamples))
+		}
+		if spec.Mode != "" {
+			a = append(a, "--mode", string(spec.Mode))
+		}
+		if spec.DryRun {
+			a = append(a, "--dry-run")
+		}
+
+	case "evaluate":
+		// Use explicit manifest path if provided, otherwise use source run's manifest
+		manifestPath := opts.ManifestPath
+		if manifestPath == "" {
+			manifestPath = filepath.Join("/app/artifacts", "runs", sourceRunID, "generated", "generated_manifest.json")
+		}
+		// Convert host path to container path if it's absolute
+		if strings.HasPrefix(manifestPath, root) {
+			manifestPath = strings.Replace(manifestPath, root, "/app", 1)
+		}
+		a = append(a, "--manifest", manifestPath)
+		if spec.MutationEnabled {
+			a = append(a, "--mutation-enabled")
+		}
+		if spec.MutationTimeout > 0 {
+			a = append(a, "--mutation-timeout", fmt.Sprintf("%d", spec.MutationTimeout))
+		}
+		if spec.MutationPolicy != "" {
+			a = append(a, "--mutation-policy", spec.MutationPolicy)
+		}
+
+	case "report":
+		// Use explicit evaluation path if provided, otherwise use source run's evaluation
+		evaluationPath := opts.EvaluationPath
+		if evaluationPath == "" {
+			evaluationPath = filepath.Join("/app/artifacts", "runs", sourceRunID, "evaluation", "evaluation_result.json")
+		}
+		// Convert host path to container path if it's absolute
+		if strings.HasPrefix(evaluationPath, root) {
+			evaluationPath = strings.Replace(evaluationPath, root, "/app", 1)
+		}
+		a = append(a, "--evaluation", evaluationPath)
+	}
+
 	return a
 }
 
