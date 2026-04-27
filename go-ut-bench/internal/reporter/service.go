@@ -1434,8 +1434,7 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 	// Navigation
 	b.WriteString(`
 <div class="jump-nav">
-  <a href="#benchmark-scoreboard">指标墙</a>
-  <a href="#details">图表分析</a>
+    <a href="#details">图表分析</a>
   <a href="#analysis-controls">筛选与导出</a>
   <a href="#dimension-analysis">维度分析</a>
   <a href="#score-exclusions">计分剔除</a>
@@ -1447,8 +1446,7 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 
 	// Leaderboard Section - 模型排名（重点）
 	b.WriteString(buildLeaderboardHTMLNew(payload.TopModels))
-	b.WriteString(buildBenchmarkScoreboardSection())
-	b.WriteString(buildChartsSection(payload.TopModels))
+		b.WriteString(buildChartsSection(payload.TopModels))
 	b.WriteString(buildAnalysisControlsSection(heroModels, heroLangs, heroTypes))
 	b.WriteString(buildDimensionAnalysisSection())
 
@@ -1764,24 +1762,6 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
 	return b.String()
 }
 
-func buildBenchmarkScoreboardSection() string {
-	return `<div class="section benchmark-scoreboard" id="benchmark-scoreboard">
-  <div class="scoreboard-head">
-    <div>
-      <div class="scoreboard-eyebrow">Benchmark Scoreboard</div>
-      <h2>单元测试生成能力指标墙</h2>
-      <p>按关键能力拆开比较模型表现。每张小图按当前指标降序排列，所有模型使用固定颜色，模型名显示在对应柱子正下方。</p>
-    </div>
-    <div class="scoreboard-toggle" role="group" aria-label="切换指标墙显示模型数量">
-      <button type="button" class="active" data-scoreboard-scope="top">Top 6</button>
-      <button type="button" data-scoreboard-scope="all">全部</button>
-    </div>
-  </div>
-  <div id="benchmarkScoreboardLegend" class="scoreboard-legend"></div>
-  <div id="benchmarkScoreboard" class="scoreboard-grid"></div>
-</div>`
-}
-
 func buildDimensionAnalysisSection() string {
 	return `<div class="section" id="dimension-analysis">
   <h2>维度分析 Dimension Analysis</h2>
@@ -1808,7 +1788,7 @@ func buildDimensionAnalysisSection() string {
       <div id="by-model-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有模型统计数据。</div>
     </div>
   </div>
-  <div class="chart-grid-2" style="margin-top:16px;">
+  <div class="chart-grid-1" style="margin-top:16px;">
     <div class="panel">
       <h3>语言汇总 Language Summary</h3>
       <div class="table-wrap">
@@ -1829,6 +1809,8 @@ func buildDimensionAnalysisSection() string {
       </div>
       <div id="by-language-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有语言统计数据。</div>
     </div>
+  </div>
+  <div class="chart-grid-1" style="margin-top:16px;">
     <div class="panel">
       <h3>场景 × 语言 Scenario by Language</h3>
       <div class="table-wrap">
