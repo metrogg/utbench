@@ -8,7 +8,7 @@ import (
 	"go-ut-bench/internal/orchestrator"
 )
 
-func TestBuildDockerRunArgsUsesToolchainImage(t *testing.T) {
+func TestBuildDockerRunArgsUsesMountedSource(t *testing.T) {
 	spec := contracts.RunSpec{
 		RunID:     "run-1",
 		Models:    []string{"deepseek"},
@@ -21,9 +21,12 @@ func TestBuildDockerRunArgsUsesToolchainImage(t *testing.T) {
 
 	mustContain(t, joined, "-v /repo/datasets:/app/datasets")
 	mustContain(t, joined, "-v /repo/artifacts:/app/artifacts")
-	mustContain(t, joined, "utbench:latest run")
-	mustContain(t, joined, "--output-root /app/artifacts")
-	mustContain(t, joined, "--models deepseek")
+	mustContain(t, joined, "-v /repo:/workspace")
+	mustContain(t, joined, "-w /workspace")
+	mustContain(t, joined, "--entrypoint /bin/sh")
+	mustContain(t, joined, "utbench:latest -lc 'go' 'run' './cmd/utbench' 'run'")
+	mustContain(t, joined, "'--output-root' '/app/artifacts'")
+	mustContain(t, joined, "'--models' 'deepseek'")
 }
 
 func TestBuildDockerEvaluateArgsUsesSourceRunManifest(t *testing.T) {
@@ -41,11 +44,11 @@ func TestBuildDockerEvaluateArgsUsesSourceRunManifest(t *testing.T) {
 	}, cfg)
 	joined := strings.Join(args, " ")
 
-	mustContain(t, joined, "utbench:latest evaluate")
-	mustContain(t, joined, "--run-id run-1")
-	mustContain(t, joined, "--manifest /app/artifacts/runs/source-run/generated/generated_manifest.json")
-	mustContain(t, joined, "--mutation-enabled")
-	mustContain(t, joined, "--mutation-timeout 120")
+	mustContain(t, joined, "utbench:latest -lc 'go' 'run' './cmd/utbench' 'evaluate'")
+	mustContain(t, joined, "'--run-id' 'run-1'")
+	mustContain(t, joined, "'--manifest' '/app/artifacts/runs/source-run/generated/generated_manifest.json'")
+	mustContain(t, joined, "'--mutation-enabled'")
+	mustContain(t, joined, "'--mutation-timeout' '120'")
 }
 
 func mustContain(t *testing.T, haystack, needle string) {

@@ -213,7 +213,7 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		a = append(a, "--evaluation", evaluationPath)
 	}
 
-	return a
+	return wrapDockerSourceCommand(a, cfg)
 }
 
 // runEvaluateInDocker runs only the evaluation step inside the utbench container.
@@ -228,6 +228,30 @@ func runEvaluateInDocker(ctx context.Context, runID string, spec contracts.RunSp
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
+}
+
+func wrapDockerSourceCommand(args []string, cfg DockerConfig) []string {
+	imageIdx := -1
+	for i, arg := range args {
+		if arg == cfg.ImageName {
+			imageIdx = i
+			break
+		}
+	}
+	if imageIdx < 0 || imageIdx == len(args)-1 {
+		return args
+	}
+	root := strings.TrimRight(cfg.ProjectRoot, `/\`)
+	cmd := append([]string{"go", "run", "./cmd/utbench"}, args[imageIdx+1:]...)
+	out := append([]string{}, args[:imageIdx]...)
+	out = append(out,
+		"-v", root+":/workspace",
+		"-w", "/workspace",
+		"--entrypoint", "/bin/sh",
+		cfg.ImageName,
+		"-lc", shellJoin(cmd),
+	)
+	return out
 }
 
 func buildDockerBaseArgs(cfg DockerConfig) []string {
