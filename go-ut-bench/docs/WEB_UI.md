@@ -77,6 +77,7 @@ utbench web [flags]
 | 变异测试 | 复选框 | 开启 mutmut/go-mutesting/pitest/mull |
 | 变异超时 | 数字输入 | 秒数，默认 1800 |
 | 入库保存 | 复选框 | 完成后自动写入 v2 SQLite 数据库 |
+| 复用历史生成 | 复选框 | 同模型、同源码 SHA256、同 prompt version 时复用数据库里的 generated test，避免重复调用模型 |
 | Docker 执行 | 复选框 | 在 `utbench:latest` 容器中运行（Windows 下 mutmut/mull 必需） |
 
 提交后自动跳转到任务详情页，开始实时跟踪日志。
@@ -97,7 +98,8 @@ utbench web [flags]
 - 查看评测结果表：模型、语言、样本、编译、测试、覆盖率、变异分
 - 查看 artifact 索引：`generated_manifest`、`generated_test`、`model_response`、`generation_metadata`、`evaluation_result`、`report_summary`、`report_html` 等
 - 输入已有 `run_id` 可补录 `artifacts/runs/<run_id>` 中的 manifest、evaluation、report 和关联 artifact
-- 按当前 run/model/language 筛选生成新的数据库报告，用于把多个历史运行中的模型结果放到同一份报告中比较
+- 在“跨运行对比报告”中多选历史运行、模型和语言，生成新的数据库报告，用于把多个历史运行中的模型结果放到同一份报告中比较
+- 对所选运行展示环境一致性提示：同一 `eval_env_id` 下的排名可作为正式横向比较；跨环境或环境指纹缺失时报告仅供参考
 
 数据库 schema 见 [database-design.md](database-design.md)。Web 仍会保留基于 `artifacts/runs` 的任务列表，数据库页负责长期保存和跨运行查询。
 
@@ -118,6 +120,13 @@ utbench web [flags]
 - **排行榜**：按综合得分排序，含编译/测试/覆盖/变异/延迟/Token 数据
 - **失败项摘要**：按错误类型聚合，含示例信息
 - **打开 HTML 报告**：点击「打开 HTML 报告」按钮可直接在新标签页查看原始 HTML 报告文件
+
+HTML 报告页采用可视化评测报告结构：
+
+- 顶部紧凑概览展示模型、语言、样本类型和关键指标
+- 模型排名区按综合得分展示各模型的编译、测试、覆盖、变异、延迟和 Token
+- 图表分析区支持综合、语言、场景和模型详情切换
+- 语言/场景统计、失败分析、计分剔除、零变异体、原始数据和 prompt 快照作为下钻区域
 
 ### Docker 镜像构建
 

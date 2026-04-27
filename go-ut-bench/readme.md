@@ -119,7 +119,10 @@ artifacts/runs/<run-id>/
 ```
 
 `run --ingest --db-path ./storage/utbench.db` 会在运行结束后自动把当前 run 目录中的 `generated_manifest.json`、`evaluation_result.json`、`report_summary.json` 以及关联的测试代码、prompt、模型响应、元数据和报告 artifact 写入数据库。不再使用旧的 `utbench ingest` 两表结构。
+`run --reuse-generated --db-path ./storage/utbench.db` 会在同模型、同源码 SHA256、同 prompt version 的情况下复用数据库中的历史 generated test，跳过模型 API 调用；评测仍按当前环境重新执行。
 `utbench db report` 会从数据库筛选历史结果并复用现有 reporter 生成新的 `report_summary.json` 和 `report.html`，用于把不同运行中的模型放到同一份报告里比较。
+
+HTML 报告沿用可视化评测页布局：紧凑概览、模型排名、图表分析、语言/场景统计、失败分析和原始数据明细。
 
 ## 文档
 

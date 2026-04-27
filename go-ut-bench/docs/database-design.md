@@ -652,7 +652,7 @@ ingest 阶段必须做这些校验：
 - `utbench db list-results`
 - `utbench db report`
 
-`run --ingest --db-path ...` 已改为写入 v2 schema，会补录当前 run 目录中的 manifest、evaluation、report 和关联 artifact。Web 当前支持数据库概览、运行列表、样本级评测结果、artifact 索引、已有 run 补录，以及按当前筛选生成数据库报告。`utbench db report` 支持从数据库选择 run/model/language 后复用现有 reporter 生成对比报告；后续还需要在 UI 上补更完整的多选控件和环境一致性提示。
+`run --ingest --db-path ...` 已改为写入 v2 schema，会补录当前 run 目录中的 manifest、evaluation、report 和关联 artifact。`run --reuse-generated --db-path ...` 会在同模型、同源码 SHA256、同 prompt version 命中时复用历史 generated test，避免重复调用模型，但仍在当前环境重新评测。Web 当前支持数据库概览、运行列表、样本级评测结果、artifact 索引、已有 run 补录，以及在“跨运行对比报告”中多选 run/model/language 生成数据库报告。`utbench db report` 支持从数据库选择 run/model/language 后复用现有 reporter 生成可视化对比报告；UI 会展示环境一致性提示，跨环境报告默认只作为参考。
 
 ## 仍需最终确认
 

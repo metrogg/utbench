@@ -116,14 +116,14 @@ type DBReportEnvOption struct {
 // Phase 3: Database management list item types
 
 type DBGenerationRunItem struct {
-	RunID             string `json:"run_id"`
-	ExperimentID      string `json:"experiment_id,omitempty"`
-	SchemaVersion     string `json:"schema_version"`
-	CreatedAtUTC      string `json:"created_at_utc"`
-	PromptStrategy    string `json:"prompt_strategy,omitempty"`
-	PromptVersionID   string `json:"prompt_version_id,omitempty"`
+	RunID              string `json:"run_id"`
+	ExperimentID       string `json:"experiment_id,omitempty"`
+	SchemaVersion      string `json:"schema_version"`
+	CreatedAtUTC       string `json:"created_at_utc"`
+	PromptStrategy     string `json:"prompt_strategy,omitempty"`
+	PromptVersionID    string `json:"prompt_version_id,omitempty"`
 	DatasetFingerprint string `json:"dataset_fingerprint,omitempty"`
-	CreatedDBAtUTC    string `json:"created_db_at_utc"`
+	CreatedDBAtUTC     string `json:"created_db_at_utc"`
 }
 
 type DBGeneratedCaseItem struct {
@@ -162,29 +162,29 @@ type DBEvaluationRunItem struct {
 }
 
 type DBEvaluationStageItem struct {
-	StageResultID   string `json:"stage_result_id"`
+	StageResultID      string `json:"stage_result_id"`
 	EvaluationResultID string `json:"evaluation_result_id"`
-	Stage           string `json:"stage"`
-	Status          string `json:"status"`
-	ExitCode        *int   `json:"exit_code,omitempty"`
-	DurationMS      *int   `json:"duration_ms,omitempty"`
-	CreatedAtUTC    string `json:"created_at_utc"`
+	Stage              string `json:"stage"`
+	Status             string `json:"status"`
+	ExitCode           *int   `json:"exit_code,omitempty"`
+	DurationMS         *int   `json:"duration_ms,omitempty"`
+	CreatedAtUTC       string `json:"created_at_utc"`
 }
 
 type DBDatasetSampleItem struct {
-	SampleUID   string `json:"sample_uid"`
-	SampleID    string `json:"sample_id"`
-	Language    string `json:"language"`
-	Class       string `json:"class,omitempty"`
-	Scenario    string `json:"scenario,omitempty"`
-	Path        string `json:"path"`
+	SampleUID    string `json:"sample_uid"`
+	SampleID     string `json:"sample_id"`
+	Language     string `json:"language"`
+	Class        string `json:"class,omitempty"`
+	Scenario     string `json:"scenario,omitempty"`
+	Path         string `json:"path"`
 	CreatedAtUTC string `json:"created_at_utc"`
 }
 
 type DBDatasetSnapshotItem struct {
-	SnapshotID  string `json:"snapshot_id"`
-	Fingerprint string `json:"fingerprint"`
-	SampleCount int    `json:"sample_count"`
+	SnapshotID   string `json:"snapshot_id"`
+	Fingerprint  string `json:"fingerprint"`
+	SampleCount  int    `json:"sample_count"`
 	CreatedAtUTC string `json:"created_at_utc"`
 }
 
@@ -223,18 +223,18 @@ type DBReportItem struct {
 }
 
 type DBRunArtifactItem struct {
-	RunID       string `json:"run_id"`
-	ArtifactID  string `json:"artifact_id"`
-	Role        string `json:"role"`
+	RunID        string `json:"run_id"`
+	ArtifactID   string `json:"artifact_id"`
+	Role         string `json:"role"`
 	CreatedAtUTC string `json:"created_at_utc"`
 }
 
 type DBExperimentItem struct {
-	ExperimentID  string `json:"experiment_id"`
-	Name          string `json:"name"`
-	Description   string `json:"description,omitempty"`
-	CreatedAtUTC  string `json:"created_at_utc"`
-	UpdatedAtUTC  string `json:"updated_at_utc"`
+	ExperimentID string `json:"experiment_id"`
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	CreatedAtUTC string `json:"created_at_utc"`
+	UpdatedAtUTC string `json:"updated_at_utc"`
 }
 
 type ReusableGeneratedCase struct {

@@ -42,6 +42,7 @@ const evaluationRows = __ROWS_JSON_PLACEHOLDER__;
 
 let modelBarChart;
 let radarChart;
+let efficiencyQualityChart;
 let errorTypeChart;
 let stageChart;
 let scenarioBarChart;
@@ -58,7 +59,7 @@ function safeText(value) {
 }
 
 function metricCell(value) {
-  if (!value) return '<span class="badge">-</span>';
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '<span class="badge">-</span>';
   const width = Math.max(0, Math.min(100, Math.round(value * 100)));
   const fillClass = value >= 0.7 ? 'ok' : 'bad';
   return '<div class="metric"><div class="bar"><span class="' + fillClass + '" style="width:' + width + '%"></span></div><span class="val">' + width + '%</span></div>';
@@ -66,8 +67,57 @@ function metricCell(value) {
 
 function getScenarioFromSample(sampleID) {
   if (!sampleID) return 'unknown';
+  for (const prefix of ['complex_dependency', 'interface_mock', 'simple_function', 'boundary']) {
+    if (sampleID === prefix || sampleID.startsWith(prefix + '_')) return prefix;
+  }
   const idx = sampleID.indexOf('_');
   return idx > 0 ? sampleID.slice(0, idx) : sampleID;
+}
+
+function scenarioLabel(value) {
+  const labels = {
+    boundary: '边界值 / Boundary',
+    simple_function: '简单函数 / Simple',
+    complex_dependency: '复杂依赖 / Complex',
+    interface_mock: '接口 Mock / Interface',
+    unknown: '未知 / Unknown'
+  };
+  return labels[value] || value || '未知 / Unknown';
+}
+
+function stageLabel(value) {
+  const labels = {
+    generate: '生成 / Generate',
+    compile: '编译 / Compile',
+    test: '测试 / Test',
+    coverage: '覆盖率 / Coverage',
+    mutation: '变异测试 / Mutation'
+  };
+  return labels[value] || value || '-';
+}
+
+function errorTypeLabel(value) {
+  const labels = {
+    truncated: '输出截断 / Truncated',
+    module_not_found: '模块缺失 / Module not found',
+    name_error: '名称错误 / Name error',
+    assertion_failure: '断言失败 / Assertion failure',
+    syntax_error: '语法错误 / Syntax error',
+    indentation_error: '缩进错误 / Indentation',
+    timeout: '超时 / Timeout',
+    permission_error: '权限错误 / Permission',
+    mutation_skipped_baseline_failed: '变异前测试失败 / Mutation baseline failed',
+    mutation_target_not_exercised: '未覆盖变异目标 / Target not exercised',
+    mutation_no_results: '无变异结果 / No mutation results',
+    mutation_no_coverage: '无覆盖数据 / No coverage',
+    mutation_no_effective_mutants: '无有效变异体 / No effective mutants',
+    mutation_timeout: '变异超时 / Mutation timeout',
+    mutation_tool_error: '变异工具错误 / Mutation tool error',
+    mutation_error: '变异错误 / Mutation error',
+    coverage_error: '覆盖率错误 / Coverage error',
+    other: '其他 / Other'
+  };
+  return labels[value] || value || '-';
 }
 
 function getStageFromRow(row) {
@@ -92,41 +142,70 @@ function getErrorTypeFromRow(row) {
   return message ? 'other' : '';
 }
 
-function aggregateRows(selectedModel, selectedScenario) {
+function filterMatch(value, selectedValues) {
+  return !selectedValues || selectedValues.length === 0 || selectedValues.includes(value);
+}
+
+function isScoreEligibleRow(row) {
+  return row.score_eligible === undefined || row.score_eligible === null || row.score_eligible === true;
+}
+
+function createAgg(key, extra = {}) {
+  return Object.assign({ key, total: 0, compilePass: 0, testPass: 0, testTotal: 0, lineSum: 0, lineCnt: 0, branchSum: 0, branchCnt: 0, mutationSum: 0, mutationCnt: 0 }, extra);
+}
+
+function aggRow(agg, row) {
+  agg.total += 1;
+  if (row.compile_pass) agg.compilePass += 1;
+  if (row.test_pass_count !== null && row.test_pass_count !== undefined && row.test_total_count !== null && row.test_total_count !== undefined) {
+    agg.testPass += row.test_pass_count;
+    agg.testTotal += row.test_total_count;
+  } else if (row.test_pass !== null && row.test_pass !== undefined) {
+    agg.testTotal += 1;
+    if (row.test_pass) agg.testPass += 1;
+  }
+  if (row.line_coverage !== null && row.line_coverage !== undefined) { agg.lineSum += row.line_coverage; agg.lineCnt += 1; }
+  if (row.branch_coverage !== null && row.branch_coverage !== undefined) { agg.branchSum += row.branch_coverage; agg.branchCnt += 1; }
+  if (row.mutation_score !== null && row.mutation_score !== undefined) { agg.mutationSum += row.mutation_score; agg.mutationCnt += 1; }
+}
+
+function aggToMetrics(item) {
+  return {
+    total: item.total,
+    compilePassRate: item.total ? item.compilePass / item.total : 0,
+    testPassRate: item.testTotal ? item.testPass / item.testTotal : 0,
+    lineCoverage: item.lineCnt ? item.lineSum / item.lineCnt : 0,
+    branchCoverage: item.branchCnt ? item.branchSum / item.branchCnt : 0,
+    mutationScore: item.mutationCnt ? item.mutationSum / item.mutationCnt : 0
+  };
+}
+
+function aggregateRows(selectedModels, selectedLanguages, selectedScenarios) {
   const filtered = evaluationRows.filter(row => {
-    const modelMatch = selectedModel === 'all' || row.model === selectedModel;
-    const scenarioMatch = selectedScenario === 'all' || getScenarioFromSample(row.sample_id) === selectedScenario;
-    return modelMatch && scenarioMatch;
+    const scenario = getScenarioFromSample(row.sample_id);
+    return isScoreEligibleRow(row) &&
+      filterMatch(row.model || '', selectedModels) &&
+      filterMatch(row.language || 'unknown', selectedLanguages) &&
+      filterMatch(scenario, selectedScenarios);
   });
+  const byModel = new Map();
   const byLanguage = new Map();
   const byScenario = new Map();
   const failures = new Map();
 
   for (const row of filtered) {
+    const modelKey = row.model || 'unknown';
+    if (!byModel.has(modelKey)) byModel.set(modelKey, createAgg(modelKey, { model: modelKey }));
+    aggRow(byModel.get(modelKey), row);
+
     const langKey = row.language || 'unknown';
-    if (!byLanguage.has(langKey)) byLanguage.set(langKey, { language: langKey, total: 0, compilePass: 0, testPass: 0, lineSum: 0, lineCnt: 0, branchSum: 0, branchCnt: 0, mutationSum: 0, mutationCnt: 0 });
-    const lang = byLanguage.get(langKey);
-    lang.total += 1;
-    if (row.compile_pass) lang.compilePass += 1;
-    if (row.test_pass !== null && row.test_pass !== undefined && row.test_pass) {
-      lang.testPass += 1;
-    }
-    if (row.line_coverage !== null && row.line_coverage !== undefined) { lang.lineSum += row.line_coverage; lang.lineCnt += 1; }
-    if (row.branch_coverage !== null && row.branch_coverage !== undefined) { lang.branchSum += row.branch_coverage; lang.branchCnt += 1; }
-    if (row.mutation_score !== null && row.mutation_score !== undefined) { lang.mutationSum += row.mutation_score; lang.mutationCnt += 1; }
+    if (!byLanguage.has(langKey)) byLanguage.set(langKey, createAgg(langKey, { language: langKey }));
+    aggRow(byLanguage.get(langKey), row);
 
     const scenario = getScenarioFromSample(row.sample_id);
     const scenKey = langKey + '|' + scenario;
-    if (!byScenario.has(scenKey)) byScenario.set(scenKey, { scenario, language: langKey, total: 0, compilePass: 0, testPass: 0, lineSum: 0, lineCnt: 0, branchSum: 0, branchCnt: 0, mutationSum: 0, mutationCnt: 0 });
-    const scen = byScenario.get(scenKey);
-    scen.total += 1;
-    if (row.compile_pass) scen.compilePass += 1;
-    if (row.test_pass !== null && row.test_pass !== undefined && row.test_pass) {
-      scen.testPass += 1;
-    }
-    if (row.line_coverage !== null && row.line_coverage !== undefined) { scen.lineSum += row.line_coverage; scen.lineCnt += 1; }
-    if (row.branch_coverage !== null && row.branch_coverage !== undefined) { scen.branchSum += row.branch_coverage; scen.branchCnt += 1; }
-    if (row.mutation_score !== null && row.mutation_score !== undefined) { scen.mutationSum += row.mutation_score; scen.mutationCnt += 1; }
+    if (!byScenario.has(scenKey)) byScenario.set(scenKey, createAgg(scenKey, { scenario, language: langKey }));
+    aggRow(byScenario.get(scenKey), row);
 
     const stage = getStageFromRow(row);
     const errorType = getErrorTypeFromRow(row);
@@ -137,34 +216,26 @@ function aggregateRows(selectedModel, selectedScenario) {
     }
   }
 
-  const languages = Array.from(byLanguage.values()).map(item => ({
-    language: item.language,
-    total: item.total,
-    compilePassRate: item.total ? item.compilePass / item.total : 0,
-    testPassRate: item.total ? item.testPass / item.total : 0,
-    lineCoverage: item.lineCnt ? item.lineSum / item.lineCnt : 0,
-    branchCoverage: item.branchCnt ? item.branchSum / item.branchCnt : 0,
-    mutationScore: item.mutationCnt ? item.mutationSum / item.mutationCnt : 0
-  })).sort((a, b) => a.language.localeCompare(b.language));
-
-  const scenarios = Array.from(byScenario.values()).map(item => ({
-    scenario: item.scenario,
-    language: item.language,
-    total: item.total,
-    compilePassRate: item.total ? item.compilePass / item.total : 0,
-    testPassRate: item.total ? item.testPass / item.total : 0,
-    lineCoverage: item.lineCnt ? item.lineSum / item.lineCnt : 0,
-    branchCoverage: item.branchCnt ? item.branchSum / item.branchCnt : 0,
-    mutationScore: item.mutationCnt ? item.mutationSum / item.mutationCnt : 0
-  })).sort((a, b) => (a.language + a.scenario).localeCompare(b.language + b.scenario));
+  const models = Array.from(byModel.values()).map(item => Object.assign({ model: item.model }, aggToMetrics(item))).sort((a, b) => b.mutationScore - a.mutationScore || b.testPassRate - a.testPassRate);
+  const languages = Array.from(byLanguage.values()).map(item => Object.assign({ language: item.language }, aggToMetrics(item))).sort((a, b) => a.language.localeCompare(b.language));
+  const scenarios = Array.from(byScenario.values()).map(item => Object.assign({ scenario: item.scenario, language: item.language }, aggToMetrics(item))).sort((a, b) => (a.language + a.scenario).localeCompare(b.language + b.scenario));
 
   const failureRows = Array.from(failures.values()).sort((a, b) => b.count - a.count);
-  return { languages, scenarios, failureRows, filtered };
+  return { models, languages, scenarios, failureRows, filtered };
+}
+
+function renderModelTable(items) {
+  const body = document.getElementById('by-model-body');
+  const empty = document.getElementById('by-model-empty');
+  if (!body || !empty) return;
+  body.innerHTML = items.map(item => '<tr><td><strong>' + safeText(item.model) + '</strong></td><td>' + item.total + '</td><td>' + metricCell(item.compilePassRate) + '</td><td>' + metricCell(item.testPassRate) + '</td><td>' + metricCell(item.lineCoverage) + '</td><td>' + metricCell(item.branchCoverage) + '</td><td>' + metricCell(item.mutationScore) + '</td></tr>').join('');
+  empty.style.display = items.length ? 'none' : 'block';
 }
 
 function renderLanguageTable(items) {
   const body = document.getElementById('by-language-body');
   const empty = document.getElementById('by-language-empty');
+  if (!body || !empty) return;
   body.innerHTML = items.map(item => '<tr><td><strong>' + safeText(String(item.language).toUpperCase()) + '</strong></td><td>' + item.total + '</td><td>' + metricCell(item.compilePassRate) + '</td><td>' + metricCell(item.testPassRate) + '</td><td>' + metricCell(item.lineCoverage) + '</td><td>' + metricCell(item.branchCoverage) + '</td><td>' + metricCell(item.mutationScore) + '</td></tr>').join('');
   empty.style.display = items.length ? 'none' : 'block';
 }
@@ -172,14 +243,15 @@ function renderLanguageTable(items) {
 function renderScenarioTable(items) {
   const body = document.getElementById('by-scenario-body');
   const empty = document.getElementById('by-scenario-empty');
-  body.innerHTML = items.map(item => '<tr><td><strong>' + safeText(item.scenario) + '</strong></td><td>' + safeText(String(item.language).toUpperCase()) + '</td><td>' + item.total + '</td><td>' + metricCell(item.compilePassRate) + '</td><td>' + metricCell(item.testPassRate) + '</td><td>' + metricCell(item.lineCoverage) + '</td><td>' + metricCell(item.branchCoverage) + '</td><td>' + metricCell(item.mutationScore) + '</td></tr>').join('');
+  if (!body || !empty) return;
+  body.innerHTML = items.map(item => '<tr><td><strong>' + safeText(scenarioLabel(item.scenario)) + '</strong></td><td>' + safeText(String(item.language).toUpperCase()) + '</td><td>' + item.total + '</td><td>' + metricCell(item.compilePassRate) + '</td><td>' + metricCell(item.testPassRate) + '</td><td>' + metricCell(item.lineCoverage) + '</td><td>' + metricCell(item.branchCoverage) + '</td><td>' + metricCell(item.mutationScore) + '</td></tr>').join('');
   empty.style.display = items.length ? 'none' : 'block';
 }
 
 function renderErrorTable(items) {
   const body = document.getElementById('error-analysis-body');
   const empty = document.getElementById('error-analysis-empty');
-  body.innerHTML = items.map(item => '<tr><td>' + safeText(item.stage) + '</td><td>' + safeText(item.errorType) + '</td><td>' + item.count + '</td><td>' + safeText(item.exampleModel) + '</td><td>' + safeText(item.exampleSample) + '</td></tr>').join('');
+  body.innerHTML = items.map(item => '<tr><td>' + safeText(stageLabel(item.stage)) + '</td><td>' + safeText(errorTypeLabel(item.errorType)) + '</td><td>' + item.count + '</td><td>' + safeText(item.exampleModel) + '</td><td>' + safeText(item.exampleSample) + '</td></tr>').join('');
   empty.style.display = items.length ? 'none' : 'block';
 }
 
@@ -201,28 +273,26 @@ function upsertChart(instance, canvasId, type, labels, values, colors) {
 function renderErrorCharts(items) {
   const typeData = buildPieData(items, 'errorType');
   const stageData = buildPieData(items, 'stage');
-  errorTypeChart = upsertChart(errorTypeChart, 'errorTypeChart', 'doughnut', typeData.labels.length ? typeData.labels : ['No Errors'], typeData.values.length ? typeData.values : [1], ['#ef4444', '#f97316', '#eab308', '#3b82f6', '#8b5cf6', '#14b8a6']);
-  stageChart = upsertChart(stageChart, 'stageChart', 'pie', stageData.labels.length ? stageData.labels : ['No Errors'], stageData.values.length ? stageData.values : [1], ['#ef4444', '#f97316', '#eab308', '#3b82f6', '#14b8a6']);
+  const typeLabels = typeData.labels.length ? typeData.labels.map(errorTypeLabel) : ['无错误 / No Errors'];
+  const stageLabels = stageData.labels.length ? stageData.labels.map(stageLabel) : ['无错误 / No Errors'];
+  errorTypeChart = upsertChart(errorTypeChart, 'errorTypeChart', 'doughnut', typeLabels, typeData.values.length ? typeData.values : [1], ['#ef4444', '#f97316', '#eab308', '#3b82f6', '#8b5cf6', '#14b8a6']);
+  stageChart = upsertChart(stageChart, 'stageChart', 'pie', stageLabels, stageData.values.length ? stageData.values : [1], ['#ef4444', '#f97316', '#eab308', '#3b82f6', '#14b8a6']);
 }
 
 function renderScenarioCharts(items) {
-  const scenarioBarCanvas = document.getElementById('scenarioBarChart');
-  const scenarioTrendCanvas = document.getElementById('scenarioTrendChart');
-  if (!scenarioBarCanvas || !scenarioTrendCanvas) return;
-
-  const labels = items.map(item => item.scenario + ' / ' + item.language.toUpperCase());
+  const labels = items.map(item => scenarioLabel(item.scenario) + ' / ' + item.language.toUpperCase());
   const compileRates = items.map(item => item.compilePassRate);
   const testRates = items.map(item => item.testPassRate);
   const mutationRates = items.map(item => item.mutationScore);
 
   if (scenarioBarChart) scenarioBarChart.destroy();
-  scenarioBarChart = new Chart(scenarioBarCanvas, {
+  scenarioBarChart = new Chart(document.getElementById('scenarioBarChart'), {
     type: 'bar',
     data: {
       labels,
       datasets: [
         { label: '编译通过率', data: compileRates, backgroundColor: '#1e40af' },
-        { label: '样本测试通过率', data: testRates, backgroundColor: '#10b981' }
+        { label: '测试通过率', data: testRates, backgroundColor: '#10b981' }
       ]
     },
     options: {
@@ -234,7 +304,7 @@ function renderScenarioCharts(items) {
   });
 
   if (scenarioTrendChart) scenarioTrendChart.destroy();
-  scenarioTrendChart = new Chart(scenarioTrendCanvas, {
+  scenarioTrendChart = new Chart(document.getElementById('scenarioTrendChart'), {
     type: 'line',
     data: {
       labels,
@@ -262,7 +332,7 @@ function renderHeatmap(containerId, rows, metricKey) {
   });
   let html = '<div class="heatmap">';
   Array.from(grouped.entries()).sort((a,b) => a[0].localeCompare(b[0])).forEach(([scenario, scenarioRows]) => {
-    html += '<div class="heatmap-row"><div class="heatmap-label">' + safeText(scenario) + '</div>';
+    html += '<div class="heatmap-row"><div class="heatmap-label">' + safeText(scenarioLabel(scenario)) + '</div>';
     scenarioRows.slice(0, 8).forEach(row => {
       const raw = row[metricKey];
       const value = raw === null || raw === undefined ? 0 : raw;
@@ -291,339 +361,365 @@ function exportScenarioCSV(items) {
   URL.revokeObjectURL(url);
 }
 
-function renderModelCharts() {
-  // 渲染综合排名主图
-  renderOverallChart();
-  // 渲染雷达图
-  renderRadarChart();
-  // 渲染维度分解
-  renderDimensionBreakdown();
-  // 渲染热力图
-  const aggregated = aggregateRows('all', 'all');
-  renderHeatmap('coverageHeatmap', aggregated.filtered, 'line_coverage');
-  renderHeatmap('mutationHeatmap', aggregated.filtered, 'mutation_score');
+function initRawColumnToggles() {
+  document.querySelectorAll('[data-raw-column]').forEach(input => {
+    const apply = () => {
+      const name = input.getAttribute('data-raw-column');
+      document.querySelectorAll('.raw-col-' + name).forEach(cell => {
+        cell.style.display = input.checked ? 'table-cell' : 'none';
+      });
+    };
+    input.addEventListener('change', apply);
+    apply();
+  });
 }
 
-// ========== 图表切换功能 ==========
-let currentChartTab = 'overall';
-let mainCompareChart = null;
+function normalizedAssertionDensity(value) {
+  const raw = Number(value || 0);
+  return Math.max(0, Math.min(1, raw / 5));
+}
 
-function switchChartTab(tab) {
-  currentChartTab = tab;
-  // 更新 tab 样式
-  document.querySelectorAll('.chart-tab').forEach(btn => {
-    if (btn.dataset.tab === tab) {
-      btn.style.background = '#1e40af';
-      btn.style.color = '#fff';
-      btn.classList.add('active');
-    } else {
-      btn.style.background = '#f1f5f9';
-      btn.style.color = '#475569';
-      btn.classList.remove('active');
+function qualityScore(item) {
+  return (
+    Number(item.compile_pass_rate || 0) * 0.25 +
+    Number(item.avg_test_pass_rate || 0) * 0.30 +
+    Number(item.avg_line_coverage || 0) * 0.15 +
+    Number(item.avg_mutation_score || 0) * 0.25 +
+    normalizedAssertionDensity(item.avg_assertion_density) * 0.05
+  ) * 100;
+}
+
+function modelColor(index) {
+  return ['#2f7df6', '#ff6b00', '#78909c', '#22c55e', '#8b5cf6', '#06b6d4', '#f43f5e', '#a3a3a3', '#84cc16', '#f59e0b', '#6366f1', '#14b8a6'][index % 12];
+}
+
+function shortModelName(value) {
+  return String(value || '');
+}
+
+function aggregateModelExtras() {
+  const extras = new Map();
+  for (const item of reportTopModels) {
+    extras.set(item.model, { total: 0, branchSum: 0, branchCnt: 0, killed: 0, survived: 0, truncated: 0 });
+  }
+  for (const row of evaluationRows) {
+    if (!isScoreEligibleRow(row)) continue;
+    const model = row.model || '';
+    if (!extras.has(model)) extras.set(model, { total: 0, branchSum: 0, branchCnt: 0, killed: 0, survived: 0, truncated: 0 });
+    const item = extras.get(model);
+    item.total += 1;
+    if (row.branch_coverage !== null && row.branch_coverage !== undefined) {
+      item.branchSum += Number(row.branch_coverage || 0);
+      item.branchCnt += 1;
     }
-  });
-  // 显示对应的筛选面板
-  document.querySelectorAll('.filter-panel').forEach(panel => panel.style.display = 'none');
-  const filterPanel = document.getElementById('filter-' + tab);
-  if (filterPanel) filterPanel.style.display = 'block';
-  // 刷新图表
-  if (tab === 'overall') renderOverallChart();
-  else if (tab === 'language') refreshLanguageChart();
-  else if (tab === 'scenario') refreshScenarioChart();
-  else if (tab === 'model') refreshModelDetailChart();
+    if (row.mutation_killed !== null && row.mutation_killed !== undefined) item.killed += Number(row.mutation_killed || 0);
+    if (row.mutation_survived !== null && row.mutation_survived !== undefined) item.survived += Number(row.mutation_survived || 0);
+    if (row.truncated) item.truncated += 1;
+  }
+  return extras;
 }
 
-function renderOverallChart() {
-  const titleEl = document.getElementById('main-chart-title');
-  if (titleEl) titleEl.textContent = '模型综合得分对比';
+function benchmarkMetricsForModel(model, extras) {
+  const extra = extras.get(model.model) || {};
+  const branchCoverage = extra.branchCnt ? extra.branchSum / extra.branchCnt : 0;
+  const mutationDenom = Number(extra.killed || 0) + Number(extra.survived || 0);
+  const mutationKillRate = mutationDenom ? Number(extra.killed || 0) / mutationDenom : 0;
+  return {
+    compile: Number(model.compile_pass_rate || 0) * 100,
+    sampleTest: Number(model.avg_test_pass_rate || 0) * 100,
+    testCase: Number((model.avg_test_case_pass_rate || model.avg_test_pass_rate) || 0) * 100,
+    lineCoverage: Number(model.avg_line_coverage || 0) * 100,
+    branchCoverage: branchCoverage * 100,
+    mutationScore: Number(model.avg_mutation_score || 0) * 100,
+    mutationKillRate: mutationKillRate * 100,
+    assertionDensity: normalizedAssertionDensity(model.avg_assertion_density) * 100
+  };
+}
 
-  const modelNames = reportTopModels.map(item => item.model);
-  const scores = reportTopModels.map(item => item.composite_score);
-  const colors = reportTopModels.map((item, idx) => {
-    if (item.rank === 1) return '#22c55e'; // green for #1
-    if (item.rank === 2) return '#3b82f6'; // blue for #2
-    if (item.rank === 3) return '#f59e0b'; // amber for #3
-    return '#94a3b8'; // gray for others
+function renderBenchmarkScoreboard(scope = 'top') {
+  const container = document.getElementById('benchmarkScoreboard');
+  const legend = document.getElementById('benchmarkScoreboardLegend');
+  if (!container || !legend) return;
+  const models = (scope === 'all' ? reportTopModels : reportTopModels.slice(0, 6));
+  const extras = aggregateModelExtras();
+  const metrics = [
+    { key: 'compile', group: 'Execution', title: 'Compile Pass', sub: '编译通过' },
+    { key: 'sampleTest', group: 'Execution', title: 'Sample Test Pass', sub: '样本测试通过' },
+    { key: 'testCase', group: 'Execution', title: 'Test Case Pass', sub: '用例通过' },
+    { key: 'lineCoverage', group: 'Coverage', title: 'Line Coverage', sub: '行覆盖率' },
+    { key: 'branchCoverage', group: 'Coverage', title: 'Branch Coverage', sub: '分支覆盖率' },
+    { key: 'mutationScore', group: 'Effectiveness', title: 'Mutation Score', sub: '变异分数' },
+    { key: 'mutationKillRate', group: 'Effectiveness', title: 'Mutation Kill Rate', sub: '有效变异杀死率' },
+    { key: 'assertionDensity', group: 'Generation', title: 'Assertion Density', sub: '断言密度归一化' }
+  ];
+  const modelValues = new Map(models.map(model => [model.model, benchmarkMetricsForModel(model, extras)]));
+
+  legend.innerHTML = '<span>全部模型使用固定颜色；每张图按当前指标从高到低排序，柱底直接显示模型名。</span>';
+
+  container.innerHTML = metrics.map(metric => {
+    const values = models
+      .map((model, index) => ({ model, color: modelColor(index), value: (modelValues.get(model.model) || {})[metric.key] || 0 }))
+      .sort((a, b) => b.value - a.value || a.model.model.localeCompare(b.model.model));
+    const bars = values.map(item => {
+      const value = Math.max(0, Math.min(100, item.value));
+      return '<div class="scorebar-item" title="' + safeText(item.model.model) + ': ' + value.toFixed(1) + '">' +
+        '<div class="scorebar-value">' + value.toFixed(1) + '</div>' +
+        '<div class="scorebar-track"><div class="scorebar-fill" style="height:' + Math.max(2, value) + '%;background:' + item.color + '"></div></div>' +
+        '<div class="scorebar-label">' + safeText(shortModelName(item.model.model)) + '</div>' +
+        '</div>';
+    }).join('');
+    return '<article class="scoreboard-card">' +
+      '<div class="scoreboard-card-group">' + safeText(metric.group) + '</div>' +
+      '<div class="scoreboard-card-title">' + safeText(metric.title) + '</div>' +
+      '<div class="scoreboard-card-sub">' + safeText(metric.sub) + '</div>' +
+      '<div class="scoreboard-chart">' +
+        '<div class="scoreboard-y-axis"><span>100</span><span>75</span><span>50</span><span>25</span><span>0</span></div>' +
+        '<div class="scoreboard-plot"><div class="scoreboard-grid-lines"></div><div class="scoreboard-bars">' + bars + '</div></div>' +
+      '</div>' +
+      '</article>';
+  }).join('');
+}
+
+function initBenchmarkScoreboardToggle() {
+  const buttons = document.querySelectorAll('[data-scoreboard-scope]');
+  if (!buttons.length) return;
+  buttons.forEach(button => {
+    button.addEventListener('click', () => {
+      buttons.forEach(item => item.classList.remove('active'));
+      button.classList.add('active');
+      renderBenchmarkScoreboard(button.getAttribute('data-scoreboard-scope') || 'top');
+    });
+  });
+}
+
+function renderEfficiencyQualityChart(axis = 'latency') {
+  const canvas = document.getElementById('efficiencyQualityChart');
+  if (!canvas) return;
+
+  const axisIsTokens = axis === 'tokens';
+  const denseMode = reportTopModels.length > 8;
+  const points = reportTopModels.map((item, index) => {
+    const xRaw = axisIsTokens ? Number(item.avg_total_tokens || 0) : Number(item.avg_latency_ms || 0) / 1000;
+    const yRaw = qualityScore(item);
+    const sampleSize = denseMode
+      ? Math.max(4, Math.min(8, 4 + Math.log2(Number(item.total_samples || 1) + 1) * 0.6))
+      : Math.max(5, Math.min(10, 5 + Math.log2(Number(item.total_samples || 1) + 1) * 0.8));
+    return {
+      label: item.model,
+      data: [{ x: xRaw, y: yRaw }],
+      pointRadius: sampleSize,
+      pointHoverRadius: sampleSize + 2,
+      pointHitRadius: 10,
+      backgroundColor: modelColor(index) + (denseMode ? '99' : 'bb'),
+      borderColor: modelColor(index),
+      borderWidth: 1.5
+    };
   });
 
-  if (mainCompareChart) mainCompareChart.destroy();
-  mainCompareChart = new Chart(document.getElementById('mainCompareChart'), {
-    type: 'bar',
-    data: {
-      labels: modelNames,
-      datasets: [{
-        label: '综合得分',
-        data: scores,
-        backgroundColor: colors,
-        borderRadius: 6
-      }]
-    },
+  if (efficiencyQualityChart) efficiencyQualityChart.destroy();
+  efficiencyQualityChart = new Chart(canvas, {
+    type: 'scatter',
+    data: { datasets: points },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      layout: { padding: { top: 18, right: 28, bottom: 10, left: 8 } },
+      interaction: { mode: 'nearest', intersect: false },
       plugins: {
-        legend: { display: false },
+        legend: {
+          position: 'bottom',
+          labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true }
+        },
         tooltip: {
           callbacks: {
-            label: ctx => '综合得分: ' + (ctx.raw * 100).toFixed(1) + '%'
+            label: ctx => {
+              const item = reportTopModels[ctx.datasetIndex] || {};
+              const x = ctx.parsed.x;
+              const unit = axisIsTokens ? ' tokens' : 's';
+              return [
+                item.model,
+                '质量分: ' + ctx.parsed.y.toFixed(1),
+                (axisIsTokens ? '平均 Token: ' : '平均耗时: ') + x.toFixed(axisIsTokens ? 0 : 1) + unit,
+                '样本数: ' + safeText(item.total_samples)
+              ];
+            }
           }
         }
       },
       scales: {
-        y: { beginAtZero: true, max: 1, ticks: { callback: v => Math.round(v * 100) + '%' } },
-        x: { }
+        x: {
+          beginAtZero: true,
+          title: { display: true, text: axisIsTokens ? '平均 Token Avg Total Tokens（越低越省）' : '平均耗时 Avg Latency（秒，越低越快）' },
+          ticks: { callback: value => axisIsTokens ? Math.round(value) : Number(value).toFixed(0) + 's' },
+          grid: { color: '#e8edf5', tickLength: 0 },
+          border: { color: '#94a3b8', width: 2 }
+        },
+        y: {
+          beginAtZero: true,
+          suggestedMax: 100,
+          title: { display: true, text: '质量分 Quality Score（越高越好）' },
+          ticks: { callback: value => value + '' },
+          grid: { color: '#e8edf5', tickLength: 0 },
+          border: { color: '#94a3b8', width: 2 }
+        }
       }
     }
   });
 
-  // 更新维度分解
-  renderDimensionBreakdownOverall();
+  renderEfficiencyNotes(axis);
 }
 
-function renderDimensionBreakdownOverall() {
-  const tbody = document.getElementById('dimensionBreakdownBody');
-  if (!tbody) return;
-  let html = '';
-  reportTopModels.forEach(item => {
-    const rankBadge = item.rank <= 3 ? '<span style="background:#1e40af;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">#' + item.rank + '</span>' : '';
-    html += '<tr><td style="padding:8px;border-bottom:1px solid #e2e8f0;">' + rankBadge + safeText(item.model) + '</td>';
-    html += '<td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;">' + metricCell(item.compile_pass_rate) + '</td>';
-    html += '<td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;">' + metricCell(item.avg_test_pass_rate) + '</td>';
-    html += '<td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;">' + metricCell(item.avg_line_coverage) + '</td>';
-    html += '<td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;">' + metricCell(item.avg_mutation_score) + '</td>';
-    html += '<td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:700;">' + Math.round(item.composite_score * 100) + '%</td></tr>';
-  });
-  tbody.innerHTML = html;
+function renderEfficiencyNotes(axis) {
+  const box = document.getElementById('efficiencyQualityNotes');
+  if (!box) return;
+  const axisIsTokens = axis === 'tokens';
+  const ranked = reportTopModels
+    .map(item => ({ item, score: qualityScore(item) }))
+    .sort((a, b) => b.score - a.score);
+  const visible = ranked.slice(0, 6);
+  const extra = ranked.length > visible.length ? '<div class="muted">其余 ' + (ranked.length - visible.length) + ' 个模型请悬停图中点查看。</div>' : '';
+  box.innerHTML = visible.map(({ item, score }) => {
+    const x = axisIsTokens ? Number(item.avg_total_tokens || 0).toFixed(0) + ' tokens' : (Number(item.avg_latency_ms || 0) / 1000).toFixed(1) + 's';
+    return '<div><strong>' + safeText(item.model) + '</strong>：质量分 ' + score.toFixed(1) + '，' + (axisIsTokens ? '平均 Token ' : '平均耗时 ') + x + '。</div>';
+  }).join('') + extra;
 }
 
-function refreshLanguageChart() {
-  const langSelect = document.getElementById('chart-language-select');
-  const lang = langSelect ? langSelect.value : 'all';
-
-  const titleEl = document.getElementById('main-chart-title');
-  if (titleEl) {
-    titleEl.textContent = lang === 'all' ? '各语言下模型综合得分对比' : safeText(lang.toUpperCase()) + ' 语言下模型得分对比';
-  }
-
-  // 按语言筛选数据
-  const filteredRows = evaluationRows.filter(row => lang === 'all' || row.language === lang);
-  const byModel = new Map();
-  filteredRows.forEach(row => {
-    if (!byModel.has(row.model)) byModel.set(row.model, { compile: 0, test: 0, line: 0, mutation: 0, count: 0 });
-    const agg = byModel.get(row.model);
-    agg.count++;
-    if (row.compile_pass) agg.compile++;
-    if (row.test_pass) agg.test++;
-    if (row.line_coverage) agg.line += row.line_coverage;
-    if (row.mutation_score) agg.mutation += row.mutation_score;
+function initEfficiencyAxisToggle() {
+  const buttons = document.querySelectorAll('[data-efficiency-axis]');
+  if (!buttons.length) return;
+  buttons.forEach(button => {
+    button.addEventListener('click', () => {
+      buttons.forEach(item => item.classList.remove('active'));
+      button.classList.add('active');
+      renderEfficiencyQualityChart(button.getAttribute('data-efficiency-axis') || 'latency');
+    });
   });
+}
 
-  const data = Array.from(byModel.entries()).map(([model, agg]) => ({
-    model,
-    compileRate: agg.count ? agg.compile / agg.count : 0,
-    testRate: agg.count ? agg.test / agg.count : 0,
-    lineRate: agg.line / agg.count,
-    mutationRate: agg.mutation / agg.count,
-    composite: agg.count ? (agg.compile/agg.count)*0.3 + (agg.test/agg.count)*0.3 + (agg.line/agg.count)*0.2 + (agg.mutation/agg.count)*0.2 : 0
-  })).sort((a, b) => b.composite - a.composite);
+function renderModelCharts() {
+  const modelNames = reportTopModels.map(item => item.model);
+  const compileRates = reportTopModels.map(item => item.compile_pass_rate);
+  const testRates = reportTopModels.map(item => item.avg_test_pass_rate);
+  const lineRates = reportTopModels.map(item => item.avg_line_coverage);
+  const mutationRates = reportTopModels.map(item => item.avg_mutation_score);
 
-  if (mainCompareChart) mainCompareChart.destroy();
-  mainCompareChart = new Chart(document.getElementById('mainCompareChart'), {
+  modelBarChart = new Chart(document.getElementById('modelBarChart'), {
     type: 'bar',
-    data: {
-      labels: data.map(d => d.model),
-      datasets: [{
-        label: '综合得分',
-        data: data.map(d => d.composite),
-        backgroundColor: data.map((_, idx) => idx === 0 ? '#22c55e' : idx === 1 ? '#3b82f6' : idx === 2 ? '#f59e0b' : '#94a3b8'),
-        borderRadius: 6
-      }]
-    },
-    options: {
-      
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '综合得分: ' + (ctx.raw * 100).toFixed(1) + '%' } } },
-      scales: { x: { beginAtZero: true, max: 1, ticks: { callback: v => Math.round(v * 100) + '%' } } }
-    }
+    data: { labels: modelNames, datasets: [
+      { label: '编译', data: compileRates, backgroundColor: '#3b82f6' },
+      { label: '测试', data: testRates, backgroundColor: '#10b981' },
+      { label: '覆盖', data: lineRates, backgroundColor: '#f59e0b' },
+      { label: '变异', data: mutationRates, backgroundColor: '#8b5cf6' }
+    ]},
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%' } } } }
   });
 
-  // 更新维度分解
-  renderDimensionBreakdownFiltered(data, '语言: ' + (lang === 'all' ? '全部' : lang.toUpperCase()));
-}
-
-function refreshScenarioChart() {
-  const scenarioSelect = document.getElementById('chart-scenario-select');
-  const scenario = scenarioSelect ? scenarioSelect.value : 'all';
-
-  const titleEl = document.getElementById('main-chart-title');
-  if (titleEl) {
-    titleEl.textContent = scenario === 'all' ? '各场景下模型综合得分对比' : safeText(scenario) + ' 场景下模型得分对比';
-  }
-
-  // 按场景筛选数据
-  const filteredRows = evaluationRows.filter(row => {
-    const rowScenario = getScenarioFromSample(row.sample_id);
-    return scenario === 'all' || rowScenario === scenario;
-  });
-  const byModel = new Map();
-  filteredRows.forEach(row => {
-    if (!byModel.has(row.model)) byModel.set(row.model, { compile: 0, test: 0, line: 0, mutation: 0, count: 0 });
-    const agg = byModel.get(row.model);
-    agg.count++;
-    if (row.compile_pass) agg.compile++;
-    if (row.test_pass) agg.test++;
-    if (row.line_coverage) agg.line += row.line_coverage;
-    if (row.mutation_score) agg.mutation += row.mutation_score;
-  });
-
-  const data = Array.from(byModel.entries()).map(([model, agg]) => ({
-    model,
-    compileRate: agg.count ? agg.compile / agg.count : 0,
-    testRate: agg.count ? agg.test / agg.count : 0,
-    lineRate: agg.line / agg.count,
-    mutationRate: agg.mutation / agg.count,
-    composite: agg.count ? (agg.compile/agg.count)*0.3 + (agg.test/agg.count)*0.3 + (agg.line/agg.count)*0.2 + (agg.mutation/agg.count)*0.2 : 0,
-    samples: agg.count
-  })).sort((a, b) => b.composite - a.composite);
-
-  if (mainCompareChart) mainCompareChart.destroy();
-  mainCompareChart = new Chart(document.getElementById('mainCompareChart'), {
-    type: 'bar',
-    data: {
-      labels: data.map(d => d.model),
-      datasets: [{
-        label: '综合得分',
-        data: data.map(d => d.composite),
-        backgroundColor: data.map((_, idx) => idx === 0 ? '#22c55e' : idx === 1 ? '#3b82f6' : idx === 2 ? '#f59e0b' : '#94a3b8'),
-        borderRadius: 6
-      }]
-    },
-    options: {
-      
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => '综合得分: ' + (ctx.raw * 100).toFixed(1) + '%' } } },
-      scales: { x: { beginAtZero: true, max: 1, ticks: { callback: v => Math.round(v * 100) + '%' } } }
-    }
-  });
-
-  renderDimensionBreakdownFiltered(data, '场景: ' + (scenario === 'all' ? '全部' : scenario));
-}
-
-function refreshModelDetailChart() {
-  const modelSelect = document.getElementById('chart-model-select');
-  const model = modelSelect ? modelSelect.value : reportTopModels[0]?.model;
-
-  const titleEl = document.getElementById('main-chart-title');
-  if (titleEl) titleEl.textContent = safeText(model) + ' 模型各维度得分';
-
-  // 获取该模型的数据
-  const modelData = reportTopModels.find(m => m.model === model);
-  if (!modelData) return;
-
-  if (mainCompareChart) mainCompareChart.destroy();
-  mainCompareChart = new Chart(document.getElementById('mainCompareChart'), {
-    type: 'bar',
-    data: {
-      labels: ['编译通过率', '样本测试通过率', '行覆盖率', '变异分数'],
-      datasets: [{
-        label: model,
-        data: [modelData.compile_pass_rate, modelData.avg_test_pass_rate, modelData.avg_line_coverage, modelData.avg_mutation_score],
-        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'],
-        borderRadius: 6
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, max: 1, ticks: { callback: v => Math.round(v * 100) + '%' } } }
-    }
-  });
-
-  // 更新维度分解 - 显示该模型在各语言/场景下的表现
-  renderModelDetailBreakdown(model);
-}
-
-function renderModelDetailBreakdown(model) {
-  const container = document.getElementById('dimensionBreakdown');
-  if (!container) return;
-
-  // 按语言统计
-  const byLang = new Map();
-  evaluationRows.filter(row => row.model === model).forEach(row => {
-    if (!byLang.has(row.language)) byLang.set(row.language, { compile: 0, test: 0, line: 0, mutation: 0, count: 0 });
-    const agg = byLang.get(row.language);
-    agg.count++;
-    if (row.compile_pass) agg.compile++;
-    if (row.test_pass) agg.test++;
-    if (row.line_coverage) agg.line += row.line_coverage;
-    if (row.mutation_score) agg.mutation += row.mutation_score;
-  });
-
-  let html = '<div style="font-size:13px;"><strong>' + safeText(model) + ' 模型各语言表现</strong><table style="width:100%;margin-top:8px;border-collapse:collapse;">';
-  html += '<thead><tr style="background:#f1f5f9;"><th style="padding:6px;text-align:left;">语言</th><th style="padding:6px;">样本</th><th style="padding:6px;">编译</th><th style="padding:6px;">测试</th><th style="padding:6px;">覆盖</th><th style="padding:6px;">变异</th></tr></thead><tbody>';
-  Array.from(byLang.entries()).forEach(([lang, agg]) => {
-    html += '<tr><td style="padding:6px;border-bottom:1px solid #e2e8f0;">' + safeText(lang.toUpperCase()) + '</td>';
-    html += '<td style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center;">' + agg.count + '</td>';
-    html += '<td style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center;">' + metricCell(agg.compile/agg.count) + '</td>';
-    html += '<td style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center;">' + metricCell(agg.test/agg.count) + '</td>';
-    html += '<td style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center;">' + metricCell(agg.line/agg.count) + '</td>';
-    html += '<td style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center;">' + metricCell(agg.mutation/agg.count) + '</td></tr>';
-  });
-  html += '</tbody></table></div>';
-  container.innerHTML = html;
-}
-
-function renderRadarChart() {
-  if (radarChart) radarChart.destroy();
   radarChart = new Chart(document.getElementById('radarChart'), {
     type: 'radar',
     data: {
-      labels: ['编译通过率', '样本测试通过率', '行覆盖率', '变异分数'],
-      datasets: reportTopModels.slice(0, 5).map((item, index) => ({
+      labels: ['编译', '测试', '覆盖', '变异'],
+      datasets: reportTopModels.map((item, index) => ({
         label: item.model,
         data: [item.compile_pass_rate, item.avg_test_pass_rate, item.avg_line_coverage, item.avg_mutation_score],
         fill: true,
-        backgroundColor: ['rgba(59,130,246,0.18)', 'rgba(16,185,129,0.18)', 'rgba(245,158,11,0.18)', 'rgba(139,92,246,0.18)', 'rgba(20,184,166,0.18)'][index % 5],
-        borderColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#14b8a6'][index % 5],
-        pointBackgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#14b8a6'][index % 5]
+        backgroundColor: ['rgba(59,130,246,0.18)', 'rgba(16,185,129,0.18)', 'rgba(245,158,11,0.18)', 'rgba(139,92,246,0.18)'][index % 4],
+        borderColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][index % 4],
+        pointBackgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][index % 4]
       }))
     },
     options: { responsive: true, maintainAspectRatio: false, scales: { r: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%' } } } }
   });
+
+  renderEfficiencyQualityChart('latency');
+  initEfficiencyAxisToggle();
 }
 
-function renderDimensionBreakdown() {
-  renderDimensionBreakdownOverall();
+function selectedFilterValues(kind) {
+  const all = document.querySelector('[data-filter-all="' + kind + '"]');
+  if (all && all.checked) return [];
+  return Array.from(document.querySelectorAll('[data-filter-' + kind + ']:checked')).map(item => item.value);
+}
+
+function formatFilterSummary(kind, values, allText) {
+  if (!values.length) return allText;
+  if (values.length <= 3) return values.map(value => kind === 'scenario' ? scenarioLabel(value) : value).join(', ');
+  return values.slice(0, 3).map(value => kind === 'scenario' ? scenarioLabel(value) : value).join(', ') + ' 等' + values.length + '项';
+}
+
+function updateFilterSummary(models, languages, scenarios) {
+  const box = document.getElementById('filter-summary');
+  if (!box) return;
+  box.textContent = '当前筛选：' +
+    formatFilterSummary('model', models, '全部模型') + ' · ' +
+    formatFilterSummary('language', languages.map(item => item.toUpperCase()), '全部语言') + ' · ' +
+    formatFilterSummary('scenario', scenarios, '全部场景');
+}
+
+function initAnalysisFilters() {
+  document.querySelectorAll('[data-filter-all]').forEach(all => {
+    const kind = all.getAttribute('data-filter-all');
+    all.addEventListener('change', () => {
+      if (all.checked) {
+        document.querySelectorAll('[data-filter-' + kind + ']').forEach(item => { item.checked = false; });
+      }
+      renderFilteredSections();
+    });
+  });
+  ['model', 'language', 'scenario'].forEach(kind => {
+    document.querySelectorAll('[data-filter-' + kind + ']').forEach(item => {
+      item.addEventListener('change', () => {
+        const all = document.querySelector('[data-filter-all="' + kind + '"]');
+        if (all) all.checked = document.querySelectorAll('[data-filter-' + kind + ']:checked').length === 0;
+        renderFilteredSections();
+      });
+    });
+  });
+  const reset = document.getElementById('reset-analysis-filters');
+  if (reset) {
+    reset.addEventListener('click', () => {
+      document.querySelectorAll('[data-filter-model], [data-filter-language], [data-filter-scenario]').forEach(item => { item.checked = false; });
+      document.querySelectorAll('[data-filter-all]').forEach(item => { item.checked = true; });
+      renderFilteredSections();
+    });
+  }
 }
 
 function renderFilteredSections() {
-  // 渲染表格部分
-  const aggregated = aggregateRows('all', 'all');
+  const selectedModels = selectedFilterValues('model');
+  const selectedLanguages = selectedFilterValues('language');
+  const selectedScenarios = selectedFilterValues('scenario');
+  updateFilterSummary(selectedModels, selectedLanguages, selectedScenarios);
+  const aggregated = aggregateRows(selectedModels, selectedLanguages, selectedScenarios);
+  renderModelTable(aggregated.models);
   renderLanguageTable(aggregated.languages);
   renderScenarioTable(aggregated.scenarios);
   renderErrorTable(aggregated.failureRows);
-  // 渲染错误分布图表
   renderErrorCharts(aggregated.failureRows);
+  renderScenarioCharts(aggregated.scenarios);
+  renderHeatmap('coverageHeatmap', aggregated.filtered, 'line_coverage');
+  renderHeatmap('mutationHeatmap', aggregated.filtered, 'mutation_score');
+  const exportBtn = document.getElementById('export-scenario-csv');
+  if (exportBtn) exportBtn.onclick = () => exportScenarioCSV(aggregated.scenarios);
 }
 
 (async function init() {
+  renderBenchmarkScoreboard('top');
+  initBenchmarkScoreboardToggle();
   try {
     if (window.__utBenchEnsureChartJS) {
       await window.__utBenchEnsureChartJS();
     }
     renderModelCharts();
     renderFilteredSections();
-    const scenarioFilter = document.getElementById('scenario-filter');
-    if (scenarioFilter) scenarioFilter.addEventListener('change', renderFilteredSections);
+    initAnalysisFilters();
   } catch (e) {
     if (window.__utBenchShowBanner) {
       window.__utBenchShowBanner('图表库 Chart.js 加载失败，通常是网络或企业代理拦截了 CDN。请在联网环境打开，或让报告改为本地内置 Chart.js。');
     }
     if (window.console && console.error) console.error(e);
   }
+
+  initRawColumnToggles();
 
   const backToTop = document.getElementById('back-to-top');
   window.addEventListener('scroll', () => {
@@ -632,141 +728,3 @@ function renderFilteredSections() {
   });
   if (backToTop) backToTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 })();
-
-// ========== 原始数据筛选功能 ==========
-const RAW_DATA_DEFAULT_LIMIT = 20;
-
-function initRawDataFilters() {
-  const tbody = document.getElementById('raw-data-body');
-  if (!tbody) return;
-  const rows = tbody.querySelectorAll('tr');
-  let shown = 0;
-  rows.forEach((row, idx) => {
-    if (idx < RAW_DATA_DEFAULT_LIMIT) {
-      row.style.display = '';
-      shown++;
-    } else {
-      row.style.display = 'none';
-    }
-  });
-  updateFilterResultCount(shown, rows.length);
-}
-
-function applyRawDataFilters() {
-  const modelFilter = document.getElementById('filter-model');
-  const langFilter = document.getElementById('filter-language');
-  const scenarioFilter = document.getElementById('filter-scenario');
-  const statusFilter = document.getElementById('filter-status');
-  const searchInput = document.getElementById('filter-search');
-
-  const modelVal = modelFilter ? modelFilter.value : '';
-  const langVal = langFilter ? langFilter.value : '';
-  const scenarioVal = scenarioFilter ? scenarioFilter.value : '';
-  const statusVal = statusFilter ? statusFilter.value : '';
-  const searchVal = searchInput ? searchInput.value.trim().toLowerCase() : '';
-
-  const tbody = document.getElementById('raw-data-body');
-  if (!tbody) return;
-  const rows = tbody.querySelectorAll('tr');
-
-  let matched = 0;
-  rows.forEach((row) => {
-    const rowModel = row.getAttribute('data-model') || '';
-    const rowLang = row.getAttribute('data-language') || '';
-    const rowScenario = row.getAttribute('data-scenario') || '';
-    const rowSample = row.getAttribute('data-sample') || '';
-    const rowCompilePass = row.getAttribute('data-compile-pass') || '';
-    const rowTestPass = row.getAttribute('data-test-pass') || '';
-    const rowMutationZero = row.getAttribute('data-mutation-zero') || '';
-    const rowAllPass = row.getAttribute('data-all-pass') || '';
-    const rowHasFail = row.getAttribute('data-has-fail') || '';
-
-    // 状态筛选逻辑
-    let statusMatch = true;
-    if (statusVal === 'pass') {
-      statusMatch = rowAllPass === 'true';
-    } else if (statusVal === 'fail') {
-      statusMatch = rowHasFail === 'true';
-    } else if (statusVal === 'compile_fail') {
-      statusMatch = rowCompilePass === 'false';
-    } else if (statusVal === 'test_fail') {
-      statusMatch = rowCompilePass === 'true' && rowTestPass === 'false';
-    } else if (statusVal === 'mutation_zero') {
-      statusMatch = rowMutationZero === 'true';
-    }
-
-    // 模型、语言、场景、搜索筛选
-    const modelMatch = !modelVal || rowModel === modelVal;
-    const langMatch = !langVal || rowLang === langVal;
-    const scenarioMatch = !scenarioVal || rowScenario === scenarioVal;
-    const searchMatch = !searchVal || rowSample.toLowerCase().includes(searchVal);
-
-    if (modelMatch && langMatch && scenarioMatch && statusMatch && searchMatch) {
-      matched++;
-    }
-  });
-
-  // 显示匹配的行（最多 RAW_DATA_DEFAULT_LIMIT 条）
-  let shown = 0;
-  rows.forEach((row) => {
-    const rowModel = row.getAttribute('data-model') || '';
-    const rowLang = row.getAttribute('data-language') || '';
-    const rowScenario = row.getAttribute('data-scenario') || '';
-    const rowSample = row.getAttribute('data-sample') || '';
-    const rowCompilePass = row.getAttribute('data-compile-pass') || '';
-    const rowTestPass = row.getAttribute('data-test-pass') || '';
-    const rowMutationZero = row.getAttribute('data-mutation-zero') || '';
-    const rowAllPass = row.getAttribute('data-all-pass') || '';
-    const rowHasFail = row.getAttribute('data-has-fail') || '';
-
-    let statusMatch = true;
-    if (statusVal === 'pass') {
-      statusMatch = rowAllPass === 'true';
-    } else if (statusVal === 'fail') {
-      statusMatch = rowHasFail === 'true';
-    } else if (statusVal === 'compile_fail') {
-      statusMatch = rowCompilePass === 'false';
-    } else if (statusVal === 'test_fail') {
-      statusMatch = rowCompilePass === 'true' && rowTestPass === 'false';
-    } else if (statusVal === 'mutation_zero') {
-      statusMatch = rowMutationZero === 'true';
-    }
-
-    const modelMatch = !modelVal || rowModel === modelVal;
-    const langMatch = !langVal || rowLang === langVal;
-    const scenarioMatch = !scenarioVal || rowScenario === scenarioVal;
-    const searchMatch = !searchVal || rowSample.toLowerCase().includes(searchVal);
-
-    if (modelMatch && langMatch && scenarioMatch && statusMatch && searchMatch && shown < RAW_DATA_DEFAULT_LIMIT) {
-      row.style.display = '';
-      shown++;
-    } else {
-      row.style.display = 'none';
-    }
-  });
-
-  updateFilterResultCount(shown, matched);
-}
-
-function resetRawDataFilters() {
-  const modelFilter = document.getElementById('filter-model');
-  const langFilter = document.getElementById('filter-language');
-  const scenarioFilter = document.getElementById('filter-scenario');
-  const statusFilter = document.getElementById('filter-status');
-  const searchInput = document.getElementById('filter-search');
-
-  if (modelFilter) modelFilter.value = '';
-  if (langFilter) langFilter.value = '';
-  if (scenarioFilter) scenarioFilter.value = '';
-  if (statusFilter) statusFilter.value = '';
-  if (searchInput) searchInput.value = '';
-
-  initRawDataFilters();
-}
-
-function updateFilterResultCount(shown, total) {
-  const countEl = document.getElementById('filter-result-count');
-  if (countEl) {
-    countEl.textContent = '显示 ' + shown + ' / ' + total + ' 条';
-  }
-}

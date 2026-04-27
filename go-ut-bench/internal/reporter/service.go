@@ -72,7 +72,7 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 }
 
 func (s *Service) GenerateFromResultSet(spec contracts.RunSpec, set contracts.EvaluationResultSet, sourceEvaluation string) (Output, error) {
-	promptStrategy, promptVersionID, promptSnapshotDir, prompts := loadPromptArtifacts(set.ManifestPath)
+	promptStrategy, promptVersionID, promptSnapshotDir, prompts := loadPromptArtifacts(set.ManifestPath, sourceEvaluation)
 
 	reportRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID, "report")
 	if err := os.MkdirAll(reportRoot, 0o755); err != nil {
@@ -163,7 +163,7 @@ func (s *Service) GenerateFromResultSet(spec contracts.RunSpec, set contracts.Ev
 	return Output{Report: payload, ReportJSONPath: jsonPath, ReportHTMLPath: htmlPath}, nil
 }
 
-func loadPromptArtifacts(manifestPath string) (string, string, string, map[string]string) {
+func loadPromptArtifacts(manifestPath, sourceEvaluation string) (string, string, string, map[string]string) {
 	prompts := map[string]string{
 		"python": getPromptTemplate("python"),
 		"go":     getPromptTemplate("go"),
@@ -174,20 +174,90 @@ func loadPromptArtifacts(manifestPath string) (string, string, string, map[strin
 		return runner.PromptStrategy(), runner.PromptVersionID(), "", prompts
 	}
 
-	manifest, err := contracts.ReadGeneratedManifest(manifestPath)
+	resolvedManifest := resolveArtifactPath(manifestPath, sourceEvaluation)
+	manifest, err := contracts.ReadGeneratedManifest(resolvedManifest)
 	if err != nil {
 		return runner.PromptStrategy(), runner.PromptVersionID(), "", prompts
 	}
 	if strings.TrimSpace(manifest.PromptSnapshotDir) != "" {
-		if catalog, err := runner.LoadPromptCatalog(manifest.PromptSnapshotDir); err == nil {
-			loaded := make(map[string]string, len(catalog.Templates))
+		if catalog, err := runner.LoadPromptCatalog(resolveArtifactPath(manifest.PromptSnapshotDir, sourceEvaluation)); err == nil {
 			for language, modeTemplates := range catalog.Templates {
-				loaded[language] = modeTemplates[runner.PromptModeFullFile]
+				if prompt := strings.TrimSpace(modeTemplates[runner.PromptModeFullFile]); prompt != "" {
+					prompts[language] = prompt
+				}
 			}
-			return catalog.Strategy, catalog.VersionID, manifest.PromptSnapshotDir, loaded
 		}
 	}
+
+	seenActual := map[string]struct{}{}
+	for _, item := range manifest.Cases {
+		lang := strings.ToLower(strings.TrimSpace(item.Language))
+		if lang == "" {
+			continue
+		}
+		if _, ok := seenActual[lang]; ok {
+			continue
+		}
+		if strings.TrimSpace(item.PromptPath) == "" {
+			continue
+		}
+		raw, err := os.ReadFile(resolveArtifactPath(item.PromptPath, sourceEvaluation))
+		if err != nil || len(raw) == 0 {
+			continue
+		}
+		prompts[lang] = string(raw)
+		seenActual[lang] = struct{}{}
+	}
+
 	return manifest.PromptStrategy, manifest.PromptVersionID, manifest.PromptSnapshotDir, prompts
+}
+
+func resolveArtifactPath(pathValue, anchorPath string) string {
+	pathValue = strings.TrimSpace(pathValue)
+	if pathValue == "" {
+		return pathValue
+	}
+	if _, err := os.Stat(pathValue); err == nil {
+		return pathValue
+	}
+
+	normalized := filepath.ToSlash(pathValue)
+	if strings.HasPrefix(normalized, "/app/artifacts/") {
+		if artifactsRoot := findArtifactsRoot(anchorPath); artifactsRoot != "" {
+			candidate := filepath.Join(artifactsRoot, filepath.FromSlash(strings.TrimPrefix(normalized, "/app/artifacts/")))
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+			return candidate
+		}
+	}
+	if strings.HasPrefix(normalized, "artifacts/") {
+		candidate := filepath.FromSlash(normalized)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return pathValue
+}
+
+func findArtifactsRoot(anchorPath string) string {
+	if strings.TrimSpace(anchorPath) == "" {
+		return ""
+	}
+	current := anchorPath
+	if info, err := os.Stat(current); err == nil && !info.IsDir() {
+		current = filepath.Dir(current)
+	}
+	for {
+		if strings.EqualFold(filepath.Base(current), "artifacts") {
+			return current
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
 }
 
 func loadModelDetails(configPath string) map[string]ModelDetail {
@@ -360,9 +430,9 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			AvgBranchCoverage:   avg(agg.branchSum, agg.branchCnt),
 			AvgMutationScore:    avg(agg.mutationSum, agg.mutationCnt),
 			AvgLatencyMS:        avgFloat(agg.latencySum, agg.latencyCnt),
-			AvgPromptTokens:     avgFloat(agg.promptTokensSum, agg.tokenCnt),
-			AvgCompletionTokens: avgFloat(agg.completionTokensSum, agg.tokenCnt),
-			AvgTotalTokens:      avgFloat(agg.totalTokensSum, agg.tokenCnt),
+			AvgPromptTokens:     avgFloat(agg.promptTokensSum, agg.promptTokenCnt),
+			AvgCompletionTokens: avgFloat(agg.completionTokensSum, agg.completionTokenCnt),
+			AvgTotalTokens:      avgFloat(agg.totalTokensSum, agg.totalTokenCnt),
 			AvgAssertionDensity: avgFloat(agg.assertionDensitySum, agg.assertionDensityCnt),
 		})
 	}
@@ -396,7 +466,7 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			AvgBranchCoverage:   avg(agg.branchSum, agg.branchCnt),
 			AvgMutationScore:    avg(agg.mutationSum, agg.mutationCnt),
 			AvgLatencyMS:        avgFloat(agg.latencySum, agg.latencyCnt),
-			AvgTokens:           avgFloat(agg.totalTokensSum, agg.tokenCnt),
+			AvgTokens:           avgFloat(agg.totalTokensSum, agg.totalTokenCnt),
 		})
 	}
 	sort.Slice(byScenario, func(i, j int) bool {
@@ -420,9 +490,9 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			AvgBranchCoverage:   avg(agg.branchSum, agg.branchCnt),
 			AvgMutationScore:    avg(agg.mutationSum, agg.mutationCnt),
 			AvgLatencyMS:        avgFloat(agg.latencySum, agg.latencyCnt),
-			AvgPromptTokens:     avgFloat(agg.promptTokensSum, agg.tokenCnt),
-			AvgCompletionTokens: avgFloat(agg.completionTokensSum, agg.tokenCnt),
-			AvgTotalTokens:      avgFloat(agg.totalTokensSum, agg.tokenCnt),
+			AvgPromptTokens:     avgFloat(agg.promptTokensSum, agg.promptTokenCnt),
+			AvgCompletionTokens: avgFloat(agg.completionTokensSum, agg.completionTokenCnt),
+			AvgTotalTokens:      avgFloat(agg.totalTokensSum, agg.totalTokenCnt),
 		})
 	}
 	sort.Slice(byModelScenario, func(i, j int) bool {
@@ -459,10 +529,12 @@ type modelAgg struct {
 	mutationCnt         int
 	latencySum          float64
 	latencyCnt          int
-	tokenCnt            int
 	promptTokensSum     float64
+	promptTokenCnt      int
 	completionTokensSum float64
+	completionTokenCnt  int
 	totalTokensSum      float64
+	totalTokenCnt       int
 	assertionDensitySum float64
 	assertionDensityCnt int
 }
@@ -484,10 +556,12 @@ type scenarioAgg struct {
 	mutationCnt         int
 	latencySum          float64
 	latencyCnt          int
-	tokenCnt            int
 	promptTokensSum     float64
+	promptTokenCnt      int
 	completionTokensSum float64
+	completionTokenCnt  int
 	totalTokensSum      float64
+	totalTokenCnt       int
 }
 
 type modelScenarioAgg struct {
@@ -508,13 +582,20 @@ type modelScenarioAgg struct {
 	mutationCnt         int
 	latencySum          float64
 	latencyCnt          int
-	tokenCnt            int
 	promptTokensSum     float64
+	promptTokenCnt      int
 	completionTokensSum float64
+	completionTokenCnt  int
 	totalTokensSum      float64
+	totalTokenCnt       int
 }
 
 func extractScenario(sampleID string) string {
+	for _, prefix := range []string{"complex_dependency", "interface_mock", "simple_function", "boundary"} {
+		if sampleID == prefix || strings.HasPrefix(sampleID, prefix+"_") {
+			return prefix
+		}
+	}
 	parts := strings.Split(sampleID, "_")
 	if len(parts) >= 1 {
 		return parts[0]
@@ -584,9 +665,15 @@ func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
 	}
 	if row.PromptTokens != nil {
 		a.promptTokensSum += float64(*row.PromptTokens)
+		a.promptTokenCnt++
+	}
+	if row.CompletionTokens != nil {
 		a.completionTokensSum += float64(*row.CompletionTokens)
+		a.completionTokenCnt++
+	}
+	if row.TotalTokens != nil {
 		a.totalTokensSum += float64(*row.TotalTokens)
-		a.tokenCnt++
+		a.totalTokenCnt++
 	}
 	if row.AssertionDensity != nil {
 		a.assertionDensitySum += *row.AssertionDensity
@@ -630,10 +717,16 @@ func mergeScenarioAgg(a *scenarioAgg, row contracts.EvaluationResult, scenario, 
 		a.latencyCnt++
 	}
 	if row.TotalTokens != nil {
-		a.promptTokensSum += float64(*row.PromptTokens)
-		a.completionTokensSum += float64(*row.CompletionTokens)
 		a.totalTokensSum += float64(*row.TotalTokens)
-		a.tokenCnt++
+		a.totalTokenCnt++
+	}
+	if row.PromptTokens != nil {
+		a.promptTokensSum += float64(*row.PromptTokens)
+		a.promptTokenCnt++
+	}
+	if row.CompletionTokens != nil {
+		a.completionTokensSum += float64(*row.CompletionTokens)
+		a.completionTokenCnt++
 	}
 }
 
@@ -674,27 +767,47 @@ func mergeModelScenarioAgg(a *modelScenarioAgg, row contracts.EvaluationResult, 
 		a.latencyCnt++
 	}
 	if row.TotalTokens != nil {
-		a.promptTokensSum += float64(*row.PromptTokens)
-		a.completionTokensSum += float64(*row.CompletionTokens)
 		a.totalTokensSum += float64(*row.TotalTokens)
-		a.tokenCnt++
+		a.totalTokenCnt++
+	}
+	if row.PromptTokens != nil {
+		a.promptTokensSum += float64(*row.PromptTokens)
+		a.promptTokenCnt++
+	}
+	if row.CompletionTokens != nil {
+		a.completionTokensSum += float64(*row.CompletionTokens)
+		a.completionTokenCnt++
 	}
 }
 
 func buildTokenStats(rows []contracts.EvaluationResult) contracts.TokenStats {
 	stats := contracts.TokenStats{}
+	promptCount := 0
+	completionCount := 0
+	totalCount := 0
 	for _, row := range rows {
 		if row.PromptTokens != nil {
 			stats.TotalPromptTokens += *row.PromptTokens
+			promptCount++
+		}
+		if row.CompletionTokens != nil {
 			stats.TotalCompletionTokens += *row.CompletionTokens
+			completionCount++
+		}
+		if row.TotalTokens != nil {
 			stats.TotalTokens += *row.TotalTokens
-			stats.SampleCount++
+			totalCount++
 		}
 	}
-	if stats.SampleCount > 0 {
-		stats.AvgPromptTokens = float64(stats.TotalPromptTokens) / float64(stats.SampleCount)
-		stats.AvgCompletionTokens = float64(stats.TotalCompletionTokens) / float64(stats.SampleCount)
-		stats.AvgTotalTokens = float64(stats.TotalTokens) / float64(stats.SampleCount)
+	stats.SampleCount = max(promptCount, max(completionCount, totalCount))
+	if promptCount > 0 {
+		stats.AvgPromptTokens = float64(stats.TotalPromptTokens) / float64(promptCount)
+	}
+	if completionCount > 0 {
+		stats.AvgCompletionTokens = float64(stats.TotalCompletionTokens) / float64(completionCount)
+	}
+	if totalCount > 0 {
+		stats.AvgTotalTokens = float64(stats.TotalTokens) / float64(totalCount)
 	}
 	return stats
 }
@@ -1266,6 +1379,7 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 	heroModels := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string { return r.Model }))
 	heroLangs := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string { return r.Language }))
 	heroTypes := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string { return extractScenario(r.SampleID) }))
+	heroTypeLabels := scenarioLabels(heroTypes)
 
 	b.WriteString(`<!doctype html>
  <html lang="zh-CN">
@@ -1273,9 +1387,9 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ut-bench 可视化评测报告</title>
-	<style>
-	` + GetStyleCSS() + `
-	</style>
+<style>
+` + GetStyleCSS() + `
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -1284,79 +1398,59 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 
 	// Hero Section - 紧凑版本
 	b.WriteString(fmt.Sprintf(`
-<div class="hero-compact" id="overview">
+<div class="hero-compact">
   <div class="hero-compact-main">
     <h1>模型评测报告</h1>
     <div class="hero-compact-meta">%s · 共%d个样本</div>
   </div>
-  <div class="hero-compact-stats" style="grid-template-columns:repeat(6,1fr);">
-    <div class="hc-stat"><div class="hc-label">模型</div><div class="hc-value">%s</div></div>
-    <div class="hc-stat"><div class="hc-label">语言</div><div class="hc-value">%s</div></div>
+  <div class="hero-compact-stats hero-primary-stats">
+    <div class="hc-stat hc-wide"><div class="hc-label">模型</div><div class="hc-value">%s</div></div>
+    <div class="hc-stat hc-wide"><div class="hc-label">语言</div><div class="hc-value">%s</div></div>
     <div class="hc-stat"><div class="hc-label">编译通过</div><div class="hc-value" style="color:%s;">%.1f%%</div></div>
     <div class="hc-stat"><div class="hc-label">测试通过</div><div class="hc-value" style="color:%s;">%.1f%%</div></div>
     <div class="hc-stat"><div class="hc-label">行覆盖率</div><div class="hc-value">%.1f%%</div></div>
     <div class="hc-stat"><div class="hc-label">变异分数</div><div class="hc-value">%.1f%%</div></div>
   </div>
-  <div class="hero-compact-stats" style="grid-template-columns:repeat(3,1fr);margin-top:8px;">
-    <div class="hc-stat"><div class="hc-label">断言密度</div><div class="hc-value">%.1f</div></div>
-    <div class="hc-stat"><div class="hc-label">平均耗时</div><div class="hc-value">%.1fs</div></div>
-    <div class="hc-stat"><div class="hc-label">样本类型</div><div class="hc-value">%s</div></div>
+  <div class="hero-compact-stats hero-secondary-stats">
+    <div class="hc-stat hc-wide"><div class="hc-label">样本类型</div><div class="hc-value">%s</div></div>
+    <div class="hc-stat hc-mini"><div class="hc-label">断言密度</div><div class="hc-value">%.1f</div></div>
+    <div class="hc-stat hc-mini"><div class="hc-label">平均耗时</div><div class="hc-value">%.1fs</div></div>
   </div>
 </div>`,
 		payload.GeneratedAtUTC.Format("2006-01-02 15:04"),
 		payload.Summary.TotalSamples,
-		escapeHTML(summarizeList(heroModels, 3)),
-		escapeHTML(summarizeList(heroLangs, 3)),
+		escapeHTML(summarizeList(heroModels, 6)),
+		escapeHTML(summarizeList(heroLangs, 6)),
 		statusColor(payload.Summary.CompilePassRate, 0.85, 0.65),
 		payload.Summary.CompilePassRate*100,
 		statusColor(payload.Summary.SampleTestPassRate, 0.75, 0.5),
 		payload.Summary.SampleTestPassRate*100,
 		payload.Summary.AvgLineCoverage*100,
 		payload.Summary.AvgMutationScore*100,
+		escapeHTML(summarizeList(heroTypeLabels, 6)),
 		payload.Summary.AvgAssertionDensity,
-		avgLatencyFromRows(rows),
-		escapeHTML(summarizeList(heroTypes, 3))))
+		avgLatencyFromRows(rows)))
 
 	// Navigation
 	b.WriteString(`
 <div class="jump-nav">
-  <a href="#overview">概览</a>
+  <a href="#benchmark-scoreboard">指标墙</a>
   <a href="#details">图表分析</a>
   <a href="#analysis-controls">筛选与导出</a>
-  <a href="#by-language">按语言统计</a>
-  <a href="#by-scenario">按场景统计</a>  <a href="#score-exclusions">计分剔除</a>
-  <a href="#zero-mutant-samples">零变异体</a>
+  <a href="#dimension-analysis">维度分析</a>
+  <a href="#score-exclusions">计分剔除</a>
   <a href="#error-analysis">错误分析</a>
+  <a href="#dataset-browser">评测集</a>
   <a href="#raw-data">原始数据</a>
 </div>
 `)
 
 	// Leaderboard Section - 模型排名（重点）
 	b.WriteString(buildLeaderboardHTMLNew(payload.TopModels))
-	b.WriteString(buildDimensionBreakdownSection())
+	b.WriteString(buildBenchmarkScoreboardSection())
 	b.WriteString(buildChartsSection(payload.TopModels))
-
-	// Insights Section - 核心洞察（在排名之后）
-	b.WriteString(buildInsightsSection(payload.Insights))
-
-	// Compare Section - 对比分析（新增）
-	b.WriteString(buildCompareSection(payload.TopModels))
-
-	// Efficiency Section - 效率分析（新增）
-	b.WriteString(buildEfficiencySection(payload.EfficiencyStats))
-
-	// Error Diagnosis Section - 错误诊断（新增）
-	b.WriteString(buildErrorDiagnosisSection(payload.ErrorDiagnosis))
-
-	// By Language Section - 按语言统计
-	if len(payload.Dimensions.ByLanguage) > 0 {
-		b.WriteString(buildByLanguageSection(payload.Thresholds))
-	}
-
-	// By Scenario Section - 按场景统计（新增）
-	if len(payload.ByScenario) > 0 {
-		b.WriteString(buildByScenarioSection())
-	}
+	b.WriteString(buildAnalysisControlsSection(heroModels, heroLangs, heroTypes))
+	b.WriteString(buildDimensionAnalysisSection())
 
 	// Truncation Analysis Section - 截断分析（新增）
 
@@ -1368,14 +1462,11 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 	// Score Exclusions Section
 	b.WriteString(buildScoreExclusionsSection(payload.ScoreExclusions))
 
-	// Zero Mutant Samples Section
-	b.WriteString(buildZeroMutantSection(payload.ZeroMutantSamples))
+	// Dataset Browser Section
+	b.WriteString(buildDatasetBrowserSection(rows))
 
 	// Raw Data Section - 原始数据（可展开收起）
 	b.WriteString(buildRawDataSection(rows))
-
-	// Meta Section - 报告元信息（新增）
-	b.WriteString(buildMetaSection(payload.RunID, payload.SchemaVersion))
 
 	// Prompt Section
 	if len(payload.Prompts) > 0 {
@@ -1673,31 +1764,94 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
 	return b.String()
 }
 
-// buildByLanguageSection 生成按语言统计的 HTML
-func buildByLanguageSection(thresholds contracts.Thresholds) string {
-	var b strings.Builder
-	b.WriteString(`<div class="section" id="by-language">
-  <h2>按语言统计 By Language</h2>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>语言</th>
-          <th>样本数</th>
-          <th>编译通过率</th>
-          <th>样本测试通过率</th>
-          <th>行覆盖率</th>
-          <th>分支覆盖率</th>
-          <th>变异分数</th>
-        </tr>
-      </thead>
-      <tbody id="by-language-body"></tbody>
-    </table>
+func buildBenchmarkScoreboardSection() string {
+	return `<div class="section benchmark-scoreboard" id="benchmark-scoreboard">
+  <div class="scoreboard-head">
+    <div>
+      <div class="scoreboard-eyebrow">Benchmark Scoreboard</div>
+      <h2>单元测试生成能力指标墙</h2>
+      <p>按关键能力拆开比较模型表现。每张小图按当前指标降序排列，所有模型使用固定颜色，模型名显示在对应柱子正下方。</p>
+    </div>
+    <div class="scoreboard-toggle" role="group" aria-label="切换指标墙显示模型数量">
+      <button type="button" class="active" data-scoreboard-scope="top">Top 6</button>
+      <button type="button" data-scoreboard-scope="all">全部</button>
+    </div>
   </div>
-  <div id="by-language-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有语言统计数据。</div>
-</div>`)
-	_ = thresholds
-	return b.String()
+  <div id="benchmarkScoreboardLegend" class="scoreboard-legend"></div>
+  <div id="benchmarkScoreboard" class="scoreboard-grid"></div>
+</div>`
+}
+
+func buildDimensionAnalysisSection() string {
+	return `<div class="section" id="dimension-analysis">
+  <h2>维度分析 Dimension Analysis</h2>
+  <p class="muted">这里和上方筛选联动。可以多选模型、语言和场景，比如只看 C++ 下几个模型的表现，或只看复杂依赖场景在不同语言里的差异。</p>
+  <div class="chart-grid-1">
+    <div class="panel">
+      <h3>模型对比 Model Comparison</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>模型</th>
+              <th>样本数</th>
+              <th>编译通过率</th>
+              <th>样本测试通过率</th>
+              <th>行覆盖率</th>
+              <th>分支覆盖率</th>
+              <th>变异分数</th>
+            </tr>
+          </thead>
+          <tbody id="by-model-body"></tbody>
+        </table>
+      </div>
+      <div id="by-model-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有模型统计数据。</div>
+    </div>
+  </div>
+  <div class="chart-grid-2" style="margin-top:16px;">
+    <div class="panel">
+      <h3>语言汇总 Language Summary</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>语言</th>
+              <th>样本数</th>
+              <th>编译通过率</th>
+              <th>样本测试通过率</th>
+              <th>行覆盖率</th>
+              <th>分支覆盖率</th>
+              <th>变异分数</th>
+            </tr>
+          </thead>
+          <tbody id="by-language-body"></tbody>
+        </table>
+      </div>
+      <div id="by-language-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有语言统计数据。</div>
+    </div>
+    <div class="panel">
+      <h3>场景 × 语言 Scenario by Language</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>场景</th>
+              <th>语言</th>
+              <th>样本数</th>
+              <th>编译通过率</th>
+              <th>样本测试通过率</th>
+              <th>行覆盖率</th>
+              <th>分支覆盖率</th>
+              <th>变异得分率</th>
+            </tr>
+          </thead>
+          <tbody id="by-scenario-body"></tbody>
+        </table>
+      </div>
+      <div id="by-scenario-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有场景统计数据。</div>
+    </div>
+  </div>
+</div>`
 }
 
 func countUniqueLanguages(entries []struct {
@@ -1711,31 +1865,6 @@ func countUniqueLanguages(entries []struct {
 		langs[entry.Language] = struct{}{}
 	}
 	return len(langs)
-}
-
-// buildByScenarioSection 生成按场景统计的 HTML
-func buildByScenarioSection() string {
-	return `<div class="section" id="by-scenario">
-  <h2>按场景统计 By Scenario</h2>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>场景</th>
-          <th>语言</th>
-          <th>样本数</th>
-          <th>编译通过率</th>
-          <th>样本测试通过率</th>
-          <th>行覆盖率</th>
-          <th>分支覆盖率</th>
-          <th>变异得分率</th>
-        </tr>
-      </thead>
-      <tbody id="by-scenario-body"></tbody>
-    </table>
-  </div>
-  <div id="by-scenario-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有场景统计数据。</div>
-</div>`
 }
 
 // buildErrorAnalysisSection 生成错误分析部分的 HTML
@@ -1817,6 +1946,93 @@ func buildScoreExclusionsSection(rows []contracts.ScoreExclusionRow) string {
 	return b.String()
 }
 
+func buildDatasetBrowserSection(rows []contracts.EvaluationResult) string {
+	type sampleEntry struct {
+		SampleID   string
+		Language   string
+		Scenario   string
+		SourcePath string
+	}
+	seen := map[string]struct{}{}
+	entries := make([]sampleEntry, 0)
+	for _, row := range rows {
+		key := strings.ToLower(row.Language) + "|" + row.SampleID + "|" + row.SourcePath
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		entries = append(entries, sampleEntry{
+			SampleID:   row.SampleID,
+			Language:   strings.ToUpper(row.Language),
+			Scenario:   extractScenario(row.SampleID),
+			SourcePath: row.SourcePath,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		a := entries[i].Language + "|" + entries[i].Scenario + "|" + entries[i].SampleID
+		b := entries[j].Language + "|" + entries[j].Scenario + "|" + entries[j].SampleID
+		return a < b
+	})
+	langs := map[string]struct{}{}
+	for _, entry := range entries {
+		langs[entry.Language] = struct{}{}
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`<div class="section" id="dataset-browser">
+  <h2>评测集 Dataset Browser</h2>
+  <div class="panel">
+    <div class="metric-row">
+      <div class="metric-card">
+        <div class="metric-value">%d</div>
+        <div class="metric-label">去重样本数</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">%d</div>
+        <div class="metric-label">语言数</div>
+      </div>
+    </div>
+    <div class="hint-box" style="margin-top:12px;">
+      这个入口用于查看本次报告覆盖了哪些评测样本。你也可以直接跳到 <a href="#raw-data">原始评测记录</a> 看每个模型对应的详细结果。
+    </div>
+  </div>
+  <details class="accordion-item dataset-details">
+    <summary>展开/收起评测集样本列表 (%d 条去重样本)</summary>
+    <div class="accordion-body">
+      <div class="table-wrap">
+        <table>
+      <thead>
+        <tr>
+          <th>样本 ID</th>
+          <th>语言</th>
+          <th>场景</th>
+          <th>源码路径</th>
+        </tr>
+      </thead>
+      <tbody>`, len(entries), len(langs), len(entries)))
+	for _, entry := range entries {
+		b.WriteString(fmt.Sprintf(`
+        <tr>
+          <td><strong>%s</strong></td>
+          <td>%s</td>
+          <td>%s</td>
+          <td><code>%s</code></td>
+        </tr>`,
+			escapeHTML(entry.SampleID),
+			escapeHTML(entry.Language),
+			escapeHTML(getScenarioLabel(entry.Scenario)),
+			escapeHTML(entry.SourcePath)))
+	}
+	b.WriteString(`
+      </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+</div>`)
+	return b.String()
+}
+
 // buildZeroMutantSection 生成零变异体样本区块
 func buildZeroMutantSection(rows []contracts.ZeroMutantSample) string {
 	var b strings.Builder
@@ -1867,6 +2083,208 @@ func buildZeroMutantSection(rows []contracts.ZeroMutantSample) string {
 
 // buildRawDataSection 生成原始数据部分（可展开收起，带筛选功能）
 func buildRawDataSection(rows []contracts.EvaluationResult) string {
+	return buildRawDataSectionSimple(rows)
+}
+
+func buildRawDataSectionSimple(rows []contracts.EvaluationResult) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`<div class="section" id="raw-data">
+  <h2>原始数据 Raw Data</h2>
+  <div class="raw-column-controls">
+    <span>扩展列：</span>
+    <label><input type="checkbox" data-raw-column="coverage"> 覆盖明细</label>
+    <label><input type="checkbox" data-raw-column="mutation"> 变异明细</label>
+    <label><input type="checkbox" data-raw-column="assertion"> 断言/用例</label>
+    <label><input type="checkbox" data-raw-column="token"> Token 明细</label>
+    <label><input type="checkbox" data-raw-column="path"> 文件路径</label>
+    <label><input type="checkbox" data-raw-column="error"> 错误摘要</label>
+    <label><input type="checkbox" data-raw-column="score"> 计分归因</label>
+  </div>
+  
+  <details class="accordion-item">
+    <summary>查看所有测试样本详情 (%d 条记录)</summary>
+    <div class="accordion-body">
+      <div class="table-wrap" style="max-height:600px;overflow:auto;">
+        <table class="raw-data-table">
+          <thead>
+            <tr>
+              <th>模型</th>
+              <th>语言</th>
+              <th>样本ID</th>
+              <th>编译</th>
+              <th>测试</th>
+              <th>覆盖率</th>
+              <th>变异分</th>
+              <th>变异体(总/活/杀)</th>
+              <th>耗时</th>
+              <th>Tokens</th>
+              <th class="raw-extra raw-col-coverage">分支覆盖</th>
+              <th class="raw-extra raw-col-mutation">NoTests</th>
+              <th class="raw-extra raw-col-mutation">Timeout</th>
+              <th class="raw-extra raw-col-mutation">Skipped</th>
+              <th class="raw-extra raw-col-mutation">Suspicious</th>
+              <th class="raw-extra raw-col-mutation">工具</th>
+              <th class="raw-extra raw-col-assertion">用例数</th>
+              <th class="raw-extra raw-col-assertion">断言数</th>
+              <th class="raw-extra raw-col-assertion">断言密度</th>
+              <th class="raw-extra raw-col-assertion">用例通过</th>
+              <th class="raw-extra raw-col-token">Prompt</th>
+              <th class="raw-extra raw-col-token">Completion</th>
+              <th class="raw-extra raw-col-token">截断</th>
+              <th class="raw-extra raw-col-path">源码路径</th>
+              <th class="raw-extra raw-col-path">测试路径</th>
+              <th class="raw-extra raw-col-error">编译错误</th>
+              <th class="raw-extra raw-col-error">测试错误</th>
+              <th class="raw-extra raw-col-error">覆盖错误</th>
+              <th class="raw-extra raw-col-error">变异错误</th>
+              <th class="raw-extra raw-col-score">失败归因</th>
+              <th class="raw-extra raw-col-score">计分</th>
+              <th class="raw-extra raw-col-score">剔除原因</th>
+            </tr>
+          </thead>
+          <tbody>`, len(rows)))
+	for _, r := range rows {
+		compileStatus := "✗"
+		if r.CompilePass {
+			compileStatus = "✓"
+		}
+		testStatus := "-"
+		if r.TestPass != nil {
+			if *r.TestPass {
+				testStatus = "✓"
+			} else {
+				testStatus = "✗"
+			}
+		}
+		lineCov := "-"
+		if r.LineCoverage != nil {
+			lineCov = fmt.Sprintf("%.1f%%", *r.LineCoverage*100)
+		}
+		mutationScore := "-"
+		if r.MutationScore != nil {
+			mutationScore = fmt.Sprintf("%.1f%%", *r.MutationScore*100)
+		}
+		mutationStats := "-"
+		if r.MutationTotal != nil && *r.MutationTotal > 0 {
+			survived := 0
+			if r.MutationSurvived != nil {
+				survived = *r.MutationSurvived
+			}
+			killed := 0
+			if r.MutationKilled != nil {
+				killed = *r.MutationKilled
+			}
+			mutationStats = fmt.Sprintf("%d/%d/%d", *r.MutationTotal, survived, killed)
+		}
+		runtime := "-"
+		if r.RuntimeMS != nil {
+			runtime = fmt.Sprintf("%dms", *r.RuntimeMS)
+		}
+		tokens := "-"
+		if r.TotalTokens != nil {
+			tokens = fmt.Sprintf("%d", *r.TotalTokens)
+		}
+		branchCov := formatPercentPtr(r.BranchCoverage)
+		noTests := formatIntPtr(r.MutationNoTests)
+		timeouts := formatIntPtr(r.MutationTimeouts)
+		skipped := formatIntPtr(r.MutationSkipped)
+		suspicious := formatIntPtr(r.MutationSuspicious)
+		testCaseCount := formatIntPtr(r.TestCaseCount)
+		assertionCount := formatIntPtr(r.AssertionCount)
+		assertionDensity := formatFloatPtr(r.AssertionDensity, "%.2f")
+		testCasePass := "-"
+		if r.TestPassCount != nil && r.TestTotalCount != nil {
+			testCasePass = fmt.Sprintf("%d/%d", *r.TestPassCount, *r.TestTotalCount)
+		}
+		promptTokens := formatIntPtr(r.PromptTokens)
+		completionTokens := formatIntPtr(r.CompletionTokens)
+		truncated := "-"
+		if r.Truncated {
+			truncated = "是"
+		}
+		scoreEligible := "是"
+		if r.ScoreEligible != nil && !*r.ScoreEligible {
+			scoreEligible = "否"
+		}
+		b.WriteString(fmt.Sprintf(`
+            <tr>
+              <td>%s</td>
+              <td>%s</td>
+              <td>%s</td>
+              <td>%s</td>
+              <td>%s</td>
+              <td>%s</td>
+              <td>%s</td>
+              <td>%s</td>
+              <td>%s</td>
+              <td>%s</td>
+              <td class="raw-extra raw-col-coverage">%s</td>
+              <td class="raw-extra raw-col-mutation">%s</td>
+              <td class="raw-extra raw-col-mutation">%s</td>
+              <td class="raw-extra raw-col-mutation">%s</td>
+              <td class="raw-extra raw-col-mutation">%s</td>
+              <td class="raw-extra raw-col-mutation">%s</td>
+              <td class="raw-extra raw-col-assertion">%s</td>
+              <td class="raw-extra raw-col-assertion">%s</td>
+              <td class="raw-extra raw-col-assertion">%s</td>
+              <td class="raw-extra raw-col-assertion">%s</td>
+              <td class="raw-extra raw-col-token">%s</td>
+              <td class="raw-extra raw-col-token">%s</td>
+              <td class="raw-extra raw-col-token">%s</td>
+              <td class="raw-extra raw-col-path raw-path"><code>%s</code></td>
+              <td class="raw-extra raw-col-path raw-path"><code>%s</code></td>
+              <td class="raw-extra raw-col-error raw-error" title="%s">%s</td>
+              <td class="raw-extra raw-col-error raw-error" title="%s">%s</td>
+              <td class="raw-extra raw-col-error raw-error" title="%s">%s</td>
+              <td class="raw-extra raw-col-error raw-error" title="%s">%s</td>
+              <td class="raw-extra raw-col-score">%s</td>
+              <td class="raw-extra raw-col-score">%s</td>
+              <td class="raw-extra raw-col-score raw-error" title="%s">%s</td>
+            </tr>`,
+			escapeHTML(r.Model),
+			escapeHTML(strings.ToUpper(r.Language)),
+			escapeHTML(r.SampleID),
+			escapeHTML(compileStatus),
+			escapeHTML(testStatus),
+			escapeHTML(lineCov),
+			escapeHTML(mutationScore),
+			escapeHTML(mutationStats),
+			escapeHTML(runtime),
+			escapeHTML(tokens),
+			escapeHTML(branchCov),
+			escapeHTML(noTests),
+			escapeHTML(timeouts),
+			escapeHTML(skipped),
+			escapeHTML(suspicious),
+			escapeHTML(emptyDash(r.MutationTool)),
+			escapeHTML(testCaseCount),
+			escapeHTML(assertionCount),
+			escapeHTML(assertionDensity),
+			escapeHTML(testCasePass),
+			escapeHTML(promptTokens),
+			escapeHTML(completionTokens),
+			escapeHTML(truncated),
+			escapeHTML(r.SourcePath),
+			escapeHTML(r.GeneratedTestPath),
+			escapeHTML(r.CompileError), escapeHTML(shortErrText(r.CompileError)),
+			escapeHTML(r.TestError), escapeHTML(shortErrText(r.TestError)),
+			escapeHTML(r.CoverageError), escapeHTML(shortErrText(r.CoverageError)),
+			escapeHTML(r.MutationError), escapeHTML(shortErrText(r.MutationError)),
+			escapeHTML(emptyDash(r.FailureOrigin)),
+			escapeHTML(scoreEligible),
+			escapeHTML(r.ScoreExclusionReason), escapeHTML(shortErrText(r.ScoreExclusionReason))))
+	}
+	b.WriteString(`
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+</div>`)
+	return b.String()
+}
+
+func buildRawDataSectionDetailed(rows []contracts.EvaluationResult) string {
 	var b strings.Builder
 
 	// 收集筛选选项
@@ -2429,78 +2847,108 @@ func buildChartsSection(models []contracts.ModelRank) string {
 		return ""
 	}
 
-	var b strings.Builder
-	b.WriteString(`<div class="section" id="charts">
+	return `<div class="section" id="details">
   <h2>图表分析 Charts</h2>
-  <p class="muted" style="margin-bottom:16px;">以下图表展示各模型在不同维度上的表现对比。切换分析维度查看不同视角的对比结果。</p>
-
-  <!-- 维度切换 Tabs -->
-  <div class="chart-tabs" style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid #e2e8f0;padding-bottom:8px;">
-    <button class="chart-tab active" data-tab="overall" onclick="switchChartTab('overall')" style="padding:8px 16px;border:none;background:#1e40af;color:#fff;border-radius:8px 8px 0 0;cursor:pointer;font-weight:600;">综合排名</button>
-    <button class="chart-tab" data-tab="language" onclick="switchChartTab('language')" style="padding:8px 16px;border:none;background:#f1f5f9;color:#475569;border-radius:8px 8px 0 0;cursor:pointer;">按语言对比</button>
-    <button class="chart-tab" data-tab="scenario" onclick="switchChartTab('scenario')" style="padding:8px 16px;border:none;background:#f1f5f9;color:#475569;border-radius:8px 8px 0 0;cursor:pointer;">按场景对比</button>
-    <button class="chart-tab" data-tab="model" onclick="switchChartTab('model')" style="padding:8px 16px;border:none;background:#f1f5f9;color:#475569;border-radius:8px 8px 0 0;cursor:pointer;">模型详情</button>
-  </div>
-
-  <!-- 二级筛选区 -->
-  <div id="chart-filter-area" style="background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:16px;">
-    <div id="filter-overall" class="filter-panel" style="display:block;">
-      <span style="color:#64748b;font-size:13px;">展示所有模型的综合得分横向对比，综合得分 = 编译×0.3 + 测试×0.3 + 覆盖×0.2 + 变异×0.2</span>
-    </div>
-    <div id="filter-language" class="filter-panel" style="display:none;">
-      <label style="font-size:12px;color:#475569;margin-right:8px;">选择语言：</label>
-      <select id="chart-language-select" onchange="refreshLanguageChart()" style="padding:6px 12px;border:1px solid #cbd5e1;border-radius:6px;">
-        <option value="all">全部语言</option>
-        <option value="python">Python</option>
-        <option value="go">Go</option>
-        <option value="java">Java</option>
-        <option value="cpp">C++</option>
-      </select>
-    </div>
-    <div id="filter-scenario" class="filter-panel" style="display:none;">
-      <label style="font-size:12px;color:#475569;margin-right:8px;">选择场景：</label>
-      <select id="chart-scenario-select" onchange="refreshScenarioChart()" style="padding:6px 12px;border:1px solid #cbd5e1;border-radius:6px;">
-        <option value="all">全部场景</option>
-        <option value="boundary">boundary 边界条件</option>
-        <option value="simple_function">simple_function 简单函数</option>
-        <option value="interface_mock">interface_mock 接口模拟</option>
-        <option value="complex_dependency">complex_dependency 复杂依赖</option>
-      </select>
-    </div>
-    <div id="filter-model" class="filter-panel" style="display:none;">
-      <label style="font-size:12px;color:#475569;margin-right:8px;">选择模型：</label>
-      <select id="chart-model-select" onchange="refreshModelDetailChart()" style="padding:6px 12px;border:1px solid #cbd5e1;border-radius:6px;">`)
-	for _, m := range models {
-		b.WriteString(fmt.Sprintf(`<option value="%s">%s</option>`, escapeHTML(m.Model), escapeHTML(m.Model)))
-	}
-	b.WriteString(`      </select>
-    </div>
-  </div>
-
-  <!-- 主图表区 -->
-  <div id="main-chart-area" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin-bottom:16px;">
-    <h3 id="main-chart-title" style="margin:0 0 12px;font-size:16px;">模型综合得分对比</h3>
-    <div class="chart-box tall" style="height:320px;"><canvas id="mainCompareChart" aria-label="模型综合得分对比柱状图"></canvas></div>
-  </div>
-
-  <!-- 详细图表区 -->
   <div class="chart-grid-2">
     <div class="panel">
-      <h3>模型多维雷达图</h3>
-      <div class="chart-box tall"><canvas id="radarChart" aria-label="模型多维得分雷达图"></canvas></div>
+      <h3>模型指标对比</h3>
+      <div class="chart-box tall"><canvas id="modelBarChart"></canvas></div>
     </div>
     <div class="panel">
-      <h3>样本行覆盖率热力图</h3>
-      <p class="muted" style="font-size:12px;">颜色深浅表示覆盖率高低，绿=高覆盖，红=低覆盖</p>
-      <div id="coverageHeatmap" class="chart-box heatmap-box"></div>
+      <h3>多维雷达图</h3>
+      <div class="chart-box tall"><canvas id="radarChart"></canvas></div>
+    </div>
+  </div>
+  <div class="chart-grid-1" style="margin-top:16px;">
+    <div class="panel efficiency-panel">
+      <div class="panel-heading-row">
+        <h3>速度与质量权衡</h3>
+        <div class="chart-help" tabindex="0" aria-label="质量分计算说明">?
+          <div class="chart-help-popover">
+            <strong>质量分 Quality Score</strong>
+            <p>编译通过率 25% + 样本测试通过率 30% + 行覆盖率 15% + 变异分数 25% + 断言密度归一化 5%。</p>
+            <strong>X 轴</strong>
+            <p>可切换为平均耗时或平均 Token。越靠左成本越低，越靠上质量越高。</p>
+            <p>左上最理想；右上质量优先；左下快速初稿；右下需谨慎使用。</p>
+          </div>
+        </div>
+        <div class="axis-toggle" role="group" aria-label="切换效率图 X 轴">
+          <button type="button" class="active" data-efficiency-axis="latency">平均耗时</button>
+          <button type="button" data-efficiency-axis="tokens">平均 Token</button>
+        </div>
+      </div>
+      <div class="chart-box efficiency-chart-box"><canvas id="efficiencyQualityChart"></canvas></div>
+      <div id="efficiencyQualityNotes" class="efficiency-notes"></div>
     </div>
   </div>
   <div class="chart-grid-2" style="margin-top:16px;">
     <div class="panel">
-      <h3>样本变异分数热力图</h3>
-      <p class="muted" style="font-size:12px;">变异分数反映测试检测代码缺陷的能力，越高越好</p>
+      <h3>场景通过率柱状图</h3>
+      <div class="chart-box tall"><canvas id="scenarioBarChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>场景覆盖与变异对比</h3>
+      <div class="chart-box tall"><canvas id="scenarioTrendChart"></canvas></div>
+    </div>
+  </div>
+  <div class="chart-grid-2" style="margin-top:16px;">
+    <div class="panel">
+      <h3>覆盖率热力图</h3>
+      <div id="coverageHeatmap" class="chart-box heatmap-box"></div>
+    </div>
+    <div class="panel">
+      <h3>变异分数热力图</h3>
       <div id="mutationHeatmap" class="chart-box heatmap-box"></div>
     </div>
+  </div>
+</div>`
+}
+
+func buildAnalysisControlsSection(models, languages, scenarios []string) string {
+	var b strings.Builder
+	b.WriteString(`<div class="section" id="analysis-controls">
+  <h2>筛选与导出 Analysis Controls</h2>
+  <div class="panel">
+    <div class="filter-grid">
+      <div class="filter-group">
+        <div class="filter-title">模型筛选 Model Filter</div>
+        <label class="filter-chip filter-all"><input type="checkbox" data-filter-all="model" checked> 全部模型</label>
+        <div class="filter-options">`)
+	for _, model := range models {
+		b.WriteString(fmt.Sprintf(`
+          <label class="filter-chip"><input type="checkbox" data-filter-model value="%s"> %s</label>`, escapeHTML(model), escapeHTML(model)))
+	}
+	b.WriteString(`
+        </div>
+      </div>
+      <div class="filter-group">
+        <div class="filter-title">语言筛选 Language Filter</div>
+        <label class="filter-chip filter-all"><input type="checkbox" data-filter-all="language" checked> 全部语言</label>
+        <div class="filter-options">`)
+	for _, language := range languages {
+		b.WriteString(fmt.Sprintf(`
+          <label class="filter-chip"><input type="checkbox" data-filter-language value="%s"> %s</label>`, escapeHTML(language), escapeHTML(strings.ToUpper(language))))
+	}
+	b.WriteString(`
+        </div>
+      </div>
+      <div class="filter-group">
+        <div class="filter-title">场景筛选 Scenario Filter</div>
+        <label class="filter-chip filter-all"><input type="checkbox" data-filter-all="scenario" checked> 全部场景</label>
+        <div class="filter-options">`)
+	for _, scenario := range scenarios {
+		b.WriteString(fmt.Sprintf(`
+          <label class="filter-chip"><input type="checkbox" data-filter-scenario value="%s"> %s</label>`, escapeHTML(scenario), escapeHTML(getScenarioLabel(scenario))))
+	}
+	b.WriteString(`
+        </div>
+      </div>
+      <div class="filter-actions">
+        <button id="reset-analysis-filters" type="button">重置筛选</button>
+        <button id="export-scenario-csv" type="button">导出当前维度 CSV</button>
+      </div>
+    </div>
+    <div id="filter-summary" class="filter-summary">当前筛选：全部模型 · 全部语言 · 全部场景</div>
   </div>
 </div>`)
 	return b.String()
@@ -2509,34 +2957,129 @@ func buildChartsSection(models []contracts.ModelRank) string {
 // buildPromptHTMLNew 生成新的 Prompt 展示区域
 func buildPromptHTMLNew(strategy, versionID string, prompts map[string]string) string {
 	var b strings.Builder
-	b.WriteString(`<div class="section prompt-compact" id="prompt">
-  <h2>Prompt 策略</h2>
+	b.WriteString(fmt.Sprintf(`<div class="section prompt-compact" id="prompt">
+  <h2>Prompt 策略与实际提示词</h2>
+  <div class="prompt-meta">
+    <span>Strategy: <strong>%s</strong></span>
+    <span>Version: <strong>%s</strong></span>
+    <span>展示优先级：实际 rendered prompt 快照 &gt; 模板预览</span>
+  </div>
   <div class="prompt-tags">
-    <span class="prompt-tag">双语提示</span>
+    <span class="prompt-tag">真实运行快照</span>
     <span class="prompt-tag">跨模型一致</span>
-    <span class="prompt-tag">语义对齐</span>
-    <span class="prompt-tag">多语言支持</span>
+    <span class="prompt-tag">四语言对照</span>
+    <span class="prompt-tag">中文说明</span>
   </div>
   <ul class="prompt-bullets">
-    <li>Generate high-quality unit tests based on the following specification</li>
-    <li>覆盖正常路径、边界条件和异常行为</li>
-    <li>保持测试可重复、可执行（避免随机性）</li>
-    <li>使用清晰断言和有意义的期望值</li>
-  </ul>`)
+    <li>这里展示的是生成阶段发送给模型的提示词。若本次 run 保存了 rendered prompt，则直接读取样本快照；否则展示同版本模板预览。</li>
+    <li>Prompt 不显式暴露 benchmark 场景名和复杂度，避免用题型标签提示模型。</li>
+    <li>Python 在正式评测前会把中性导入名 <code>module_under_test</code> 重写到真实源码模块，减少文件名泄露。</li>
+    <li>所有语言都约束小而有代表性的输入、禁止真实网络/认证/外部服务，并优先使用 fake/stub。</li>
+  </ul>`, escapeHTML(emptyDash(strategy)), escapeHTML(emptyDash(versionID))))
 
-	// 显示第一个语言的 prompt 作为示例
-	for lang, prompt := range prompts {
+	languages := []string{"python", "go", "java", "cpp"}
+	b.WriteString(`<div class="prompt-language-grid">`)
+	for _, lang := range languages {
+		prompt := prompts[lang]
+		if strings.TrimSpace(prompt) == "" {
+			prompt = getPromptTemplate(lang)
+		}
+		mode := promptField(prompt, "Mode")
+		framework := promptField(prompt, "Framework")
+		sourceKind := "模板预览"
+		if !strings.Contains(prompt, "preview_sample") && !strings.Contains(prompt, "PreviewSample") {
+			sourceKind = "实际渲染快照"
+		}
+		displayPrompt := truncateText(prompt, 12000)
+		truncatedNote := ""
+		if len(displayPrompt) < len(prompt) {
+			truncatedNote = fmt.Sprintf(`<div class="prompt-note">原文较长，当前仅展示前 %d 字符；完整内容已保存在 rendered prompt 快照文件中。</div>`, len(displayPrompt))
+		}
 		b.WriteString(fmt.Sprintf(`
-  <details>
-    <summary>查看 %s Prompt 原文</summary>
+  <details class="prompt-language-card">
+    <summary>
+      <span>%s Prompt</span>
+      <small>%s · %s · %s</small>
+    </summary>
+    <div class="prompt-translation">
+      <h3>中文说明</h3>
+      %s
+    </div>
+    %s
     <div class="prompt-template-box">%s</div>
-  </details>`, strings.ToUpper(lang[:1])+lang[1:], escapeHTML(prompt[:min(len(prompt), 1200)])))
-		break // 只显示第一个
+  </details>`,
+			escapeHTML(strings.ToUpper(lang)),
+			escapeHTML(emptyDash(mode)),
+			escapeHTML(emptyDash(framework)),
+			escapeHTML(sourceKind),
+			promptChineseSummary(lang, mode),
+			truncatedNote,
+			escapeHTML(displayPrompt)))
 	}
+	b.WriteString(`</div>`)
 
 	b.WriteString(`
 </div>`)
 	return b.String()
+}
+
+func promptField(prompt, field string) string {
+	prefix := field + ":"
+	for _, line := range strings.Split(prompt, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), prefix))
+		}
+	}
+	return ""
+}
+
+func promptChineseSummary(language, mode string) string {
+	modeText := map[string]string{
+		"full_file":    "完整文件模式：模型需要直接返回一个完整、可运行的测试文件。",
+		"module_level": "模块级模式：模型基于多文件模块上下文生成目标模块的完整测试文件。",
+		"completion":   "续写模式：模型只补充下一个有价值的测试函数或测试块。",
+	}
+	if modeText[mode] == "" {
+		modeText[mode] = "当前模式由 prompt 原文中的 Mode 字段决定。"
+	}
+	rules := []string{
+		"必须只输出原始测试代码，不允许 Markdown 代码块、解释文字或占位测试。",
+		"测试必须可重复，断言必须从源码实现行为推导，不能根据注释或常识猜测。",
+		"覆盖正常路径、边界路径和错误路径，但输入要小而有代表性，不能做压力测试。",
+		"不得访问真实网络、真实凭证或真实外部服务；涉及外部 I/O 时使用 mock、stub 或 fake。",
+	}
+	switch strings.ToLower(language) {
+	case "python":
+		rules = append(rules,
+			"使用 pytest 函数式测试；从 module_under_test 导入目标符号，后续评测准备阶段会重写到真实模块。",
+			"使用 plain assert 和 pytest.raises；需要 mock 时 patch 目标模块实际引用的符号。")
+	case "go":
+		rules = append(rules,
+			"使用 testing 包和 TestXxx 函数；测试包名与源码包保持一致。",
+			"适合时使用表驱动测试；不要假设标准库内部可以 monkey patch。")
+	case "java":
+		rules = append(rules,
+			"使用 JUnit 5 Jupiter；测试类命名为 ClassNameTest，package 声明与源码保持一致。",
+			"严格使用源码中声明的类名、方法名和 static/instance 调用方式。")
+	case "cpp":
+		rules = append(rules,
+			"使用 GoogleTest 的 TEST、EXPECT_*、ASSERT_*。",
+			"只包含测试所需头文件，不重复声明源码中已有的类或函数。")
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<p>%s</p><ul>`, escapeHTML(modeText[mode]))
+	for _, rule := range rules {
+		fmt.Fprintf(&b, `<li>%s</li>`, escapeHTML(rule))
+	}
+	b.WriteString(`</ul>`)
+	return b.String()
+}
+
+func truncateText(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[:limit]
 }
 
 // buildChartScripts 生成图表脚本
@@ -2682,6 +3225,14 @@ func summarizeList(values []string, max int) string {
 	return strings.Join(values[:max], ", ") + fmt.Sprintf(" 等%d项", len(values))
 }
 
+func scenarioLabels(values []string) []string {
+	labels := make([]string, 0, len(values))
+	for _, value := range values {
+		labels = append(labels, getScenarioLabel(value))
+	}
+	return labels
+}
+
 // progressBarNew 生成新的进度条 HTML
 func progressBarNew(value, threshold float64) string {
 	if value == 0 {
@@ -2729,6 +3280,34 @@ func avgLatencyFromRows(rows []contracts.EvaluationResult) float64 {
 		return 0
 	}
 	return total / float64(count)
+}
+
+func formatPercentPtr(v *float64) string {
+	if v == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%.1f%%", *v*100)
+}
+
+func formatIntPtr(v *int) string {
+	if v == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%d", *v)
+}
+
+func formatFloatPtr(v *float64, format string) string {
+	if v == nil {
+		return "-"
+	}
+	return fmt.Sprintf(format, *v)
+}
+
+func emptyDash(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "-"
+	}
+	return v
 }
 
 func kpiCard(label string, value float64, valueClass string, subValue string) string {
@@ -2790,11 +3369,11 @@ func getModelIDShort(modelID string) string {
 
 func getScenarioLabel(scenario string) string {
 	labels := map[string]string{
-		"boundary":           "边界值",
-		"simple_function":    "简单函数",
-		"complex_dependency": "复杂依赖",
-		"interface_mock":     "接口Mock",
-		"unknown":            "未知",
+		"boundary":           "边界值 / Boundary",
+		"simple_function":    "简单函数 / Simple",
+		"complex_dependency": "复杂依赖 / Complex",
+		"interface_mock":     "接口 Mock / Interface",
+		"unknown":            "未知 / Unknown",
 	}
 	if label, ok := labels[scenario]; ok {
 		return label
