@@ -967,10 +967,12 @@ func (s *SQLiteStore) SelectEvaluationResultSet(ctx context.Context, runID strin
 			er.test_pass_count, er.test_total_count, er.test_pass_rate,
 			er.runtime_ms, er.prompt_tokens, er.completion_tokens, er.total_tokens,
 			COALESCE(er.compile_error, ''), COALESCE(er.test_error, ''), COALESCE(er.coverage_error, ''), COALESCE(er.mutation_error, ''),
-			COALESCE(er.mutation_tool, ''), COALESCE(er.failure_origin, ''), er.score_eligible, COALESCE(er.score_exclusion_reason, '')
+			COALESCE(er.mutation_tool, ''), COALESCE(er.failure_origin, ''), er.score_eligible, COALESCE(er.score_exclusion_reason, ''),
+				gc.latency_ms
 		FROM evaluation_results er
 		LEFT JOIN artifacts g ON g.artifact_id = er.generated_test_artifact_id
 		LEFT JOIN artifacts src ON src.artifact_id = er.source_artifact_id
+		LEFT JOIN generated_cases gc ON gc.generated_case_id = er.generated_case_id
 		WHERE ` + strings.Join(where, " AND ") + `
 		ORDER BY er.run_id, er.model, er.language, er.sample_id`
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -985,7 +987,7 @@ func (s *SQLiteStore) SelectEvaluationResultSet(ctx context.Context, runID strin
 		var testPass sql.NullInt64
 		var lineCov, branchCov, mutationScore, assertionDensity, testPassRate sql.NullFloat64
 		var mutationTotal, mutationKilled, mutationSurvived, mutationNoTests, mutationTimeouts, mutationSkipped, mutationSuspicious sql.NullInt64
-		var assertionCount, testCaseCount, testPassCount, testTotalCount, runtimeMS, promptTokens, completionTokens, totalTokens sql.NullInt64
+		var assertionCount, testCaseCount, testPassCount, testTotalCount, runtimeMS, latencyMS, promptTokens, completionTokens, totalTokens sql.NullInt64
 		if err := rows.Scan(
 			&r.Model, &r.Language, &r.SampleID,
 			&r.GeneratedTestPath, &r.SourcePath,
@@ -998,6 +1000,7 @@ func (s *SQLiteStore) SelectEvaluationResultSet(ctx context.Context, runID strin
 			&runtimeMS, &promptTokens, &completionTokens, &totalTokens,
 			&r.CompileError, &r.TestError, &r.CoverageError, &r.MutationError,
 			&r.MutationTool, &r.FailureOrigin, &eligible, &r.ScoreExclusionReason,
+				&latencyMS,
 		); err != nil {
 			return contracts.EvaluationResultSet{}, err
 		}
@@ -1021,6 +1024,7 @@ func (s *SQLiteStore) SelectEvaluationResultSet(ctx context.Context, runID strin
 		r.TestTotalCount = nullableSQLInt(testTotalCount)
 		r.TestPassRate = nullableSQLFloat(testPassRate)
 		r.RuntimeMS = nullableSQLInt(runtimeMS)
+			r.LatencyMS = nullableSQLInt(latencyMS)
 		r.PromptTokens = nullableSQLInt(promptTokens)
 		r.CompletionTokens = nullableSQLInt(completionTokens)
 		r.TotalTokens = nullableSQLInt(totalTokens)

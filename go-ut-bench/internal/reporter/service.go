@@ -659,8 +659,8 @@ func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
 		a.mutationSum += *row.MutationScore
 		a.mutationCnt++
 	}
-	if row.RuntimeMS != nil {
-		a.latencySum += float64(*row.RuntimeMS)
+	if row.LatencyMS != nil {
+		a.latencySum += float64(*row.LatencyMS)
 		a.latencyCnt++
 	}
 	if row.PromptTokens != nil {
@@ -712,8 +712,8 @@ func mergeScenarioAgg(a *scenarioAgg, row contracts.EvaluationResult, scenario, 
 		a.mutationSum += *row.MutationScore
 		a.mutationCnt++
 	}
-	if row.RuntimeMS != nil {
-		a.latencySum += float64(*row.RuntimeMS)
+	if row.LatencyMS != nil {
+		a.latencySum += float64(*row.LatencyMS)
 		a.latencyCnt++
 	}
 	if row.TotalTokens != nil {
@@ -762,8 +762,8 @@ func mergeModelScenarioAgg(a *modelScenarioAgg, row contracts.EvaluationResult, 
 		a.mutationSum += *row.MutationScore
 		a.mutationCnt++
 	}
-	if row.RuntimeMS != nil {
-		a.latencySum += float64(*row.RuntimeMS)
+	if row.LatencyMS != nil {
+		a.latencySum += float64(*row.LatencyMS)
 		a.latencyCnt++
 	}
 	if row.TotalTokens != nil {
@@ -1503,8 +1503,8 @@ func buildOverviewSection(payload contracts.ReportPayload, rows []contracts.Eval
 	var totalLatency, totalTokens float64
 	var latencyCount, tokenCount int
 	for _, row := range rows {
-		if row.RuntimeMS != nil && *row.RuntimeMS > 0 {
-			totalLatency += float64(*row.RuntimeMS)
+		if row.LatencyMS != nil && *row.LatencyMS > 0 {
+			totalLatency += float64(*row.LatencyMS)
 			latencyCount++
 		}
 		if row.TotalTokens != nil && *row.TotalTokens > 0 {
@@ -3253,8 +3253,8 @@ func avgLatencyFromRows(rows []contracts.EvaluationResult) float64 {
 	var total float64
 	var count int
 	for _, row := range rows {
-		if row.RuntimeMS != nil && *row.RuntimeMS > 0 {
-			total += float64(*row.RuntimeMS) / 1000
+		if row.LatencyMS != nil && *row.LatencyMS > 0 {
+			total += float64(*row.LatencyMS) / 1000
 			count++
 		}
 	}
