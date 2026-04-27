@@ -1218,9 +1218,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                 <button @click="scrollLogsBottom()" class="text-[12px]" style="color:var(--fg-subtle)">滚动到底部</button>
               </div>
               <div id="log-area" class="terminal text-[12px] p-4 h-[540px] overflow-y-auto leading-5" style="background:#020408;color:var(--green)">
-                <template x-for="(line, i) in currentLogs" :key="i">
-                  <div class="log-line" x-text="line"></div>
-                </template>
+                <pre id="log-pre" class="log-pre whitespace-pre-wrap break-words m-0" style="font:inherit;color:inherit"></pre>
                 <div x-show="currentRun.status === 'running'" class="animate-pulse mt-1" style="color:var(--yellow)">▊</div>
                 <div id="log-bottom"></div>
               </div>
@@ -1436,7 +1434,10 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
         <div class="form-section w-[720px] max-w-[90vw] max-h-[85vh] flex flex-col" @click.stop>
           <div class="flex items-center justify-between mb-3">
             <div class="section-title m-0">构建 Docker 镜像</div>
-            <button @click="closeBuildModal()" class="btn-ghost text-[12px] py-1 px-2">关闭</button>
+            <div class="flex items-center gap-2">
+              <button x-show="buildStatus === 'running' || buildStatus === 'pending'" @click="cancelBuild()" class="btn-ghost text-[12px] py-1 px-2" style="color:var(--red)">取消构建</button>
+              <button @click="closeBuildModal()" class="btn-ghost text-[12px] py-1 px-2">关闭</button>
+            </div>
           </div>
           <div class="text-[12px] mb-3" style="color:var(--fg-muted)">
             镜像: <code class="font-mono text-[12px]" style="color:var(--fg)" x-text="env?.image_name || 'utbench:latest'"></code>
@@ -1724,7 +1725,7 @@ function app() {
     closeBuildModal() { this.buildModalOpen = false; this.stopBuildSSE() },
 
     buildStatusColor(s) {
-      const map = { running: 'color:var(--accent)', pending: 'color:var(--yellow)', completed: 'color:var(--green)', failed: 'color:var(--red)' }
+      const map = { running: 'color:var(--accent)', pending: 'color:var(--yellow)', completed: 'color:var(--green)', failed: 'color:var(--red)', canceled: 'color:var(--fg-muted)' }
       return map[s] || 'color:var(--fg-muted)'
     },
 
@@ -1751,6 +1752,21 @@ function app() {
         if (!r.ok) { this.buildError = data.error || '启动失败'; this.buildStatus = 'failed'; return }
         this.buildId = data.build_id; this.buildStatus = data.status; this.startBuildSSE(this.buildId)
       } catch(e) { this.buildError = String(e); this.buildStatus = 'failed' }
+    },
+
+    async cancelBuild() {
+      if (!this.buildId || (this.buildStatus !== 'running' && this.buildStatus !== 'pending')) return
+      try {
+        const r = await fetch('/api/env/build-image/' + this.buildId, { method: 'DELETE' })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || '取消失败')
+        this.buildStatus = data.status || 'canceled'
+        this.buildError = data.error || ''
+        this.stopBuildSSE()
+        this.showToast('Docker 构建已取消', 'warn')
+      } catch(e) {
+        this.showToast('取消构建失败：' + (e.message || String(e)), 'err', 5000)
+      }
     },
 
     startBuildSSE(id) {
@@ -2436,6 +2452,7 @@ function app() {
 
     async openRun(runId) {
       this.stopSSE(); this.currentReport = null; this.currentLogs = []; this.detailTab = 'logs'
+      this._resetLogPre()
       this.page = 'run-detail'
       const found = this.runs.find(r => r.run_id === runId)
       this.currentRun = found ? { ...found } : { run_id: runId, status: 'pending', started_at: new Date().toISOString() }
@@ -2444,19 +2461,106 @@ function app() {
 
     startSSE(runId) {
       this.sseSource = new EventSource(`/api/runs/${runId}/events`)
-      this.sseSource.onmessage = async (e) => {
+      this.sseSource.onmessage = (e) => {
         try {
           const obj = JSON.parse(e.data)
-          if (obj.type === 'log') { this.currentLogs.push(obj.payload); this.$nextTick(() => this.scrollLogsBottom()) }
+          if (obj.type === 'snapshot') {
+            // 后端在订阅瞬间把已缓冲的所有日志一次性发回，单事件 → 单 DOM 写入
+            const lines = Array.isArray(obj.payload) ? obj.payload : []
+            this.currentLogs = lines.slice(-this.LOG_DOM_CAP)
+            this._applyLogSnapshotToDOM(this.currentLogs)
+          }
+          else if (obj.type === 'log') {
+            this._enqueueLog(obj.payload)
+          }
           else if (obj.type === 'done') {
             this.stopSSE()
             if (this.currentRun) this.currentRun.status = obj.payload
-            await this.loadRuns()
-            await this.loadDatabase()
+            this._flushLogs()
+            this.loadRuns(); this.loadDatabase()
           }
         } catch {}
       }
       this.sseSource.onerror = () => this.stopSSE()
+    },
+
+    _applyLogSnapshotToDOM(lines) {
+      // 等待 pre 元素挂载（首次打开 run-detail 时 x-if 还没生效）
+      const tryApply = () => {
+        const pre = document.getElementById('log-pre')
+        if (!pre) { requestAnimationFrame(tryApply); return }
+        pre.textContent = (lines || []).join('\n') + (lines && lines.length ? '\n' : '')
+        const area = document.getElementById('log-area')
+        if (area) area.scrollTop = area.scrollHeight
+      }
+      tryApply()
+    },
+
+    // ---- 日志高性能管线：避开 Alpine 响应式，直接写 DOM + rAF 批处理 ----
+    _logBuffer: [],       // 本帧待写入的新行
+    _logFlushPending: false,
+    LOG_DOM_CAP: 5000,    // DOM 中保留的最大行数
+    _enqueueLog(line) {
+      this._logBuffer.push(line)
+      // currentLogs 仅用于 UI 计数显示；一次 push 的响应式成本极低
+      this.currentLogs.push(line)
+      if (this.currentLogs.length > this.LOG_DOM_CAP) {
+        this.currentLogs.splice(0, this.currentLogs.length - this.LOG_DOM_CAP)
+      }
+      if (this._logFlushPending) return
+      this._logFlushPending = true
+      requestAnimationFrame(() => { this._logFlushPending = false; this._flushLogs() })
+    },
+    _flushLogs() {
+      const pre = document.getElementById('log-pre')
+      if (!pre) {
+        // 组件尚未挂载（x-if 还没渲染），下一帧重试，保留缓冲
+        this._logFlushPending = true
+        requestAnimationFrame(() => { this._logFlushPending = false; this._flushLogs() })
+        return
+      }
+      if (this._logBuffer.length) {
+        // 单次 DOM 写入，合并本帧所有新行
+        pre.appendChild(document.createTextNode(this._logBuffer.join('\n') + '\n'))
+        this._logBuffer.length = 0
+      }
+      // 超限时裁剪：展平文本再切片，避免无限增长
+      // 粗略估算：按行切，保留末尾 LOG_DOM_CAP 行
+      if (pre.childNodes.length > 32) {
+        const text = pre.textContent
+        const lines = text.split('\n')
+        if (lines.length > this.LOG_DOM_CAP) {
+          pre.textContent = lines.slice(lines.length - this.LOG_DOM_CAP).join('\n')
+        } else if (pre.childNodes.length > 1) {
+          // 将多个 textNode 合并为一个，降低后续追加开销
+          pre.textContent = text
+        }
+      }
+      // 接近底部才自动跟随
+      const area = document.getElementById('log-area')
+      if (area) {
+        const nearBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 120
+        if (nearBottom) area.scrollTop = area.scrollHeight
+      }
+    },
+    _resetLogPre() {
+      this._logBuffer.length = 0
+      this._logFlushPending = false
+      const pre = document.getElementById('log-pre')
+      if (pre) pre.textContent = ''
+    },
+    _setLogPreFromArray(lines) {
+      this._logBuffer.length = 0
+      const pre = document.getElementById('log-pre')
+      if (pre) pre.textContent = (lines || []).join('\n')
+    },
+
+    // 兼容保留：手动“滚动到底部”按钮
+    scheduleScrollLogsBottom() {
+      const area = document.getElementById('log-area')
+      if (!area) return
+      const nearBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 120
+      if (nearBottom) area.scrollTop = area.scrollHeight
     },
 
     stopSSE() { if (this.sseSource) { this.sseSource.close(); this.sseSource = null } },
@@ -2467,6 +2571,7 @@ function app() {
       if (r.ok) {
         const data = await r.json()
         this.currentRun.status = data.status; this.currentRun.ended_at = data.ended_at; this.currentRun.error = data.error; this.currentLogs = data.logs ?? []
+        this._setLogPreFromArray(this.currentLogs)
       }
     },
 
@@ -2519,15 +2624,14 @@ function app() {
         { label:'样本数',  value: s.total_samples ?? 0, color:'kpi-total' },
         { label:'编译通过率',  value: pct(s.compile_pass_rate), color: pctColor(s.compile_pass_rate) },
         { label:'样本测试通过率',  value: pct(s.sample_test_pass_rate ?? s.test_pass_rate), color: pctColor(s.sample_test_pass_rate ?? s.test_pass_rate) },
-        { label:'用例测试通过率',  value: pct(s.test_case_pass_rate), color: pctColor(s.test_case_pass_rate) },
         { label:'平均行覆盖率', value: pct(s.avg_line_coverage), color: pctColor(s.avg_line_coverage) },
         { label:'平均变异分', value: pct(s.avg_mutation_score), color: pctColor(s.avg_mutation_score) },
       ]
     },
 
     scrollLogsBottom() {
-      const el = document.getElementById('log-bottom')
-      if (el) el.scrollIntoView({ behavior:'smooth' })
+      const area = document.getElementById('log-area')
+      if (area) area.scrollTop = area.scrollHeight
     },
 
     fmtTime(t) {

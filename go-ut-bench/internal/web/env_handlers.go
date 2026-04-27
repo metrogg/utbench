@@ -20,11 +20,21 @@ func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleBuildImage handles:
-//   POST /api/env/build-image  → start a `docker build` job, return build_id
-//   GET  /api/env/build-image  → return the latest build's status
+//
+//	POST /api/env/build-image  → start a `docker build` job, return build_id
+//	GET  /api/env/build-image  → return the latest build's status
 func (s *Server) handleBuildImage(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
+		if latest := s.bld.Latest(); latest != nil {
+			latest.mu.RLock()
+			active := latest.Status == BuildPending || latest.Status == BuildRunning
+			latest.mu.RUnlock()
+			if active {
+				writeJSON(w, http.StatusOK, buildJobSnapshot(latest))
+				return
+			}
+		}
 		if !isDockerReady(s.dockerCfg) {
 			errJSON(w, http.StatusPreconditionFailed, "docker daemon is not available on the host")
 			return
@@ -48,8 +58,9 @@ func (s *Server) handleBuildImage(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleBuildImageSub routes:
-//   GET /api/env/build-image/{id}         → snapshot + log buffer
-//   GET /api/env/build-image/{id}/events  → SSE stream of build log lines
+//
+//	GET /api/env/build-image/{id}         → snapshot + log buffer
+//	GET /api/env/build-image/{id}/events  → SSE stream of build log lines
 func (s *Server) handleBuildImageSub(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/env/build-image/")
 	parts := strings.SplitN(path, "/", 2)
@@ -62,6 +73,19 @@ func (s *Server) handleBuildImageSub(w http.ResponseWriter, r *http.Request) {
 	job, ok := s.bld.Get(id)
 	if !ok {
 		errJSON(w, http.StatusNotFound, "build not found: "+id)
+		return
+	}
+
+	if r.Method == http.MethodDelete {
+		if !job.Cancel() {
+			errJSON(w, http.StatusConflict, "build is not running")
+			return
+		}
+		writeJSON(w, http.StatusOK, buildJobSnapshot(job))
+		return
+	}
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 

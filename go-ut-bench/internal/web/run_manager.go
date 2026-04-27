@@ -102,6 +102,20 @@ func (r *RunEntry) Subscribe() chan string {
 	return ch
 }
 
+// SubscribeWithSnapshot atomically returns the current buffered log lines and
+// a channel that will receive only NEW lines appended after the snapshot.
+// This lets the SSE handler emit one batched "snapshot" event up-front and
+// avoid flooding the browser with N individual events on connect.
+func (r *RunEntry) SubscribeWithSnapshot() ([]string, chan string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap := make([]string, len(r.logs))
+	copy(snap, r.logs)
+	ch := make(chan string, 512)
+	r.subs = append(r.subs, ch)
+	return snap, ch
+}
+
 // Unsubscribe removes a subscriber channel and closes it.
 func (r *RunEntry) Unsubscribe(ch chan string) {
 	r.mu.Lock()

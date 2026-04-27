@@ -993,15 +993,29 @@ func (s *Server) handleRunEvents(w http.ResponseWriter, r *http.Request, runID s
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	ch := entry.Subscribe()
+	snap, ch := entry.SubscribeWithSnapshot()
 	defer entry.Unsubscribe(ch)
 
 	sendEvent := func(typ, payload string) {
-		fmt.Fprintf(w, "data: {\"type\":%q,\"payload\":%q}\n\n", typ, payload)
+		// 使用 json.Marshal 以避免 Go %q 在含非 ASCII/控制字符时产出
+		// 非 JSON 兼容的 \xNN 转义。
+		pb, _ := json.Marshal(payload)
+		fmt.Fprintf(w, "data: {\"type\":%q,\"payload\":%s}\n\n", typ, pb)
 		if canFlush {
 			flusher.Flush()
 		}
 	}
+	sendSnapshot := func(lines []string) {
+		// 一次性把已缓冲的所有日志作为单个事件发送，避免 N 条日志触发
+		// N 次浏览器端 JSON.parse / DOM 写入，导致首屏卡住。
+		b, _ := json.Marshal(map[string]any{"type": "snapshot", "payload": lines})
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		if canFlush {
+			flusher.Flush()
+		}
+	}
+
+	sendSnapshot(snap)
 
 	ctx := r.Context()
 	for {
