@@ -17,24 +17,26 @@ const (
 	BuildRunning   BuildStatus = "running"
 	BuildCompleted BuildStatus = "completed"
 	BuildFailed    BuildStatus = "failed"
+	BuildCanceled  BuildStatus = "canceled"
 )
 
 // BuildJob represents a running `docker build` invocation.
 // It deliberately mirrors RunEntry's log + subscribe shape so the SSE handler
 // can reuse the same pattern.
 type BuildJob struct {
-	BuildID    string       `json:"build_id"`
-	ImageName  string       `json:"image_name"`
-	Status     BuildStatus  `json:"status"`
-	StartedAt  time.Time    `json:"started_at"`
-	EndedAt    *time.Time   `json:"ended_at,omitempty"`
-	Error      string       `json:"error,omitempty"`
-	Done       chan struct{} `json:"-"`
+	BuildID   string        `json:"build_id"`
+	ImageName string        `json:"image_name"`
+	Status    BuildStatus   `json:"status"`
+	StartedAt time.Time     `json:"started_at"`
+	EndedAt   *time.Time    `json:"ended_at,omitempty"`
+	Error     string        `json:"error,omitempty"`
+	Done      chan struct{} `json:"-"`
 
-	logs []string
-	mu   sync.RWMutex
-	subs []chan string
-	cmd  *exec.Cmd
+	logs   []string
+	mu     sync.RWMutex
+	subs   []chan string
+	cmd    *exec.Cmd
+	cancel context.CancelFunc
 }
 
 func (b *BuildJob) appendLog(line string) {
@@ -84,6 +86,24 @@ func (b *BuildJob) Unsubscribe(ch chan string) {
 			return
 		}
 	}
+}
+
+func (b *BuildJob) Cancel() bool {
+	b.mu.Lock()
+	if b.Status != BuildPending && b.Status != BuildRunning {
+		b.mu.Unlock()
+		return false
+	}
+	cancel := b.cancel
+	b.Status = BuildCanceled
+	b.Error = "canceled by user"
+	b.mu.Unlock()
+
+	b.appendLog(fmt.Sprintf("[%s] build canceled by user", logTS()))
+	if cancel != nil {
+		cancel()
+	}
+	return true
 }
 
 // buildLineWriter is an io.Writer that splits bytes on '\n' and forwards each
@@ -183,6 +203,9 @@ func (m *BuildManager) execute(job *BuildJob) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 	defer cancel()
+	job.mu.Lock()
+	job.cancel = cancel
+	job.mu.Unlock()
 
 	cmd := exec.CommandContext(ctx, "docker", "build", "-t", job.ImageName, m.projectRoot)
 	lw := &buildLineWriter{job: job}
@@ -195,7 +218,9 @@ func (m *BuildManager) execute(job *BuildJob) {
 	now := time.Now()
 	job.mu.Lock()
 	job.EndedAt = &now
-	if err != nil {
+	if job.Status == BuildCanceled {
+		job.Error = "canceled by user"
+	} else if err != nil {
 		job.Status = BuildFailed
 		job.Error = err.Error()
 	} else {
@@ -203,7 +228,9 @@ func (m *BuildManager) execute(job *BuildJob) {
 	}
 	job.mu.Unlock()
 
-	if err != nil {
+	if job.Status == BuildCanceled {
+		job.appendLog(fmt.Sprintf("[%s] BUILD CANCELED", logTS()))
+	} else if err != nil {
 		job.appendLog(fmt.Sprintf("[%s] BUILD FAILED: %v", logTS(), err))
 	} else {
 		job.appendLog(fmt.Sprintf("[%s] build completed", logTS()))

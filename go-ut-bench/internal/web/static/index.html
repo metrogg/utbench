@@ -14,7 +14,24 @@
 :root{--bg:#04060a;--bg-elevated:#0b0f17;--bg-overlay:#111827;--border:#1e293b;--border-subtle:#0f172a;--fg:#f1f5f9;--fg-muted:#64748b;--fg-subtle:#334155;--accent:#0ea5e9;--accent-warm:#f59e0b;--green:#10b981;--yellow:#f59e0b;--red:#ef4444;--badge-bg:rgba(255,255,255,.03);--heat-null:rgba(255,255,255,.02);--glass-bg:rgba(11,15,23,.7);--grid-line:rgba(30,41,59,.25);--scroll-thumb:#1e293b;--error-bg:rgba(239,68,68,.06);--error-border:rgba(239,68,68,.15);--warn-bg:rgba(245,158,11,.12);--warn-border:rgba(245,158,11,.15);--success-bg:rgba(16,185,129,.1);--overlay-bg:rgba(3,7,18,.6)}
 [data-theme="light"]{--bg:#f8fafc;--bg-elevated:#ffffff;--bg-overlay:#f1f5f9;--border:#e2e8f0;--border-subtle:#f1f5f9;--fg:#0f172a;--fg-muted:#64748b;--fg-subtle:#94a3b8;--accent:#0284c7;--accent-warm:#d97706;--green:#059669;--yellow:#d97706;--red:#dc2626;--badge-bg:rgba(0,0,0,.05);--heat-null:rgba(0,0,0,.04);--glass-bg:rgba(255,255,255,.7);--grid-line:rgba(148,163,184,.2);--scroll-thumb:#cbd5e1;--error-bg:rgba(239,68,68,.06);--error-border:rgba(239,68,68,.2);--warn-bg:rgba(245,158,11,.12);--warn-border:rgba(245,158,11,.2);--success-bg:rgba(16,185,129,.12);--overlay-bg:rgba(148,163,184,.3)}
 *{scrollbar-width:thin;scrollbar-color:var(--scroll-thumb) transparent}
-body{font-family:"LXGW WenKai","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--fg);letter-spacing:.01em}
+*,::before,::after{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:"LXGW WenKai","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--fg);letter-spacing:.01em;display:flex;overflow:hidden;min-height:100vh}
+body>aside{width:15rem;flex:0 0 15rem;height:100vh;overflow:hidden}
+body>main{flex:1 1 auto;min-width:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+body>main>header{height:3.5rem;flex:0 0 3.5rem}
+body>main>.flex-1{flex:1 1 auto;min-height:0;overflow-y:auto}
+.flex{display:flex}.inline-flex{display:inline-flex}.grid{display:grid}.hidden{display:none}.block{display:block}.inline-block{display:inline-block}
+.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.items-start{align-items:flex-start}.justify-between{justify-content:space-between}.justify-center{justify-content:center}
+.flex-1{flex:1 1 0%}.flex-shrink-0{flex-shrink:0}.min-w-0{min-width:0}.w-60{width:15rem}.w-full{width:100%}.h-screen{height:100vh}.overflow-hidden{overflow:hidden}.overflow-y-auto{overflow-y:auto}
+.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.gap-1{gap:.25rem}.gap-2{gap:.5rem}.gap-3{gap:.75rem}.gap-4{gap:1rem}.gap-5{gap:1.25rem}
+.ml-auto{margin-left:auto}.mr-auto{margin-right:auto}.mt-2{margin-top:.5rem}.mt-3{margin-top:.75rem}.mt-4{margin-top:1rem}.mt-5{margin-top:1.25rem}.mb-3{margin-bottom:.75rem}.mb-4{margin-bottom:1rem}.mb-6{margin-bottom:1.5rem}
+.p-0{padding:0}.p-1\.5{padding:.375rem}.p-2{padding:.5rem}.p-3{padding:.75rem}.p-6{padding:1.5rem}.px-2{padding-left:.5rem;padding-right:.5rem}.px-3{padding-left:.75rem;padding-right:.75rem}.px-4{padding-left:1rem;padding-right:1rem}.px-5{padding-left:1.25rem;padding-right:1.25rem}.px-6{padding-left:1.5rem;padding-right:1.5rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\.5{padding-top:.375rem;padding-bottom:.375rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.py-2\.5{padding-top:.625rem;padding-bottom:.625rem}.py-3{padding-top:.75rem;padding-bottom:.75rem}.py-3\.5{padding-top:.875rem;padding-bottom:.875rem}.py-5{padding-top:1.25rem;padding-bottom:1.25rem}
+.border-r{border-right:1px solid var(--border)}.border-b{border-bottom:1px solid var(--border)}.border-t{border-top:1px solid var(--border)}.rounded{border-radius:.25rem}.rounded-lg{border-radius:.5rem}.rounded-full{border-radius:999px}
+.max-w-6xl{max-width:72rem}.max-w-7xl{max-width:80rem}.max-w-none{max-width:none}.text-center{text-align:center}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (min-width:1024px){.lg\:grid-cols-6{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media (min-width:1280px){.xl\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.xl\:grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.xl\:col-span-2{grid-column:span 2/span 2}}
 .terminal{font-family:"JetBrains Mono","Cascadia Code","SFMono-Regular",Consolas,monospace;font-variant-ligatures:none}
 .nav-item{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:8px;font-size:13px;color:var(--fg-muted);cursor:pointer;transition:all .15s;margin-bottom:3px;border:1px solid transparent}
 .nav-item:hover{background:rgba(14,165,233,.04);color:var(--fg);border-color:rgba(14,165,233,.08)}
@@ -41,12 +58,31 @@ body{font-family:"LXGW WenKai","PingFang SC","Hiragino Sans GB","Microsoft YaHei
 .kpi-running{color:var(--accent)}
 .kpi-completed{color:var(--green)}
 .kpi-failed{color:var(--red)}
+.db-hero{border:1px solid var(--border);border-radius:8px;background:linear-gradient(180deg,rgba(14,165,233,.08),rgba(11,15,23,.72));padding:20px}
+[data-theme="light"] .db-hero{background:linear-gradient(180deg,rgba(14,165,233,.08),rgba(255,255,255,.88))}
+.db-eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.db-title{font-size:22px;font-weight:700;letter-spacing:0;line-height:1.25;margin-top:4px}
+.db-path{display:inline-flex;align-items:center;gap:6px;max-width:100%;font-size:11px;color:var(--fg-muted);background:var(--badge-bg);border:1px solid var(--border-subtle);border-radius:6px;padding:5px 8px}
+.db-path code{min-width:0;overflow-wrap:anywhere}
+.db-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.db-tabbar{display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:16px}
+.db-tab-btn{display:flex;flex-direction:column;gap:2px;align-items:flex-start;border:1px solid transparent;border-radius:8px;padding:8px 11px;background:transparent;color:var(--fg-muted);transition:all .15s;min-width:112px}
+.db-tab-btn:hover{border-color:var(--border);background:var(--bg-elevated);color:var(--fg)}
+.db-tab-btn.active{border-color:rgba(14,165,233,.28);background:rgba(14,165,233,.09);color:var(--accent)}
+.db-tab-label{font-size:13px;font-weight:700}
+.db-tab-hint{font-size:10px;color:var(--fg-subtle)}
+.db-empty-state{border:1px dashed var(--border);border-radius:8px;background:var(--bg-elevated);padding:18px;display:flex;align-items:center;justify-content:space-between;gap:14px}
+.db-empty-title{font-size:14px;font-weight:700;color:var(--fg)}
+.db-empty-copy{font-size:12px;color:var(--fg-muted);margin-top:4px}
+@media (max-width:900px){.db-toolbar{width:100%}.db-toolbar .input-base{width:100%}.db-tab-btn{min-width:0;flex:1 1 140px}}
 .pct-null{color:var(--fg-subtle)}
 .pct-good{color:var(--green)}
 .pct-warn{color:var(--yellow)}
 .pct-bad{color:var(--red)}
 .form-section{background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:22px;transition:border-color .2s}
 .form-section:hover{border-color:#27354f}
+.section-title{font-size:13px;font-weight:700;color:var(--fg);letter-spacing:0}
+.section-title:not(.m-0){margin-bottom:14px}
 .input-base{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 11px;font-size:13px;color:var(--fg);width:100%;transition:all .15s;font-family:inherit}
 .input-base:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(14,165,233,.12)}
 .label-text{font-size:12px;font-weight:500;color:var(--fg-muted);margin-bottom:5px;display:block}
@@ -438,30 +474,46 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
       </div>
       <!-- DATABASE -->
       <div x-show="page === 'database'" class="max-w-none animate-fadeUp">
-        <div class="flex flex-wrap items-center gap-3 mb-4">
-          <div class="text-[12px]" style="color:var(--fg-muted)">
-            数据库: <code class="font-mono text-[11px]" x-text="dbOverview?.db_path || './storage/utbench.db'"></code>
-            <span x-show="dbLoading" class="ml-2">· 加载中...</span>
+        <div class="db-hero mb-4">
+          <div class="flex flex-wrap items-start gap-4">
+            <div class="min-w-0 flex-1">
+              <div class="db-eyebrow">数据管理</div>
+              <div class="db-title">评测结果工作台</div>
+              <div class="mt-3 db-path">
+                <span>SQLite</span>
+                <code class="font-mono" x-text="dbOverview?.db_path || './storage/utbench.db'"></code>
+                <span x-show="dbLoading">· 加载中...</span>
+              </div>
+            </div>
+            <div class="db-toolbar">
+              <input x-model="dbIngestRunID" type="text" placeholder="run_id" class="input-base w-64 font-mono text-[12px]">
+              <button @click="ingestRunToDB()" :disabled="dbIngesting || !dbIngestRunID" class="btn-warm text-[12px]">
+                <span x-text="dbIngesting ? '入库中...' : '补录任务'"></span>
+              </button>
+              <button @click="loadDBTabData()" class="btn-ghost text-[12px]">刷新</button>
+            </div>
           </div>
-          <input x-model="dbIngestRunID" type="text" placeholder="输入 run_id 补录已有结果" class="input-base w-72 ml-auto">
-          <button @click="ingestRunToDB()" :disabled="dbIngesting || !dbIngestRunID" class="btn-warm text-[12px]">
-            <span x-text="dbIngesting ? '入库中...' : '补录任务'"></span>
-          </button>
-          <button @click="loadDBTabData()" class="btn-ghost text-[12px]">刷新</button>
         </div>
 
         <!-- 子Tab导航 -->
-        <div class="flex flex-wrap gap-1 mb-4 border-b pb-2" style="border-color:var(--border)">
-          <template x-for="t in ['overview', 'runs', 'evaluation', 'dataset', 'config', 'reports', 'artifacts']" :key="t">
-            <button @click="dbTab = t; loadDBTabData()" class="px-3 py-1.5 text-[13px] rounded-t transition"
-                    :style="dbTab === t ? 'background:var(--accent);color:white' : 'background:transparent;color:var(--fg-muted)'">
-              <span x-text="{overview:'总览',runs:'运行',evaluation:'评测',dataset:'数据集',config:'配置',reports:'报告',artifacts:'Artifacts'}[t]"></span>
+        <div class="db-tabbar">
+          <template x-for="t in ['overview', 'runs', 'evaluation', 'assets']" :key="t">
+            <button @click="dbTab = t; loadDBTabData()" class="db-tab-btn" :class="dbTab === t ? 'active' : ''">
+              <span class="db-tab-label" x-text="{overview:'报告工作台',runs:'运行数据',evaluation:'评测明细',assets:'资产审计'}[t]"></span>
+              <span class="db-tab-hint" x-text="{overview:'排名与对比',runs:'生成链路',evaluation:'编译测试变异',assets:'样本/配置/文件'}[t]"></span>
             </button>
           </template>
         </div>
 
         <!-- 总览Tab -->
         <div x-show="dbTab === 'overview'" class="space-y-5">
+          <div x-show="!dbHasData" class="db-empty-state">
+            <div>
+              <div class="db-empty-title">还没有可分析的数据</div>
+              <div class="db-empty-copy">在顶部输入 run_id 补录已有任务，或在任务详情中点击入库。</div>
+            </div>
+          </div>
+
           <div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
             <template x-for="card in dbCards" :key="card.label">
               <div class="kpi-card">
@@ -473,12 +525,12 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
 
           <!-- 跨运行对比报告生成 -->
           <div class="form-section">
-            <div class="section-title flex items-center gap-2">
-              <span>跨运行对比报告</span>
-              <span class="text-[11px]" style="color:var(--fg-muted)">选择历史运行数据生成对比排名报告</span>
-            </div>
-            <div class="text-[12px] mb-4 p-3 rounded-lg" style="background:var(--surface);color:var(--fg-muted)">
-              <span>提示：选择多个运行的模型数据，系统会检查环境一致性。相同评测环境下生成的报告可作为正式排名参考。</span>
+            <div class="flex flex-wrap items-start gap-3 mb-4">
+              <div class="mr-auto">
+                <div class="section-title">跨运行对比报告</div>
+                <div class="text-[12px]" style="color:var(--fg-muted)">选择同一评测环境下的运行结果，生成模型排名和横向对比。</div>
+              </div>
+              <span class="tag-pill" :style="dbEnvCompatibilityStyle" x-text="dbEnvCompatibilityText"></span>
             </div>
             <div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
               <!-- 运行选择 -->
@@ -520,13 +572,10 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
               <!-- 生成操作 -->
               <div>
                 <div class="label-text">当前选择</div>
-                <div class="text-[12px] p-3 rounded-lg mb-3" style="background:var(--surface)">
+                <div class="text-[12px] p-3 rounded-lg mb-3" style="background:var(--bg-overlay)">
                   <div x-text="'运行: ' + (dbReportSelection.run_ids.length || '全部')"></div>
                   <div x-text="'模型: ' + (dbReportSelection.models.length || '全部')"></div>
                   <div x-text="'语言: ' + (dbReportSelection.languages.length || '全部')"></div>
-                </div>
-                <div class="text-[12px] p-2 rounded mb-3" :style="dbEnvCompatibilityStyle">
-                  <span x-text="dbEnvCompatibilityText"></span>
                 </div>
                 <button @click="generateDBReport()" :disabled="dbReportGenerating" class="btn-primary text-[12px] w-full py-2.5">
                   <span x-text="dbReportGenerating ? '生成中...' : '生成对比报告'"></span>
@@ -667,8 +716,8 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           </div>
         </div>
 
-        <!-- 数据集Tab -->
-        <div x-show="dbTab === 'dataset'" class="space-y-5">
+        <!-- 资产审计Tab：低频排查信息合并展示，避免顶层标签过多 -->
+        <div x-show="dbTab === 'assets'" class="space-y-5 mt-5">
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <div class="form-section p-0 overflow-hidden">
               <div class="px-4 py-3 border-b flex items-center gap-2" style="border-color:var(--border)">
@@ -718,8 +767,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           </div>
         </div>
 
-        <!-- 配置Tab -->
-        <div x-show="dbTab === 'config'" class="space-y-5">
+        <div x-show="dbTab === 'assets'" class="space-y-5">
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <div class="form-section p-0 overflow-hidden">
               <div class="px-4 py-3 border-b" style="border-color:var(--border)">
@@ -799,8 +847,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           </div>
         </div>
 
-        <!-- 报告Tab -->
-        <div x-show="dbTab === 'reports'" class="form-section p-0 overflow-hidden">
+        <div x-show="dbTab === 'assets'" class="form-section p-0 overflow-hidden mt-5">
           <div class="px-4 py-3 border-b flex items-center gap-2" style="border-color:var(--border)">
             <span class="text-[13px] font-medium">报告快照</span>
             <input x-model="dbReportFilter.run_id" @change="loadDBReports()" type="text" placeholder="run_id筛选" class="input-base w-40 font-mono text-[11px] ml-auto">
@@ -822,8 +869,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           <div x-show="!dbReports.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无报告记录</div>
         </div>
 
-        <!-- ArtifactsTab -->
-        <div x-show="dbTab === 'artifacts'" class="space-y-5">
+        <div x-show="dbTab === 'assets'" class="space-y-5 mt-5">
           <div class="form-section p-0 overflow-hidden">
             <div class="px-4 py-3 border-b flex flex-wrap items-center gap-2" style="border-color:var(--border)">
               <span class="text-[13px] font-medium mr-auto">Artifact 索引</span>
@@ -1141,7 +1187,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                     <button @click="refreshDetail()" class="btn-ghost">刷新</button>
                   </span>
                 </template>
-                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="reevaluateRun(currentRun.run_id)" :disabled="runActionBusy === 'reevaluate'" class="btn-ghost" style="color:var(--accent)" title="使用已有 generated_manifest.json 重新执行评测">
+                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="reevaluateRun(currentRun.run_id)" :disabled="runActionBusy === 'reevaluate'" class="btn-ghost" style="color:var(--accent)" title="重新运行 evaluator：重新编译、运行测试、覆盖率和变异测试">
                   <span x-text="runActionBusy === 'reevaluate' ? '评测中...' : '重新评测'"></span>
                 </button>
                 <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="regenerateReport(currentRun.run_id)" :disabled="runActionBusy === 'report'" class="btn-ghost" style="color:var(--green)" title="根据 evaluation_result.json 重新生成报告">
@@ -1172,9 +1218,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                 <button @click="scrollLogsBottom()" class="text-[12px]" style="color:var(--fg-subtle)">滚动到底部</button>
               </div>
               <div id="log-area" class="terminal text-[12px] p-4 h-[540px] overflow-y-auto leading-5" style="background:#020408;color:var(--green)">
-                <template x-for="(line, i) in currentLogs" :key="i">
-                  <div class="log-line" x-text="line"></div>
-                </template>
+                <pre id="log-pre" class="log-pre whitespace-pre-wrap break-words m-0" style="font:inherit;color:inherit"></pre>
                 <div x-show="currentRun.status === 'running'" class="animate-pulse mt-1" style="color:var(--yellow)">▊</div>
                 <div id="log-bottom"></div>
               </div>
@@ -1390,7 +1434,10 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
         <div class="form-section w-[720px] max-w-[90vw] max-h-[85vh] flex flex-col" @click.stop>
           <div class="flex items-center justify-between mb-3">
             <div class="section-title m-0">构建 Docker 镜像</div>
-            <button @click="closeBuildModal()" class="btn-ghost text-[12px] py-1 px-2">关闭</button>
+            <div class="flex items-center gap-2">
+              <button x-show="buildStatus === 'running' || buildStatus === 'pending'" @click="cancelBuild()" class="btn-ghost text-[12px] py-1 px-2" style="color:var(--red)">取消构建</button>
+              <button @click="closeBuildModal()" class="btn-ghost text-[12px] py-1 px-2">关闭</button>
+            </div>
           </div>
           <div class="text-[12px] mb-3" style="color:var(--fg-muted)">
             镜像: <code class="font-mono text-[12px]" style="color:var(--fg)" x-text="env?.image_name || 'utbench:latest'"></code>
@@ -1439,7 +1486,7 @@ function app() {
     runFilter: '',
     statusFilter: '',
     // 数据库管理
-    dbTab: 'overview', // overview | runs | evaluation | dataset | config | reports | artifacts
+    dbTab: 'overview', // overview | runs | evaluation | assets
     dbOverview: null,
     dbRuns: [],
     dbResults: [],
@@ -1678,7 +1725,7 @@ function app() {
     closeBuildModal() { this.buildModalOpen = false; this.stopBuildSSE() },
 
     buildStatusColor(s) {
-      const map = { running: 'color:var(--accent)', pending: 'color:var(--yellow)', completed: 'color:var(--green)', failed: 'color:var(--red)' }
+      const map = { running: 'color:var(--accent)', pending: 'color:var(--yellow)', completed: 'color:var(--green)', failed: 'color:var(--red)', canceled: 'color:var(--fg-muted)' }
       return map[s] || 'color:var(--fg-muted)'
     },
 
@@ -1705,6 +1752,21 @@ function app() {
         if (!r.ok) { this.buildError = data.error || '启动失败'; this.buildStatus = 'failed'; return }
         this.buildId = data.build_id; this.buildStatus = data.status; this.startBuildSSE(this.buildId)
       } catch(e) { this.buildError = String(e); this.buildStatus = 'failed' }
+    },
+
+    async cancelBuild() {
+      if (!this.buildId || (this.buildStatus !== 'running' && this.buildStatus !== 'pending')) return
+      try {
+        const r = await fetch('/api/env/build-image/' + this.buildId, { method: 'DELETE' })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || '取消失败')
+        this.buildStatus = data.status || 'canceled'
+        this.buildError = data.error || ''
+        this.stopBuildSSE()
+        this.showToast('Docker 构建已取消', 'warn')
+      } catch(e) {
+        this.showToast('取消构建失败：' + (e.message || String(e)), 'err', 5000)
+      }
     },
 
     startBuildSSE(id) {
@@ -2026,12 +2088,18 @@ function app() {
         await Promise.all([this.loadDBEvaluationRuns(), this.loadDBEvaluationStages()])
         await this.loadDBResults()
       }
-      else if (tab === 'dataset') await Promise.all([this.loadDBDatasetSamples(), this.loadDBDatasetSnapshots()])
-      else if (tab === 'config') await Promise.all([this.loadDBModelConfigs(), this.loadDBPromptProfiles(), this.loadDBEvaluationEnvs(), this.loadDBScorePolicies()])
-      else if (tab === 'reports') await this.loadDBReports()
-      else if (tab === 'artifacts') {
-        await this.loadDBArtifacts()
-        await this.loadDBRunArtifacts()
+      else if (tab === 'assets') {
+        await Promise.all([
+          this.loadDBDatasetSamples(),
+          this.loadDBDatasetSnapshots(),
+          this.loadDBModelConfigs(),
+          this.loadDBPromptProfiles(),
+          this.loadDBEvaluationEnvs(),
+          this.loadDBScorePolicies(),
+          this.loadDBReports(),
+          this.loadDBArtifacts(),
+          this.loadDBRunArtifacts(),
+        ])
       }
     },
 
@@ -2081,6 +2149,12 @@ function app() {
         { label:'Artifacts', value:d.artifacts ?? 0, color:'kpi-total' },
         { label:'报告', value:d.reports ?? 0, color:'kpi-running' },
       ]
+    },
+
+    get dbHasData() {
+      const d = this.dbOverview || {}
+      return ['generation_runs', 'evaluation_runs', 'generated_cases', 'evaluation_results', 'artifacts', 'reports']
+        .some(k => Number(d[k] || 0) > 0)
     },
 
     get dashStats() {
@@ -2277,14 +2351,14 @@ function app() {
     },
 
     async reevaluateRun(runID) {
-      if (!confirm('重新评测该任务？会覆盖当前 evaluation_result.json。')) return
+      if (!confirm('重新运行 evaluator？会重新编译、运行测试、覆盖率和变异测试，并覆盖当前 evaluation_result.json。')) return
       this.runActionBusy = 'reevaluate'
       try {
         const r = await fetch('/api/runs/' + encodeURIComponent(runID) + '/reevaluate', { method: 'POST' })
         const data = await r.json()
         if (!r.ok) { this.showToast('重新评测失败：' + (data.error || 'HTTP ' + r.status), 'err', 6000); return }
         this.currentReport = null
-        this.showToast('重新评测完成：' + data.evaluation_path, 'ok', 6000)
+        this.showToast('evaluator 重新运行完成：' + data.evaluation_path, 'ok', 6000)
         await this.refreshDetail()
       } catch (e) {
         this.showToast('重新评测失败：' + e.message, 'err', 6000)
@@ -2378,6 +2452,7 @@ function app() {
 
     async openRun(runId) {
       this.stopSSE(); this.currentReport = null; this.currentLogs = []; this.detailTab = 'logs'
+      this._resetLogPre()
       this.page = 'run-detail'
       const found = this.runs.find(r => r.run_id === runId)
       this.currentRun = found ? { ...found } : { run_id: runId, status: 'pending', started_at: new Date().toISOString() }
@@ -2386,19 +2461,106 @@ function app() {
 
     startSSE(runId) {
       this.sseSource = new EventSource(`/api/runs/${runId}/events`)
-      this.sseSource.onmessage = async (e) => {
+      this.sseSource.onmessage = (e) => {
         try {
           const obj = JSON.parse(e.data)
-          if (obj.type === 'log') { this.currentLogs.push(obj.payload); this.$nextTick(() => this.scrollLogsBottom()) }
+          if (obj.type === 'snapshot') {
+            // 后端在订阅瞬间把已缓冲的所有日志一次性发回，单事件 → 单 DOM 写入
+            const lines = Array.isArray(obj.payload) ? obj.payload : []
+            this.currentLogs = lines.slice(-this.LOG_DOM_CAP)
+            this._applyLogSnapshotToDOM(this.currentLogs)
+          }
+          else if (obj.type === 'log') {
+            this._enqueueLog(obj.payload)
+          }
           else if (obj.type === 'done') {
             this.stopSSE()
             if (this.currentRun) this.currentRun.status = obj.payload
-            await this.loadRuns()
-            await this.loadDatabase()
+            this._flushLogs()
+            this.loadRuns(); this.loadDatabase()
           }
         } catch {}
       }
       this.sseSource.onerror = () => this.stopSSE()
+    },
+
+    _applyLogSnapshotToDOM(lines) {
+      // 等待 pre 元素挂载（首次打开 run-detail 时 x-if 还没生效）
+      const tryApply = () => {
+        const pre = document.getElementById('log-pre')
+        if (!pre) { requestAnimationFrame(tryApply); return }
+        pre.textContent = (lines || []).join('\n') + (lines && lines.length ? '\n' : '')
+        const area = document.getElementById('log-area')
+        if (area) area.scrollTop = area.scrollHeight
+      }
+      tryApply()
+    },
+
+    // ---- 日志高性能管线：避开 Alpine 响应式，直接写 DOM + rAF 批处理 ----
+    _logBuffer: [],       // 本帧待写入的新行
+    _logFlushPending: false,
+    LOG_DOM_CAP: 5000,    // DOM 中保留的最大行数
+    _enqueueLog(line) {
+      this._logBuffer.push(line)
+      // currentLogs 仅用于 UI 计数显示；一次 push 的响应式成本极低
+      this.currentLogs.push(line)
+      if (this.currentLogs.length > this.LOG_DOM_CAP) {
+        this.currentLogs.splice(0, this.currentLogs.length - this.LOG_DOM_CAP)
+      }
+      if (this._logFlushPending) return
+      this._logFlushPending = true
+      requestAnimationFrame(() => { this._logFlushPending = false; this._flushLogs() })
+    },
+    _flushLogs() {
+      const pre = document.getElementById('log-pre')
+      if (!pre) {
+        // 组件尚未挂载（x-if 还没渲染），下一帧重试，保留缓冲
+        this._logFlushPending = true
+        requestAnimationFrame(() => { this._logFlushPending = false; this._flushLogs() })
+        return
+      }
+      if (this._logBuffer.length) {
+        // 单次 DOM 写入，合并本帧所有新行
+        pre.appendChild(document.createTextNode(this._logBuffer.join('\n') + '\n'))
+        this._logBuffer.length = 0
+      }
+      // 超限时裁剪：展平文本再切片，避免无限增长
+      // 粗略估算：按行切，保留末尾 LOG_DOM_CAP 行
+      if (pre.childNodes.length > 32) {
+        const text = pre.textContent
+        const lines = text.split('\n')
+        if (lines.length > this.LOG_DOM_CAP) {
+          pre.textContent = lines.slice(lines.length - this.LOG_DOM_CAP).join('\n')
+        } else if (pre.childNodes.length > 1) {
+          // 将多个 textNode 合并为一个，降低后续追加开销
+          pre.textContent = text
+        }
+      }
+      // 接近底部才自动跟随
+      const area = document.getElementById('log-area')
+      if (area) {
+        const nearBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 120
+        if (nearBottom) area.scrollTop = area.scrollHeight
+      }
+    },
+    _resetLogPre() {
+      this._logBuffer.length = 0
+      this._logFlushPending = false
+      const pre = document.getElementById('log-pre')
+      if (pre) pre.textContent = ''
+    },
+    _setLogPreFromArray(lines) {
+      this._logBuffer.length = 0
+      const pre = document.getElementById('log-pre')
+      if (pre) pre.textContent = (lines || []).join('\n')
+    },
+
+    // 兼容保留：手动“滚动到底部”按钮
+    scheduleScrollLogsBottom() {
+      const area = document.getElementById('log-area')
+      if (!area) return
+      const nearBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 120
+      if (nearBottom) area.scrollTop = area.scrollHeight
     },
 
     stopSSE() { if (this.sseSource) { this.sseSource.close(); this.sseSource = null } },
@@ -2409,6 +2571,7 @@ function app() {
       if (r.ok) {
         const data = await r.json()
         this.currentRun.status = data.status; this.currentRun.ended_at = data.ended_at; this.currentRun.error = data.error; this.currentLogs = data.logs ?? []
+        this._setLogPreFromArray(this.currentLogs)
       }
     },
 
@@ -2461,15 +2624,14 @@ function app() {
         { label:'样本数',  value: s.total_samples ?? 0, color:'kpi-total' },
         { label:'编译通过率',  value: pct(s.compile_pass_rate), color: pctColor(s.compile_pass_rate) },
         { label:'样本测试通过率',  value: pct(s.sample_test_pass_rate ?? s.test_pass_rate), color: pctColor(s.sample_test_pass_rate ?? s.test_pass_rate) },
-        { label:'用例测试通过率',  value: pct(s.test_case_pass_rate), color: pctColor(s.test_case_pass_rate) },
         { label:'平均行覆盖率', value: pct(s.avg_line_coverage), color: pctColor(s.avg_line_coverage) },
         { label:'平均变异分', value: pct(s.avg_mutation_score), color: pctColor(s.avg_mutation_score) },
       ]
     },
 
     scrollLogsBottom() {
-      const el = document.getElementById('log-bottom')
-      if (el) el.scrollIntoView({ behavior:'smooth' })
+      const area = document.getElementById('log-area')
+      if (area) area.scrollTop = area.scrollHeight
     },
 
     fmtTime(t) {

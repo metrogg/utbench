@@ -3,8 +3,9 @@ package web
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
-	"path/filepath"
+	"path"
 	"strings"
 
 	"go-ut-bench/internal/contracts"
@@ -182,7 +183,7 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		// Use explicit manifest path if provided, otherwise use source run's manifest
 		manifestPath := opts.ManifestPath
 		if manifestPath == "" {
-			manifestPath = filepath.Join("/app/artifacts", "runs", sourceRunID, "generated", "generated_manifest.json")
+			manifestPath = path.Join("/app/artifacts", "runs", sourceRunID, "generated", "generated_manifest.json")
 		}
 		// Convert host path to container path if it's absolute
 		if strings.HasPrefix(manifestPath, root) {
@@ -203,7 +204,7 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		// Use explicit evaluation path if provided, otherwise use source run's evaluation
 		evaluationPath := opts.EvaluationPath
 		if evaluationPath == "" {
-			evaluationPath = filepath.Join("/app/artifacts", "runs", sourceRunID, "evaluation", "evaluation_result.json")
+			evaluationPath = path.Join("/app/artifacts", "runs", sourceRunID, "evaluation", "evaluation_result.json")
 		}
 		// Convert host path to container path if it's absolute
 		if strings.HasPrefix(evaluationPath, root) {
@@ -212,7 +213,93 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		a = append(a, "--evaluation", evaluationPath)
 	}
 
-	return a
+	return wrapDockerSourceCommand(a, cfg)
+}
+
+// runEvaluateInDocker runs only the evaluation step inside the utbench container.
+// Unlike runInDocker (which runs the full pipeline), this is a simpler synchronous
+// wrapper that captures output as a string. Used by the reevaluate API handler.
+func runEvaluateInDocker(ctx context.Context, runID string, spec contracts.RunSpec, cfg DockerConfig) (string, error) {
+	opts := orchestrator.Options{
+		Phase:       "evaluate",
+		SourceRunID: runID,
+	}
+	args := buildDockerRunArgs(spec, opts, cfg)
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func wrapDockerSourceCommand(args []string, cfg DockerConfig) []string {
+	imageIdx := -1
+	for i, arg := range args {
+		if arg == cfg.ImageName {
+			imageIdx = i
+			break
+		}
+	}
+	if imageIdx < 0 || imageIdx == len(args)-1 {
+		return args
+	}
+	root := strings.TrimRight(cfg.ProjectRoot, `/\`)
+	cmd := append([]string{"go", "run", "./cmd/utbench"}, args[imageIdx+1:]...)
+	out := append([]string{}, args[:imageIdx]...)
+	out = append(out,
+		"-v", root+":/workspace",
+		"-w", "/workspace",
+		"--entrypoint", "/bin/sh",
+		cfg.ImageName,
+		"-lc", shellJoin(cmd),
+	)
+	return out
+}
+
+func buildDockerBaseArgs(cfg DockerConfig) []string {
+	a := []string{"run", "--rm"}
+	if cfg.EnvFile != "" && fileExists(cfg.EnvFile) {
+		a = append(a, "--env-file", cfg.EnvFile)
+	}
+	root := strings.TrimRight(cfg.ProjectRoot, `/\`)
+	return append(a,
+		"-v", root+`/datasets:/app/datasets`,
+		"-v", root+`/artifacts:/app/artifacts`,
+		"-v", root+`/configs:/app/configs`,
+		"-v", root+`/storage:/app/storage`,
+	)
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func defaultInt(v, fallback int) int {
+	if v == 0 {
+		return fallback
+	}
+	return v
+}
+
+func defaultString(v, fallback string) string {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	return v
+}
+
+func shellJoin(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = shellQuote(arg)
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuote(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
 }
 
 // redactArgs produces a single-line human-readable representation of the argv

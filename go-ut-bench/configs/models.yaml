@@ -1,5 +1,4 @@
 models:
-  
   deepseek-v4-flash:
     enabled: true
     provider: deepseek
@@ -24,57 +23,65 @@ models:
         top_p: 0.9
         max_tokens: 4096
 
+  minimax2.5:
+    enabled: true
+    provider: minimax
+    config:
+      api_endpoint: "https://api.minimax.chat/v1"
+      api_key_env: "MINIMAX2.5_API_KEY"
+      model: "minimax-M2.5"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  doubao-seed:
+    enabled: true
+    provider: volcengine
+    config:
+      api_endpoint: "https://ark.cn-beijing.volces.com/api/coding/v3"
+      model: "doubao-seed-2.0-pro"
+      api_key_env: "VOLCENGINE_API_KEY"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
   glm-5:
-        config:
-            api_endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
-            api_key_env: DASHSCOPE_API_KEY
-            model: glm-5
-            parameters:
-                max_tokens: 4096
-                temperature: 0.7
-                top_p: 0.9
-        enabled: true
-        provider: dashscope
-
-
-
-
-  MiniMax-M2.5:
-        config:
-            api_endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
-            api_key_env: DASHSCOPE_API_KEY
-            model: MiniMax-M2.5
-            parameters:
-                max_tokens: 4096
-                temperature: 0.7
-                top_p: 0.9
-        enabled: true
-        provider: minimax
+    enabled: true
+    provider: dashscope
+    config:
+      api_endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      api_key_env: "DASHSCOPE_API_KEY"
+      model: "glm-5"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
 
   qwen3.6-flash:
-        config:
-            api_endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1
-            api_key_env: DASHSCOPE_API_KEY
-            model: qwen3.6-flash
-            parameters:
-                max_tokens: 4096
-                temperature: 0.7
-                top_p: 0.9
-        enabled: true
-        provider: dashscope
+    enabled: true
+    provider: dashscope
+    config:
+      api_endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      api_key_env: "DASHSCOPE_API_KEY"
+      model: "qwen3.6-flash"
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
 
-
-  deepseek-v3.2:  # 火山方舟上的 DeepSeek
+  deepseek-v3.2:
     enabled: true
     provider: volcengine
     config:
       api_endpoint: "https://ark.cn-beijing.volces.com/api/v3"
-      model: "ep-20260425131055-4q4ck"  # 你的 endpoint ID
+      model: "ep-20260425131055-4q4ck"
       api_key_env: "ARK_API_KEY"
       parameters:
         temperature: 0.7
         top_p: 0.9
-        max_tokens: 4096  
+        max_tokens: 4096
 
   doubao-seed-1.6-flash:
     enabled: true
@@ -86,7 +93,7 @@ models:
       parameters:
         temperature: 0.7
         top_p: 0.9
-        max_tokens: 4096  
+        max_tokens: 4096
 
   doubao-seed-1.8:
     enabled: true

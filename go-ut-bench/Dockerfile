@@ -52,10 +52,24 @@ RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     && cd /usr/src/gtest && cmake . && make && cp lib/*.a /usr/lib/ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Go 1.24 (latest stable)
-RUN wget https://go.dev/dl/go1.24.2.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz && \
-    rm go1.24.2.linux-amd64.tar.gz
+# Install Go 1.24. Keep multiple download endpoints because TLS to go.dev can
+# be flaky in some build networks.
+ARG GO_VERSION=1.24.2
+ARG GO_DOWNLOAD_URLS=
+RUN set -eux; \
+    tarball="go${GO_VERSION}.linux-amd64.tar.gz"; \
+    urls="${GO_DOWNLOAD_URLS:-https://go.dev/dl/${tarball} https://dl.google.com/go/${tarball} https://mirrors.aliyun.com/golang/${tarball}}"; \
+    for url in ${urls}; do \
+        echo "Downloading Go from ${url}"; \
+        if curl -fL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -o /tmp/go.tar.gz "${url}"; then \
+            break; \
+        fi; \
+        rm -f /tmp/go.tar.gz; \
+    done; \
+    test -s /tmp/go.tar.gz; \
+    rm -rf /usr/local/go; \
+    tar -C /usr/local -xzf /tmp/go.tar.gz; \
+    rm /tmp/go.tar.gz
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 ENV GOPROXY=https://goproxy.cn,direct
 

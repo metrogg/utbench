@@ -1,8 +1,11 @@
 # Build artifacts
 artifacts/
 storage/
+.cache/
 *.tar
 *.log
+*.exe
+*.exe~
 
 # Git
 .git/
@@ -31,5 +34,6 @@ tests/
 # Temporary files
 __pycache__/
 *.pyc
+*.tmp
 .env.example
 docker-compose.yml
