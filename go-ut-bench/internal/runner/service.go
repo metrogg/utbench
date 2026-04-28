@@ -5,9 +5,11 @@ package runner
 import (
 	"context"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,7 +19,9 @@ import (
 	"time"
 
 	"go-ut-bench/internal/contracts"
+	"go-ut-bench/internal/ctrl"
 	"go-ut-bench/internal/obs"
+	"go-ut-bench/internal/store"
 )
 
 // Service 测试生成服务结构
@@ -72,16 +76,35 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	if err != nil {
 		return Output{}, err
 	}
+	var reuseStore *store.SQLiteStore
+	if spec.ReuseGenerated && strings.TrimSpace(spec.DBPath) != "" && !spec.DryRun {
+		if db, openErr := store.OpenSQLite(spec.DBPath); openErr == nil {
+			if initErr := db.Init(ctx); initErr == nil {
+				reuseStore = db
+				defer reuseStore.Close()
+			} else {
+				_ = db.Close()
+				s.logger.Warn("reuse generated disabled", "reason", initErr.Error())
+			}
+		} else {
+			s.logger.Warn("reuse generated disabled", "reason", openErr.Error())
+		}
+	}
 
 	// 创建输出目录结构
 	runRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID)
 	genRoot := filepath.Join(runRoot, "generated")
 	testRoot := filepath.Join(genRoot, "tests")
 	metaRoot := filepath.Join(genRoot, "metadata")
+	promptRoot := filepath.Join(genRoot, "prompts")
 	if err := os.MkdirAll(testRoot, 0o755); err != nil {
 		return Output{}, err
 	}
 	if err := os.MkdirAll(metaRoot, 0o755); err != nil {
+		return Output{}, err
+	}
+	promptCatalog, err := WritePromptCatalog(promptRoot)
+	if err != nil {
 		return Output{}, err
 	}
 
@@ -102,8 +125,8 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		workerCount = min(16, max(2, runtime.NumCPU()))
 	}
 	progress := obs.NewProgressReporter(totalTasks, "generate")
-	progress.PrintStageStart("生成测试", fmt.Sprintf("模型: %s | 样本: %d | Workers: %d",
-		strings.Join(getModelNames(modelConfigs), ", "), len(samples), workerCount))
+	progress.PrintStageStart("生成测试", fmt.Sprintf("%d 样本 × %d 模型 = %d 任务 | Workers: %d",
+		len(samples), len(modelConfigs), totalTasks, workerCount))
 
 	// 创建worker池
 	tasks := make(chan task)
@@ -115,7 +138,11 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		go func() {
 			defer wg.Done()
 			for t := range tasks {
-				item := s.generateOne(ctx, spec, testRoot, metaRoot, t.model, t.sample)
+				// Web-triggered pause gate; it blocks before starting the next API call.
+				if err := ctrl.Wait(ctx); err != nil {
+					return
+				}
+				item := s.generateOne(ctx, spec, testRoot, metaRoot, promptRoot, promptCatalog.VersionID, reuseStore, t.model, t.sample)
 				select {
 				case <-ctx.Done():
 					return
@@ -266,11 +293,14 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	})
 
 	manifest := contracts.GeneratedManifest{
-		SchemaVersion: contracts.SchemaVersion,
-		RunID:         spec.RunID,
-		CreatedAtUTC:  time.Now().UTC(),
-		Spec:          spec,
-		Cases:         cases,
+		SchemaVersion:     contracts.SchemaVersion,
+		RunID:             spec.RunID,
+		CreatedAtUTC:      time.Now().UTC(),
+		Spec:              spec,
+		PromptStrategy:    promptCatalog.Strategy,
+		PromptVersionID:   promptCatalog.VersionID,
+		PromptSnapshotDir: promptRoot,
+		Cases:             cases,
 	}
 	manifestPath := filepath.Join(genRoot, "generated_manifest.json")
 	if err := contracts.WriteJSON(manifestPath, manifest); err != nil {
@@ -289,13 +319,19 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	return Output{Manifest: manifest, ManifestPath: manifestPath}, nil
 }
 
-func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testRoot, metaRoot string, modelCfg modelConfig, sample contracts.SampleRef) contracts.GeneratedCase {
+func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testRoot, metaRoot, promptRoot, promptVersionID string, reuseStore *store.SQLiteStore, modelCfg modelConfig, sample contracts.SampleRef) contracts.GeneratedCase {
 	model := modelCfg.Name
 	started := time.Now()
 	ext := languageExt(sample.Language)
 	testRel := filepath.Join(model, sample.Language, fmt.Sprintf("%s.test%s", sample.ID, ext))
 	testPath := filepath.Join(testRoot, testRel)
 	respPath := filepath.Join(metaRoot, fmt.Sprintf("%s_%s_%s.response.json", model, sample.Language, sample.ID))
+	promptPath := ""
+	promptPathCandidate := filepath.Join(promptRoot, "rendered", model, sample.Language, fmt.Sprintf("%s.prompt.txt", sample.ID))
+	promptMode := string(PromptModeFullFile)
+	if loadModuleLevelMetaForRunner(sample.Path) != nil {
+		promptMode = string(PromptModeModuleLevel)
+	}
 
 	if spec.Mode == contracts.RunModeIncremental {
 		if _, err := os.Stat(testPath); err == nil {
@@ -308,6 +344,8 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				Language:          sample.Language,
 				SampleID:          sample.ID,
 				SamplePath:        sample.Path,
+				PromptVersionID:   promptVersionID,
+				PromptMode:        promptMode,
 				GeneratedTestPath: testPath,
 				ResponsePath:      respPath,
 				MetadataPath:      "",
@@ -324,6 +362,8 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 			Language:          sample.Language,
 			SampleID:          sample.ID,
 			SamplePath:        sample.Path,
+			PromptVersionID:   promptVersionID,
+			PromptMode:        promptMode,
 			GeneratedTestPath: testPath,
 			ResponsePath:      "",
 			GeneratedAtUTC:    time.Now().UTC(),
@@ -343,6 +383,7 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 	var totalTokens *int
 	var truncated bool
 	latencyMS := 0
+	renderedPrompt := ""
 
 	if spec.DryRun {
 		content = buildPlaceholderTest(sample.Language, sample.ID)
@@ -354,6 +395,8 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				Language:          sample.Language,
 				SampleID:          sample.ID,
 				SamplePath:        sample.Path,
+				PromptVersionID:   promptVersionID,
+				PromptMode:        promptMode,
 				GeneratedTestPath: testPath,
 				GeneratedAtUTC:    time.Now().UTC(),
 				Success:           false,
@@ -364,14 +407,71 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				},
 			}
 		}
+		renderedPrompt = buildPrompt(sample.Language, sample.Path, string(sourceCode))
+		if err := os.MkdirAll(filepath.Dir(promptPathCandidate), 0o755); err == nil {
+			if err := os.WriteFile(promptPathCandidate, []byte(renderedPrompt), 0o644); err == nil {
+				promptPath = promptPathCandidate
+			}
+		}
+
+		if reuseStore != nil {
+			sourceSHA := sha256Bytes(sourceCode)
+			if reused, ok, reuseErr := reuseStore.FindReusableGeneratedCase(ctx, model, sample.Language, sample.ID, sourceSHA, promptVersionID); reuseErr == nil && ok {
+				if copyErr := copyFile(reused.GeneratedTestPath, testPath); copyErr == nil {
+					metadataPath := filepath.Join(metaRoot, fmt.Sprintf("%s_%s_%s.metadata.json", model, sample.Language, sample.ID))
+					metadata := map[string]any{
+						"model":               model,
+						"language":            sample.Language,
+						"sample_id":           sample.ID,
+						"sample_path":         sample.Path,
+						"prompt_strategy":     PromptStrategy(),
+						"prompt_version_id":   promptVersionID,
+						"prompt_mode":         promptMode,
+						"prompt_path":         promptPath,
+						"scenario":            sample.Scenario,
+						"generated_test_path": testPath,
+						"dataset_class":       sample.Category,
+						"source_md5":          sample.SourceMD5,
+						"source_sha256":       sourceSHA,
+						"reused":              true,
+						"reused_from_run_id":  reused.RunID,
+						"reused_from_case_id": reused.GeneratedCaseID,
+						"created_at_utc":      time.Now().UTC(),
+						"success":             true,
+					}
+					_ = contracts.WriteJSON(metadataPath, metadata)
+					s.logger.Info("reuse generated test", "model", model, "language", sample.Language, "sample_id", sample.ID, "from_run", reused.RunID)
+					return contracts.GeneratedCase{
+						Model:             model,
+						Language:          sample.Language,
+						SampleID:          sample.ID,
+						SamplePath:        sample.Path,
+						PromptVersionID:   promptVersionID,
+						PromptMode:        promptMode,
+						PromptPath:        promptPath,
+						GeneratedTestPath: testPath,
+						ResponsePath:      reused.ResponsePath,
+						MetadataPath:      metadataPath,
+						LatencyMS:         int(time.Since(started).Milliseconds()),
+						PromptTokens:      reused.PromptTokens,
+						CompletionTokens:  reused.CompletionTokens,
+						TotalTokens:       reused.TotalTokens,
+						GeneratedAtUTC:    time.Now().UTC(),
+						Success:           true,
+					}
+				}
+			} else if reuseErr != nil {
+				s.logger.Warn("reuse lookup failed", "model", model, "language", sample.Language, "sample_id", sample.ID, "error", reuseErr.Error())
+			}
+		}
 
 		client := newAPIClient()
+		waitModelInterval(modelCfg.Name) // stagger calls to the same model
 		generated, response, latency, pTok, cTok, tTok, isTruncated, genErr := client.generateTest(
 			ctx,
 			modelCfg,
 			sample.Language,
-			sample.Path,
-			string(sourceCode),
+			renderedPrompt,
 		)
 		truncated = isTruncated
 		if genErr != nil {
@@ -381,6 +481,9 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				Language:          sample.Language,
 				SampleID:          sample.ID,
 				SamplePath:        sample.Path,
+				PromptVersionID:   promptVersionID,
+				PromptMode:        promptMode,
+				PromptPath:        promptPath,
 				GeneratedTestPath: testPath,
 				ResponsePath:      respPath,
 				GeneratedAtUTC:    time.Now().UTC(),
@@ -439,6 +542,10 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		"language":            sample.Language,
 		"sample_id":           sample.ID,
 		"sample_path":         sample.Path,
+		"prompt_strategy":     PromptStrategy(),
+		"prompt_version_id":   promptVersionID,
+		"prompt_mode":         promptMode,
+		"prompt_path":         promptPath,
 		"scenario":            sample.Scenario,
 		"generated_test_path": testPath,
 		"response_path":       respPath,
@@ -465,6 +572,9 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		Language:          sample.Language,
 		SampleID:          sample.ID,
 		SamplePath:        sample.Path,
+		PromptVersionID:   promptVersionID,
+		PromptMode:        promptMode,
+		PromptPath:        promptPath,
 		GeneratedTestPath: testPath,
 		ResponsePath:      respPath,
 		MetadataPath:      metadataPath,
@@ -506,6 +616,31 @@ func buildPlaceholderTest(language, sampleID string) string {
 	default:
 		return "placeholder test\n"
 	}
+}
+
+func sha256Bytes(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 func sanitizeIdentifier(raw string) string {

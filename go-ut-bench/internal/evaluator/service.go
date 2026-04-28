@@ -1,5 +1,4 @@
-// evaluator 包提供单元测试评测功能
-// 负责编译、运行测试、收集覆盖率、执行变异测试并生成评测报告
+// evaluator 鍖呮彁渚涘崟鍏冩祴璇曡瘎娴嬪姛鑳?// 璐熻矗缂栬瘧銆佽繍琛屾祴璇曘€佹敹闆嗚鐩栫巼銆佹墽琛屽彉寮傛祴璇曞苟鐢熸垚璇勬祴鎶ュ憡
 package evaluator
 
 import (
@@ -20,50 +19,53 @@ import (
 	"go-ut-bench/internal/obs"
 )
 
-// Service 评测服务结构
-// 提供完整的测试评测流程管理
 type Service struct {
-	logger *obs.Logger // 日志记录器
+	logger *obs.Logger
 }
+
+var cleanupSemaphore = make(chan struct{}, 2)
 
 // Output 评测操作的输出结果
 // 包含评测结果集和结果文件路径
 type Output struct {
-	Result     contracts.EvaluationResultSet // 评测结果集
-	ResultPath string                        // 结果JSON文件路径
+	Result     contracts.EvaluationResultSet
+	ResultPath string
 }
 
-// evalTask 评测任务结构
-// 用于在worker之间传递评测任务
+// evalTask is passed between evaluation workers.
 type evalTask struct {
-	item contracts.GeneratedCase // 要评测的生成案例
+	index int
+	item  contracts.GeneratedCase
 }
 
-// NewService 创建新的评测服务实例
-// 参数:
-//   - logger: 日志记录器实例
+type evalResultItem struct {
+	index int
+	row   contracts.EvaluationResult
+}
+
+// NewService 鍒涘缓鏂扮殑璇勬祴鏈嶅姟瀹炰緥
+// 鍙傛暟:
+//   - logger: 鏃ュ織璁板綍鍣ㄥ疄渚?//
 //
-// 返回值:
-//   - *Service: 新的服务实例
+// 杩斿洖鍊?
+//   - *Service: 鏂扮殑鏈嶅姟瀹炰緥
 func NewService(logger *obs.Logger) *Service {
+	SetMutationLogger(logger)
 	return &Service{logger: logger}
 }
 
-// Evaluate 执行完整的评测流程
-// 参数:
-//   - ctx: 上下文，用于取消操作
-//   - spec: 运行规格说明
-//   - manifestPath: 生成的测试清单文件路径
+// Evaluate 鎵ц瀹屾暣鐨勮瘎娴嬫祦绋?// 鍙傛暟:
+//   - ctx: 涓婁笅鏂囷紝鐢ㄤ簬鍙栨秷鎿嶄綔
+//   - spec: 杩愯瑙勬牸璇存槑
+//   - manifestPath: 鐢熸垚鐨勬祴璇曟竻鍗曟枃浠惰矾寰?//
 //
-// 返回值:
-//   - Output: 评测结果输出
-//   - error: 评测失败时的错误
+// 杩斿洖鍊?
+//   - Output: 璇勬祴缁撴灉杈撳嚭
+//   - error: 璇勬祴澶辫触鏃剁殑閿欒
 //
-// 功能说明:
-//  1. 读取生成的测试清单
-//  2. 使用worker池并行评测每个样本
-//  3. 对每个样本执行：编译 -> 测试 -> 覆盖率 -> 变异测试
-//  4. 汇总结果并写入JSON文件
+// 鍔熻兘璇存槑:
+//  1. 璇诲彇鐢熸垚鐨勬祴璇曟竻鍗?//  2. 浣跨敤worker姹犲苟琛岃瘎娴嬫瘡涓牱鏈?//  3. 瀵规瘡涓牱鏈墽琛岋細缂栬瘧 -> 娴嬭瘯 -> 瑕嗙洊鐜?-> 鍙樺紓娴嬭瘯
+//  4. 姹囨€荤粨鏋滃苟鍐欏叆JSON鏂囦欢
 func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifestPath string) (Output, error) {
 	s.logger.Debug(
 		"evaluate options",
@@ -76,26 +78,47 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return Output{}, err
 	}
 
+	// 采集评测环境指纹
+	envFingerprint := CaptureEnvironmentFingerprint(ctx, false, "")
+	s.logger.Debug("environment fingerprint captured", "fingerprint", envFingerprint.FingerprintHash())
+
 	// 计算worker数量
 	workerCount := spec.Workers
 	if workerCount <= 0 {
-		workerCount = min(16, max(2, runtime.NumCPU()))
+		workerCount = min(8, max(2, runtime.NumCPU()))
 	}
 
-	// 输出评测配置信息
+	// 杈撳嚭璇勬祴閰嶇疆淇℃伅
 	total := len(manifest.Cases)
 	progress := obs.NewProgressReporter(total, "evaluate")
-	progress.PrintStageStart("评测测试", fmt.Sprintf("样本: %d | 变异: %v | Workers: %d",
+	progress.PrintStageStart("璇勬祴娴嬭瘯", fmt.Sprintf("鏍锋湰: %d | 鍙樺紓: %v | Workers: %d",
 		total, spec.MutationEnabled, workerCount))
 
-	// 创建输出目录
+	// 鍒涘缓杈撳嚭鐩綍
 	runRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID)
 	evalRoot := filepath.Join(runRoot, "evaluation")
 	if err := os.MkdirAll(evalRoot, 0o755); err != nil {
 		return Output{}, err
 	}
 	tasks := make(chan evalTask, workerCount*2)
-	results := make(chan contracts.EvaluationResult, workerCount*2)
+	results := make(chan evalResultItem, workerCount*2)
+	tracker := newActiveEvalTracker(s.logger)
+	watchdogDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-watchdogDone:
+				return
+			case <-ticker.C:
+				tracker.printStalled(60 * time.Second)
+			}
+		}
+	}()
+	defer close(watchdogDone)
 
 	var wg sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
@@ -103,48 +126,50 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		go func() {
 			defer wg.Done()
 			defer func() {
-				// 捕获worker中的panic，防止整个程序崩溃
 				if r := recover(); r != nil {
 					fmt.Fprintf(os.Stderr, "[worker panic] %v\n", r)
 				}
 			}()
 			for t := range tasks {
-				item := s.evaluateOne(ctx, spec, t.item)
+				key, setPhase, done := tracker.start(t.item)
+				_ = key
+				res := s.evaluateOne(ctx, spec, t.item, setPhase)
+				done()
 				select {
 				case <-ctx.Done():
 					return
-				case results <- item:
+				case results <- evalResultItem{index: t.index, row: res}:
 				}
 			}
 		}()
 	}
 
-	// 生产者：发送所有评测任务
 	go func() {
 		defer close(tasks)
-		for _, item := range manifest.Cases {
-			tasks <- evalTask{item: item}
+		for i, item := range manifest.Cases {
+			tasks <- evalTask{index: i, item: item}
 		}
 	}()
 
-	// 消费者：收集结果
+	// 娑堣垂鑰咃細鏀堕泦缁撴灉
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
-	// 收集并显示评测结果
-	rows := make([]contracts.EvaluationResult, 0, len(manifest.Cases))
+	// Collect and display first-pass evaluation results.
+	resultItems := make([]evalResultItem, 0, len(manifest.Cases))
 	completed := 0
-	for row := range results {
+	for result := range results {
 		completed++
-		rows = append(rows, row)
+		resultItems = append(resultItems, result)
+		row := result.row
 
 		taskResult := obs.TaskResult{
 			Model:         row.Model,
 			Language:      row.Language,
 			SampleID:      row.SampleID,
-			Success:       row.CompilePass,
+			Success:       !evaluationFailed(row),
 			CompilePass:   row.CompilePass,
 			TestPass:      row.TestPass != nil && *row.TestPass,
 			LineCoverage:  getCoverageValue(row.LineCoverage),
@@ -169,12 +194,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		}
 		progress.OnTaskDone(taskResult)
 
-		status := "PASS"
-		if !row.CompilePass {
-			status = "FAIL(compile)"
-		} else if row.TestPass != nil && !*row.TestPass {
-			status = "FAIL(test)"
-		}
+		status := evaluationStatus(row)
 		progress.PrintTaskLine(completed, total, row.Model, row.Language, row.SampleID, status, fmt.Sprintf("%dms", getRuntimeMS(row.RuntimeMS)))
 
 		if completed%5 == 0 {
@@ -185,16 +205,21 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 	progress.PrintStats()
 	progress.PrintStageDone("评测测试", obs.StageStats{
 		Total:    total,
-		Success:  completed,
+		Success:  countSuccessfulResults(resultItems),
 		Duration: time.Since(progress.GetStartTime()),
 	})
 
-	// 检查是否被取消
 	if err := ctx.Err(); err != nil {
 		return Output{}, err
 	}
 
-	// 排序结果：按模型 -> 语言 -> 样本ID
+	sort.Slice(resultItems, func(i, j int) bool { return resultItems[i].index < resultItems[j].index })
+	rows := make([]contracts.EvaluationResult, 0, len(resultItems))
+	for _, result := range resultItems {
+		rows = append(rows, result.row)
+	}
+
+	// 鎺掑簭缁撴灉锛氭寜妯″瀷 -> 璇█ -> 鏍锋湰ID
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Model == rows[j].Model {
 			if rows[i].Language == rows[j].Language {
@@ -205,20 +230,21 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return rows[i].Model < rows[j].Model
 	})
 
-	// 构建结果集
 	set := contracts.EvaluationResultSet{
-		SchemaVersion:  contracts.SchemaVersion,
-		RunID:          spec.RunID,
-		EvaluatedAtUTC: time.Now().UTC(),
-		ManifestPath:   manifestPath,
-		Results:        rows,
+		SchemaVersion:          contracts.SchemaVersion,
+		RunID:                  spec.RunID,
+		EvaluatedAtUTC:         time.Now().UTC(),
+		ManifestPath:           manifestPath,
+		Results:                rows,
+		EnvironmentFingerprint: envFingerprint.FingerprintHash(),
+		EnvironmentJSON:        envFingerprint.ToJSON(),
 	}
 	resultPath := filepath.Join(evalRoot, "evaluation_result.json")
 	if err := contracts.WriteJSON(resultPath, set); err != nil {
 		return Output{}, err
 	}
 
-	// 如果启用变异测试且策略为fail，检查是否有错误
+	// 濡傛灉鍚敤鍙樺紓娴嬭瘯涓旂瓥鐣ヤ负fail锛屾鏌ユ槸鍚︽湁閿欒
 	if spec.MutationEnabled && strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "fail") {
 		mutationErrCount := 0
 		for _, row := range rows {
@@ -235,7 +261,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 	return Output{Result: set, ResultPath: resultPath}, nil
 }
 
-func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item contracts.GeneratedCase) contracts.EvaluationResult {
+func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item contracts.GeneratedCase, setPhase func(string)) (result contracts.EvaluationResult) {
 	start := time.Now()
 	row := contracts.EvaluationResult{
 		Model:             item.Model,
@@ -248,6 +274,13 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		TotalTokens:       item.TotalTokens,
 		Truncated:         item.Truncated,
 	}
+	if item.LatencyMS > 0 {
+		row.LatencyMS = &item.LatencyMS
+	}
+	defer func() {
+		finalizeEvaluationResult(&row, start)
+		result = row
+	}()
 
 	if !item.Success {
 		row.CompilePass = false
@@ -256,14 +289,13 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		} else {
 			row.CompileError = "generation failed"
 		}
-		rt := int(time.Since(start).Milliseconds())
-		row.RuntimeMS = &rt
 		return row
 	}
 
 	s.logger.Debug("evaluating", "model", item.Model, "lang", item.Language, "sample", item.SampleID)
 
 	if strings.EqualFold(item.Language, "python") {
+		setPhase("python.prepare")
 		var workdir, testName, sourceBase, sourceStem, packageName, targetFile string
 		var prepErr string
 		isModuleLevel := isModuleLevelSample(item.SamplePath)
@@ -280,9 +312,10 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			return row
 		}
 		if !isModuleLevel {
-			defer cleanupWorkspace(workdir)
+			defer cleanupWorkspaceAsync(workdir, item.Model, item.Language, item.SampleID, s.logger)
 		}
 
+		setPhase("python.compile")
 		compilePass, compileErr := pythonCompileCheck(filepath.Join(workdir, testName))
 		row.CompilePass = compilePass
 		if !compilePass {
@@ -292,13 +325,19 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			return row
 		}
 
+		testTimeout := spec.TestTimeout
+		if testTimeout <= 0 {
+			testTimeout = defaultTestTimeoutSeconds
+		}
+
 		var pass bool
 		var testErr string
 		var runtimeMs int
+		setPhase("python.test")
 		if isModuleLevel {
-			pass, testErr, runtimeMs = executePythonTestsInWorkspace(workdir, testName, packageName)
+			pass, testErr, runtimeMs = executePythonTestsInWorkspace(workdir, testName, packageName, testTimeout)
 		} else {
-			pass, testErr, runtimeMs = executePythonTests(workdir, testName)
+			pass, testErr, runtimeMs = executePythonTests(workdir, testName, testTimeout)
 		}
 		row.TestPass = &pass
 		if !pass && testErr != "" {
@@ -318,6 +357,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
 			row.TestPassRate = &rate
 		}
+		ensureTestCountsFromPass(&row)
 
 		assertCnt, testCnt, density := estimateAssertionDensity(filepath.Join(workdir, testName), item.Language)
 		row.AssertionCount = &assertCnt
@@ -335,7 +375,8 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 
 		if isModuleLevel {
 			if packageName != "" {
-				lineCov, branchCov, covErr := collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile)
+				setPhase("python.coverage")
+				lineCov, branchCov, covErr := collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile, testTimeout)
 				if covErr != "" && pass {
 					row.CoverageError = covErr
 				} else if covErr == "" {
@@ -344,7 +385,8 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 				}
 			}
 		} else if sourceBase != "" {
-			lineCov, branchCov, covErr := collectPythonCoverage(workdir, testName, sourceBase, sourceStem, targets)
+			setPhase("python.coverage")
+			lineCov, branchCov, covErr := collectPythonCoverage(workdir, testName, sourceBase, sourceStem, targets, testTimeout)
 			if covErr != "" && pass {
 				row.CoverageError = covErr
 			} else if covErr == "" {
@@ -353,50 +395,81 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			}
 		}
 
-		if spec.MutationEnabled {
+		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
 			mutationTargets := targets
 			if len(mutationTargets) == 0 && sourceBase != "" {
 				mutationTargets = []string{sourceBase}
 			}
-			mutationStart := time.Now()
-			mutationScore, mutationStats, mutationErr := collectPythonMutation(ctx, workdir, testName, mutationTargets, spec.MutationTimeout, testErr)
-			mutationElapsed := time.Since(mutationStart)
-			s.logger.ToFile("evaluator").Trace("mutation_result",
-				"model", item.Model,
-				"language", item.Language,
-				"sample_id", item.SampleID,
-				"tool", "mutmut",
-				"score", mutationScore,
-				"total", mutationStats.Total,
-				"killed", mutationStats.Killed,
-				"survived", mutationStats.Survived,
-				"elapsed_seconds", int(mutationElapsed.Seconds()),
-				"error", mutationErr,
-			)
-			if mutationErr != "" {
-				row.MutationError = mutationErr
+			testPassed := 0
+			if row.TestPassCount != nil {
+				testPassed = *row.TestPassCount
+			}
+			testTotal := 0
+			if row.TestTotalCount != nil {
+				testTotal = *row.TestTotalCount
+			}
+			mutationSkipReason := ""
+			if !shouldRunMutationAfterSampleTests(row) {
+				mutationSkipReason = "mutmut: baseline tests failed, skipping mutation"
+			} else if !isModuleLevel && !pythonTestImportsAnyMutationTarget(workdir, testName, mutationTargets) {
+				mutationSkipReason = "mutmut: generated tests do not import mutation target, skipping mutation"
+			}
+			if mutationSkipReason != "" {
+				zero := 0.0
+				row.MutationScore = &zero
+				row.MutationError = mutationSkipReason
+				row.MutationTool = "mutmut"
 			} else {
-				row.MutationScore = &mutationScore
+				checkResult := CheckTestPassRate(testPassed, testTotal, "mutmut", GetMinPassRateForTool("mutmut"))
+				if !checkResult.ShouldRun {
+					zero := 0.0
+					row.MutationScore = &zero
+					row.MutationError = checkResult.Message
+					row.MutationTool = "mutmut"
+				} else {
+					setPhase("python.mutation")
+					mutationStart := time.Now()
+					mutationScore, mutationStats, mutationErr := collectPythonMutation(ctx, workdir, testName, mutationTargets, spec.MutationTimeout, testErr)
+					mutationElapsed := time.Since(mutationStart)
+					s.logger.ToFile("evaluator").Trace("mutation_result",
+						"model", item.Model,
+						"language", item.Language,
+						"sample_id", item.SampleID,
+						"tool", "mutmut",
+						"score", mutationScore,
+						"total", mutationStats.Total,
+						"killed", mutationStats.Killed,
+						"survived", mutationStats.Survived,
+						"elapsed_seconds", int(mutationElapsed.Seconds()),
+						"error", mutationErr,
+					)
+					if mutationErr != "" {
+						row.MutationError = mutationErr
+					} else {
+						row.MutationScore = &mutationScore
+					}
+					if mutationStats.Total > 0 {
+						total := mutationStats.Total
+						killed := mutationStats.Killed
+						survived := mutationStats.Survived
+						noTests := mutationStats.NoTests
+						timeouts := mutationStats.Timeout
+						skipped := mutationStats.Skipped
+						suspicious := mutationStats.Suspicious
+						row.MutationTotal = &total
+						row.MutationKilled = &killed
+						row.MutationSurvived = &survived
+						row.MutationNoTests = &noTests
+						row.MutationTimeouts = &timeouts
+						row.MutationSkipped = &skipped
+						row.MutationSuspicious = &suspicious
+					}
+					row.MutationTool = "mutmut"
+				}
 			}
-			if mutationStats.Total > 0 {
-				total := mutationStats.Total
-				killed := mutationStats.Killed
-				survived := mutationStats.Survived
-				noTests := mutationStats.NoTests
-				timeouts := mutationStats.Timeout
-				skipped := mutationStats.Skipped
-				suspicious := mutationStats.Suspicious
-				row.MutationTotal = &total
-				row.MutationKilled = &killed
-				row.MutationSurvived = &survived
-				row.MutationNoTests = &noTests
-				row.MutationTimeouts = &timeouts
-				row.MutationSkipped = &skipped
-				row.MutationSuspicious = &suspicious
-			}
-			row.MutationTool = "mutmut"
 		}
 	} else if strings.EqualFold(item.Language, "go") {
+		setPhase("go.prepare")
 		workdir, testName, sourceBase, _ := prepareGoWorkspace(item.GeneratedTestPath, item.SamplePath)
 		if workdir == "" {
 			row.CompilePass = false
@@ -405,8 +478,9 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			row.RuntimeMS = &rt
 			return row
 		}
-		defer cleanupWorkspace(workdir)
+		defer cleanupWorkspaceAsync(workdir, item.Model, item.Language, item.SampleID, s.logger)
 
+		setPhase("go.compile")
 		compilePass, compileErr := goCompileCheck(workdir, testName)
 		row.CompilePass = compilePass
 		if !compilePass {
@@ -416,6 +490,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			return row
 		}
 
+		setPhase("go.test")
 		pass, testErr, runtimeMs := executeGoTests(workdir, testName, sourceBase)
 		row.TestPass = &pass
 		if !pass && testErr != "" {
@@ -436,6 +511,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
 			row.TestPassRate = &rate
 		}
+		ensureTestCountsFromPass(&row)
 
 		assertCnt, testCnt, density := estimateAssertionDensity(filepath.Join(workdir, testName), item.Language)
 		row.AssertionCount = &assertCnt
@@ -443,6 +519,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		row.AssertionDensity = &density
 
 		if sourceBase != "" {
+			setPhase("go.coverage")
 			lineCov, branchCov, covErr := collectGoCoverage(workdir, testName, sourceBase)
 			if covErr != "" && pass {
 				row.CoverageError = covErr
@@ -452,15 +529,31 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			}
 		}
 
-		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
+			setPhase("go.mutation")
 			mutationStart := time.Now()
-			mutationScore, mutationStats, mutationErr := collectGoMutation(ctx, workdir, testName, sourceBase, spec.MutationTimeout, row.TestPassRate, 0, 0)
+			mutationScore := 0.0
+			mutationStats := mutationStats{}
+			mutationErr := ""
+			if !shouldRunMutationAfterSampleTests(row) {
+				mutationErr = "go-mutesting: baseline tests failed, skipping mutation"
+			} else {
+				testPassed := 0
+				if row.TestPassCount != nil {
+					testPassed = *row.TestPassCount
+				}
+				testTotal := 0
+				if row.TestTotalCount != nil {
+					testTotal = *row.TestTotalCount
+				}
+				mutationScore, mutationStats, mutationErr = collectGoMutation(ctx, workdir, testName, sourceBase, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
+			}
 			mutationElapsed := time.Since(mutationStart)
 			s.logger.ToFile("evaluator").Trace("mutation_result",
 				"model", item.Model,
 				"language", item.Language,
 				"sample_id", item.SampleID,
-				"tool", "gremlins",
+				"tool", "go-mutesting",
 				"score", mutationScore,
 				"total", mutationStats.Total,
 				"killed", mutationStats.Killed,
@@ -479,10 +572,11 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			if mutationErr != "" {
 				row.MutationError = mutationErr
 			}
-			row.MutationTool = "gremlins"
+			row.MutationTool = "go-mutesting"
 		}
 
 	} else if strings.EqualFold(item.Language, "java") {
+		setPhase("java.prepare")
 		workdir, testName, _, className := prepareJavaWorkspace(item.GeneratedTestPath, item.SamplePath)
 		if workdir == "" {
 			row.CompilePass = false
@@ -491,8 +585,9 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			row.RuntimeMS = &rt
 			return row
 		}
-		defer cleanupWorkspace(workdir)
+		defer cleanupWorkspaceAsync(workdir, item.Model, item.Language, item.SampleID, s.logger)
 
+		setPhase("java.compile")
 		compilePass, compileErr := javaCompileCheck(workdir)
 		row.CompilePass = compilePass
 		if !compilePass {
@@ -506,6 +601,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		if testTimeout <= 0 {
 			testTimeout = 120
 		}
+		setPhase("java.test")
 		pass, testErr, runtimeMs := executeJavaTestsWithTimeout(workdir, testTimeout)
 		row.TestPass = &pass
 		if !pass && testErr != "" {
@@ -526,6 +622,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
 			row.TestPassRate = &rate
 		}
+		ensureTestCountsFromPass(&row)
 
 		assertCnt, testCnt, density := estimateAssertionDensity(filepath.Join(workdir, "src", "test", "java", testName), item.Language)
 		row.AssertionCount = &assertCnt
@@ -533,6 +630,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		row.AssertionDensity = &density
 
 		if className != "" {
+			setPhase("java.coverage")
 			lineCov, branchCov, covErr := collectJavaCoverage(workdir, className)
 			if covErr != "" && pass {
 				row.CoverageError = covErr
@@ -542,7 +640,8 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			}
 		}
 
-		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
+			setPhase("java.mutation")
 			mutationStart := time.Now()
 			testPassed := 0
 			if row.TestPassCount != nil {
@@ -552,7 +651,14 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			if row.TestTotalCount != nil {
 				testTotal = *row.TestTotalCount
 			}
-			mutationScore, mutationStats, mutationErr := collectJavaMutation(ctx, workdir, className, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
+			mutationScore := 0.0
+			mutationStats := mutationStats{}
+			mutationErr := ""
+			if !shouldRunMutationAfterSampleTests(row) {
+				mutationErr = "PITest: baseline tests failed, skipping mutation"
+			} else {
+				mutationScore, mutationStats, mutationErr = collectJavaMutation(ctx, workdir, className, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
+			}
 			mutationElapsed := time.Since(mutationStart)
 			s.logger.ToFile("evaluator").Trace("mutation_result",
 				"model", item.Model,
@@ -581,6 +687,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		}
 
 	} else if strings.EqualFold(item.Language, "cpp") {
+		setPhase("cpp.prepare")
 		workdir, testName, sourceBase, _, prepErr := prepareCppWorkspace(item.GeneratedTestPath, item.SamplePath)
 		if workdir == "" {
 			row.CompilePass = false
@@ -589,8 +696,9 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			row.RuntimeMS = &rt
 			return row
 		}
-		defer cleanupWorkspace(workdir)
+		defer cleanupWorkspaceAsync(workdir, item.Model, item.Language, item.SampleID, s.logger)
 
+		setPhase("cpp.compile")
 		compilePass, compileErr := cppCompileCheck(workdir)
 		row.CompilePass = compilePass
 		if !compilePass {
@@ -600,6 +708,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			return row
 		}
 
+		setPhase("cpp.test")
 		pass, testErr, runtimeMs := executeCppTests(workdir)
 		row.TestPass = &pass
 		if !pass && testErr != "" {
@@ -620,6 +729,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
 			row.TestPassRate = &rate
 		}
+		ensureTestCountsFromPass(&row)
 
 		assertCnt, testCnt, density := estimateCppAssertionDensity(filepath.Join(workdir, testName))
 		row.AssertionCount = &assertCnt
@@ -627,6 +737,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		row.AssertionDensity = &density
 
 		if testName != "" {
+			setPhase("cpp.coverage")
 			lineCov, branchCov, covErr := collectCppCoverage(workdir, testName)
 			if covErr != "" && pass {
 				row.CoverageError = covErr
@@ -636,7 +747,8 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			}
 		}
 
-		if spec.MutationEnabled && spec.MutationPolicy != "skip" {
+		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
+			setPhase("cpp.mutation")
 			mutationStart := time.Now()
 			testPassed := 0
 			if row.TestPassCount != nil {
@@ -646,7 +758,14 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			if row.TestTotalCount != nil {
 				testTotal = *row.TestTotalCount
 			}
-			mutationScore, mutationStats, mutationErr := collectCppMutation(ctx, workdir, sourceBase, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
+			mutationScore := 0.0
+			mutationStats := mutationStats{}
+			mutationErr := ""
+			if !shouldRunMutationAfterSampleTests(row) {
+				mutationErr = "Mull: baseline tests failed, skipping mutation"
+			} else {
+				mutationScore, mutationStats, mutationErr = collectCppMutation(ctx, workdir, sourceBase, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
+			}
 			mutationElapsed := time.Since(mutationStart)
 			s.logger.ToFile("evaluator").Trace("mutation_result",
 				"model", item.Model,
@@ -692,11 +811,195 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		row.AssertionDensity = &density
 	}
 
-	if row.RuntimeMS == nil {
-		rt := int(time.Since(start).Milliseconds())
-		row.RuntimeMS = &rt
-	}
 	return row
+}
+
+func evaluationFailed(row contracts.EvaluationResult) bool {
+	return !row.CompilePass || (row.TestPass != nil && !*row.TestPass)
+}
+
+func evaluationStatus(row contracts.EvaluationResult) string {
+	if !row.CompilePass {
+		return "COMPILE_ERR"
+	}
+	if row.TestPass != nil && !*row.TestPass {
+		return "TEST_FAIL"
+	}
+	return "PASS"
+}
+
+func countSuccessfulResults(items []evalResultItem) int {
+	count := 0
+	for _, item := range items {
+		if item.row.CompilePass && (item.row.TestPass == nil || *item.row.TestPass) {
+			count++
+		}
+	}
+	return count
+}
+
+func finalizeEvaluationResult(row *contracts.EvaluationResult, start time.Time) {
+	totalRuntimeMS := int(time.Since(start).Milliseconds())
+	row.RuntimeMS = &totalRuntimeMS
+	origin, reason := classifyFailureOrigin(*row)
+	if origin == "" {
+		origin = "none"
+	}
+	row.FailureOrigin = origin
+	eligible := origin == "none" || origin == "model"
+	row.ScoreEligible = &eligible
+	if !eligible {
+		row.ScoreExclusionReason = reason
+	}
+}
+
+func ensureTestCountsFromPass(row *contracts.EvaluationResult) {
+	// 如果已经有用例级数据，不需要补充
+	if row.TestPassCount != nil || row.TestTotalCount != nil {
+		return
+	}
+	// 如果没有 TestPass 信息，无法推断，保持 nil 表示"未知"
+	if row.TestPass == nil {
+		return
+	}
+	// 注意：这里设置的是样本级数据（样本整体是否通过）
+	// 用例级数据应该通过解析测试框架输出获得
+	// 如果解析失败，保持 nil 是正确的做法，不应该强制设置默认值
+	// 因为这会混淆样本级和用例级的概念
+}
+
+func shouldRunMutationAfterSampleTests(row contracts.EvaluationResult) bool {
+	if row.TestPass != nil && !*row.TestPass {
+		return false
+	}
+	return true
+}
+
+func pythonTestImportsAnyMutationTarget(workdir, testName string, mutationTargets []string) bool {
+	if len(mutationTargets) == 0 {
+		return false
+	}
+	raw, err := os.ReadFile(filepath.Join(workdir, testName))
+	if err != nil {
+		return true
+	}
+	text := string(raw)
+	for _, target := range mutationTargets {
+		module := strings.TrimSuffix(filepath.ToSlash(target), ".py")
+		module = strings.Trim(module, "/")
+		module = strings.ReplaceAll(module, "/", ".")
+		if module == "" {
+			continue
+		}
+		quoted := regexp.QuoteMeta(module)
+		fromRe := regexp.MustCompile(`(?m)^\s*from\s+` + quoted + `\s+import\b`)
+		importRe := regexp.MustCompile(`(?m)^\s*import\s+(?:[a-zA-Z_][a-zA-Z0-9_]*\s*,\s*)*` + quoted + `(?:\s+as\s+[a-zA-Z_][a-zA-Z0-9_]*)?(?:\s*(?:,|$))`)
+		if fromRe.MatchString(text) || importRe.MatchString(text) {
+			return true
+		}
+	}
+	return false
+}
+
+func classifyFailureOrigin(row contracts.EvaluationResult) (string, string) {
+	if row.CompileError == "" && row.TestError == "" && row.CoverageError == "" && row.MutationError == "" && !row.Truncated {
+		return "none", ""
+	}
+	for _, msg := range []string{row.CompileError, row.TestError, row.CoverageError, row.MutationError} {
+		if msg == "" {
+			continue
+		}
+		if isDatasetFailureMessage(msg) {
+			return "dataset", shortFailureReason(msg)
+		}
+	}
+	if generatedTestDidNotPass(row) {
+		return "model", ""
+	}
+	for _, msg := range []string{row.CompileError, row.TestError, row.CoverageError, row.MutationError} {
+		if msg == "" {
+			continue
+		}
+		if isEnvironmentFailureMessage(msg) {
+			return "environment", shortFailureReason(msg)
+		}
+		if isToolFailureMessage(msg) {
+			return "tool", shortFailureReason(msg)
+		}
+	}
+	return "model", ""
+}
+
+func generatedTestDidNotPass(row contracts.EvaluationResult) bool {
+	if row.CompilePass == false && row.CompileError != "" {
+		return true
+	}
+	if row.TestPass != nil && !*row.TestPass {
+		return true
+	}
+	if row.TestPassRate != nil && *row.TestPassRate < 1.0 {
+		return true
+	}
+	return false
+}
+
+func isDatasetFailureMessage(msg string) bool {
+	msg = strings.ToLower(msg)
+	return strings.Contains(msg, "dataset root") ||
+		strings.Contains(msg, "source file not found") ||
+		strings.Contains(msg, "target file not found") ||
+		strings.Contains(msg, "module_level sample missing metadata") ||
+		strings.Contains(msg, "module_level workspace not found") ||
+		strings.Contains(msg, "module_level workspace_root not set") ||
+		strings.Contains(msg, "failed to read source")
+}
+
+func isEnvironmentFailureMessage(msg string) bool {
+	msg = strings.ToLower(msg)
+	if strings.Contains(msg, "pitest") || strings.Contains(msg, "junit 5 plugin") {
+		return false
+	}
+	return strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "access is denied") ||
+		strings.Contains(msg, "executable file not found") ||
+		strings.Contains(msg, "not installed") ||
+		strings.Contains(msg, "command not found")
+}
+
+func isToolFailureMessage(msg string) bool {
+	msg = strings.ToLower(msg)
+	if strings.Contains(msg, "all tests failed") ||
+		strings.Contains(msg, "no tests found, skipping mutation") ||
+		strings.Contains(msg, "generated tests do not import mutation target") ||
+		strings.Contains(msg, "could not find any test case for any mutant") ||
+		strings.Contains(msg, "pytest timed out") ||
+		strings.Contains(msg, "coverage run timed out") {
+		return false
+	}
+	return strings.Contains(msg, "coverage json failed") ||
+		strings.Contains(msg, "coverage files empty") ||
+		strings.Contains(msg, "stats file not found") ||
+		strings.Contains(msg, "gremlins no results to report") ||
+		strings.Contains(msg, "no gremlins output found") ||
+		strings.Contains(msg, "go-mutesting no results to report") ||
+		strings.Contains(msg, "no go-mutesting output found") ||
+		strings.Contains(msg, "no results to report") ||
+		strings.Contains(msg, "produced zero mutants") ||
+		strings.Contains(msg, "did not execute any mutants") ||
+		strings.Contains(msg, "run incomplete") ||
+		strings.Contains(msg, "parse error") ||
+		strings.Contains(msg, "pitest could not run any tests") ||
+		strings.Contains(msg, "pitest no killed/survived results") ||
+		strings.Contains(msg, "pitest requires junit 5 plugin") ||
+		strings.Contains(msg, "pitest junit 5 plugin is not installed")
+}
+
+func shortFailureReason(msg string) string {
+	msg = trimErr(msg, 240)
+	if msg == "" {
+		return "non-model failure"
+	}
+	return msg
 }
 
 func preparePythonWorkspace(testPath string, sourcePath string) (string, string, string, string, string) {
@@ -746,6 +1049,46 @@ func preparePythonWorkspace(testPath string, sourcePath string) (string, string,
 
 func cleanupWorkspace(workdir string) {
 	_ = os.RemoveAll(workdir)
+}
+
+func cleanupWorkspaceAsync(workdir, model, language, sampleID string, logger *obs.Logger) {
+	if strings.TrimSpace(workdir) == "" {
+		return
+	}
+	go func() {
+		cleanupSemaphore <- struct{}{}
+		defer func() { <-cleanupSemaphore }()
+		start := time.Now()
+		fmt.Printf("        [CLEANUP] start | %s | %s | %s | %s\n", model, language, sampleID, workdir)
+		err := os.RemoveAll(workdir)
+		elapsed := time.Since(start)
+		if err != nil {
+			fmt.Printf("        [CLEANUP-WARN] failed | %s | %s | %s | elapsed=%s | err=%v\n", model, language, sampleID, elapsed.Round(time.Second), err)
+			if logger != nil {
+				logger.ToFile("evaluator").Trace("cleanup_failed",
+					"model", model,
+					"language", language,
+					"sample_id", sampleID,
+					"workdir", workdir,
+					"elapsed_ms", elapsed.Milliseconds(),
+					"error", err.Error(),
+				)
+			}
+			return
+		}
+		if elapsed >= 2*time.Second {
+			fmt.Printf("        [CLEANUP] done | %s | %s | %s | elapsed=%s\n", model, language, sampleID, elapsed.Round(time.Second))
+		}
+		if logger != nil {
+			logger.ToFile("evaluator").Trace("cleanup_done",
+				"model", model,
+				"language", language,
+				"sample_id", sampleID,
+				"workdir", workdir,
+				"elapsed_ms", elapsed.Milliseconds(),
+			)
+		}
+	}()
 }
 
 func isModuleLevelSample(samplePath string) bool {
@@ -835,23 +1178,25 @@ func preparePythonModuleLevelWorkspace(testPath string, samplePath string) (stri
 	return workspaceRoot, testName, meta.PackageName, meta.TargetFile, ""
 }
 
-func executePythonTestsInWorkspace(workdir, testName, packageName string) (bool, string, int) {
+func executePythonTestsInWorkspace(workdir, testName, packageName string, timeoutSeconds int) (bool, string, int) {
 	py := pythonExecutable()
-	cmd := exec.Command(py, "-m", "pytest", testName, "-q", "--maxfail=9999")
-	cmd.Dir = workdir
 	env := os.Environ()
 	env = append(env, "PYTHONPATH="+workdir)
-	cmd.Env = env
+	runCtx, cancel := context.WithTimeout(context.Background(), normalizedTimeout(timeoutSeconds))
+	defer cancel()
 	started := time.Now()
-	output, err := cmd.CombinedOutput()
+	output, err := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "pytest", testName, "-q", "--maxfail=9999"}, workdir, env)
 	latency := int(time.Since(started).Milliseconds())
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("pytest timed out after %ds", timeoutSeconds), latency
+	}
 	if err == nil {
 		return true, string(output), latency
 	}
 	return false, trimErr(string(output), 4000), latency
 }
 
-func collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile string) (float64, float64, string) {
+func collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile string, timeoutSeconds int) (float64, float64, string) {
 	if packageName == "" {
 		return 0, 0, "missing package name for module_level coverage"
 	}
@@ -861,20 +1206,21 @@ func collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile
 		return 0, 0, "failed to get absolute path: " + err.Error()
 	}
 	jsonPath := filepath.Join(absWorkdir, ".coverage.utbench.json")
-	runCmd := exec.Command(py, "-m", "coverage", "run", "--branch", "--source", packageName, "-m", "pytest", testName, "-q", "--maxfail=9999")
-	runCmd.Dir = absWorkdir
 	env := os.Environ()
 	env = append(env, "PYTHONPATH="+absWorkdir)
 	env = append(env, "COVERAGE_FILE="+filepath.Join(absWorkdir, ".coverage.utbench"))
-	runCmd.Env = env
-	runOut, runErr := runCmd.CombinedOutput()
+	runCtx, cancelRun := context.WithTimeout(context.Background(), normalizedTimeout(timeoutSeconds))
+	defer cancelRun()
+	runOut, runErr := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "coverage", "run", "--branch", "--source", packageName, "-m", "pytest", testName, "-q", "--maxfail=9999"}, absWorkdir, env)
+	if runCtx.Err() != nil {
+		return 0, 0, fmt.Sprintf("coverage run timed out after %ds", timeoutSeconds)
+	}
 	if runErr != nil {
 		return 0, 0, "coverage run failed: " + trimErr(string(runOut), 800)
 	}
-	jsonCmd := exec.Command(py, "-m", "coverage", "json", "-o", jsonPath)
-	jsonCmd.Dir = absWorkdir
-	jsonCmd.Env = append(env, "COVERAGE_FILE="+filepath.Join(absWorkdir, ".coverage.utbench"))
-	if out, err := jsonCmd.CombinedOutput(); err != nil {
+	jsonCtx, cancelJSON := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelJSON()
+	if out, err := runCommandWithProcessGroupKill(jsonCtx, py, []string{"-m", "coverage", "json", "-o", jsonPath}, absWorkdir, env); err != nil {
 		return 0, 0, "coverage json failed: " + trimErr(string(out), 800)
 	}
 	raw, err := os.ReadFile(jsonPath)
@@ -915,8 +1261,12 @@ func pythonCompileCheck(path string) (bool, string) {
 		return false, "empty test file"
 	}
 	py := pythonExecutable()
-	cmd := exec.Command(py, "-m", "py_compile", path)
-	output, err := cmd.CombinedOutput()
+	runCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	output, err := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "py_compile", path}, "", nil)
+	if runCtx.Err() != nil {
+		return false, "python compile timed out after 30s"
+	}
 	if err != nil {
 		msg := strings.TrimSpace(string(output))
 		if msg == "" {
@@ -930,20 +1280,23 @@ func pythonCompileCheck(path string) (bool, string) {
 	return true, ""
 }
 
-func executePythonTests(workdir, filename string) (bool, string, int) {
+func executePythonTests(workdir, filename string, timeoutSeconds int) (bool, string, int) {
 	py := pythonExecutable()
-	cmd := exec.Command(py, "-m", "pytest", filename, "-q", "--maxfail=9999")
-	cmd.Dir = workdir
+	runCtx, cancel := context.WithTimeout(context.Background(), normalizedTimeout(timeoutSeconds))
+	defer cancel()
 	started := time.Now()
-	output, err := cmd.CombinedOutput()
+	output, err := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "pytest", filename, "-q", "--maxfail=9999"}, workdir, nil)
 	latency := int(time.Since(started).Milliseconds())
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("pytest timed out after %ds", timeoutSeconds), latency
+	}
 	if err == nil {
 		return true, string(output), latency
 	}
 	return false, trimErr(string(output), 4000), latency
 }
 
-func collectPythonCoverage(workdir, filename, sourceBase, sourceStem string, aliases []string) (float64, float64, string) {
+func collectPythonCoverage(workdir, filename, sourceBase, sourceStem string, aliases []string, timeoutSeconds int) (float64, float64, string) {
 	if sourceBase == "" {
 		return 0, 0, "missing source path"
 	}
@@ -961,13 +1314,16 @@ func collectPythonCoverage(workdir, filename, sourceBase, sourceStem string, ali
 		aliasSet[stem] = struct{}{}
 	}
 
-	runCmd := exec.Command(py, "-m", "coverage", "run", "--branch", "-m", "pytest", filename, "-q", "--maxfail=9999")
-	runCmd.Dir = workdir
-	_, _ = runCmd.CombinedOutput()
+	runCtx, cancelRun := context.WithTimeout(context.Background(), normalizedTimeout(timeoutSeconds))
+	defer cancelRun()
+	_, _ = runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "coverage", "run", "--branch", "-m", "pytest", filename, "-q", "--maxfail=9999"}, workdir, nil)
+	if runCtx.Err() != nil {
+		return 0, 0, fmt.Sprintf("coverage run timed out after %ds", timeoutSeconds)
+	}
 
-	jsonCmd := exec.Command(py, "-m", "coverage", "json", "-o", jsonPath)
-	jsonCmd.Dir = workdir
-	if out, err := jsonCmd.CombinedOutput(); err != nil {
+	jsonCtx, cancelJSON := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelJSON()
+	if out, err := runCommandWithProcessGroupKill(jsonCtx, py, []string{"-m", "coverage", "json", "-o", jsonPath}, workdir, nil); err != nil {
 		return 0, 0, "coverage json failed: " + trimErr(string(out), 800)
 	}
 
@@ -1016,7 +1372,15 @@ func rewriteGeneratedTestImports(source string, sourcePath string) string {
 	lines := strings.Split(source, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "from solution import") || strings.HasPrefix(trimmed, "from your_module import") || strings.HasPrefix(trimmed, "from module_name import") || strings.HasPrefix(trimmed, "from src import") {
+		if strings.HasPrefix(trimmed, "from solution import") ||
+			strings.HasPrefix(trimmed, "from your_module import") ||
+			strings.HasPrefix(trimmed, "from module_name import") ||
+			strings.HasPrefix(trimmed, "from src import") ||
+			strings.HasPrefix(trimmed, "from module_under_test import") ||
+			strings.HasPrefix(trimmed, "from target_module import") {
+			lines[i] = strings.Replace(line, strings.Fields(trimmed)[1], sourceStem, 1)
+		} else if strings.HasPrefix(trimmed, "import module_under_test") ||
+			strings.HasPrefix(trimmed, "import target_module") {
 			lines[i] = strings.Replace(line, strings.Fields(trimmed)[1], sourceStem, 1)
 		}
 	}
@@ -1024,7 +1388,7 @@ func rewriteGeneratedTestImports(source string, sourcePath string) string {
 }
 
 func inferAliasModules(sourceStem string) []string {
-	base := []string{sourceStem, "solution", "your_module", "module_name", "src"}
+	base := []string{sourceStem, "module_under_test", "target_module", "solution", "your_module", "module_name", "src"}
 	uniq := map[string]struct{}{}
 	out := make([]string, 0, len(base))
 	for _, item := range base {
@@ -1083,17 +1447,73 @@ func normalizedPytestFilename(origin string) string {
 }
 
 func estimateAssertionDensity(path, language string) (int, int, float64) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return 0, 0, 0
+	switch strings.ToLower(language) {
+	case "go":
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return 0, 0, 0
+		}
+		return estimateGoAssertionDensity(string(raw))
+	case "python":
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return 0, 0, 0
+		}
+		return estimatePythonAssertionDensity(string(raw))
+	case "java":
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return 0, 0, 0
+		}
+		return estimateJavaAssertionDensity(string(raw))
+	case "cpp":
+		return estimateCppAssertionDensity(path)
 	}
-	text := string(raw)
-	if strings.EqualFold(language, "go") {
-		return estimateGoAssertionDensity(text)
-	}
+	return 0, 0, 0
+}
 
-	assertCount := strings.Count(text, "assert ") + strings.Count(text, "pytest.raises")
+func estimatePythonAssertionDensity(text string) (int, int, float64) {
+	// 统计各类断言（概念上都是验证点）
+	assertCount := 0
+
+	// 1. 基础 assert 关键字
+	assertCount += strings.Count(text, "assert ")
+
+	// 2. pytest 异常/警告检查（上下文管理器也是验证点）
+	assertCount += strings.Count(text, "pytest.raises")
+	assertCount += strings.Count(text, "pytest.warns")
+
+	// 3. Mock 断言（验证调用行为）
+	// 统计 assert_called 模式（覆盖 assert_called, assert_called_once, assert_called_with 等）
+	assertCount += strings.Count(text, "assert_called")
+	assertCount += strings.Count(text, "assert_not_called")
+
+	// 4. unittest.TestCase 断言方法
+	assertCount += strings.Count(text, "assertEqual")
+	assertCount += strings.Count(text, "assertNotEqual")
+	assertCount += strings.Count(text, "assertTrue")
+	assertCount += strings.Count(text, "assertFalse")
+	assertCount += strings.Count(text, "assertIs")
+	assertCount += strings.Count(text, "assertIsNot")
+	assertCount += strings.Count(text, "assertIsNone")
+	assertCount += strings.Count(text, "assertIsNotNone")
+	assertCount += strings.Count(text, "assertIn")
+	assertCount += strings.Count(text, "assertNotIn")
+	assertCount += strings.Count(text, "assertRaises")
+
+	// 统计测试用例数（pytest 风格：def test_xxx）
 	testCount := strings.Count(text, "def test_")
+
+	// 统计 unittest 风格测试方法（以 test 开头的方法）
+	// 但要排除 pytest 的 def test_
+ unittestPattern := regexp.MustCompile(`(?m)^\s+def test_\w+\s*\(`)
+ unittestMatches := unittestPattern.FindAllString(text, -1)
+ unittestCount := len(unittestMatches)
+
+	// 如果有 unittest 风格的测试方法，也计入
+	// 注意：unittest 方法通常缩进在类内部，所以单独统计
+	testCount += unittestCount
+
 	if testCount <= 0 {
 		return assertCount, 0, 0
 	}
@@ -1101,11 +1521,113 @@ func estimateAssertionDensity(path, language string) (int, int, float64) {
 }
 
 func estimateGoAssertionDensity(text string) (int, int, float64) {
-	assertCount := strings.Count(text, "if ") +
-		strings.Count(text, "assert.") +
-		strings.Count(text, "Expect(") +
-		strings.Count(text, "require.")
+	// 统计各类断言（概念上都是验证点）
+	assertCount := 0
+
+	// 1. testify 断言库（最常用）
+	// assert.Equal, assert.NotNil, require.Equal 等
+	assertCount += strings.Count(text, "assert.")
+	assertCount += strings.Count(text, "require.")
+
+	// 2. gomega 断言库
+	assertCount += strings.Count(text, "Expect(")
+	assertCount += strings.Count(text, "ExpectWithOffset(")
+	assertCount += strings.Count(text, "Eventually(")
+	assertCount += strings.Count(text, "Consistently(")
+	assertCount += strings.Count(text, "Ω(")      // Omega 别名
+	assertCount += strings.Count(text, "Should(") // gomega 的 Should
+
+	// 3. Go 原生 testing 包的失败标记
+	// t.Error/t.Errorf - 标记失败但继续执行
+	// t.Fatal/t.Fatalf - 标记失败并终止
+	// 注意：这些是"验证点"，表示测试发现了问题
+	assertCount += strings.Count(text, "t.Error(")
+	assertCount += strings.Count(text, "t.Errorf(")
+	assertCount += strings.Count(text, "t.Fatal(")
+	assertCount += strings.Count(text, "t.Fatalf(")
+
+	// 4. check 断言库（较少用）
+	assertCount += strings.Count(text, "check.")
+
+	// 注意：不再统计 "if "，因为它是控制流，不一定是断言
+	// 正确的做法是统计 t.Error/t.Fatal 等失败标记
+
+	// 统计测试用例
 	testCount := strings.Count(text, "func Test")
+
+	// 统计子测试：t.Run("name", func(t *testing.T) { ... })
+	// 表格驱动测试中，每个 t.Run 是一个独立测试
+	assertCount += strings.Count(text, "t.Run(")
+
+	// 统计 Example 测试（可验证输出）
+	testCount += strings.Count(text, "func Example")
+
+	if testCount <= 0 {
+		return assertCount, 0, 0
+	}
+	return assertCount, testCount, round(float64(assertCount)/float64(testCount), 6)
+}
+
+func estimateJavaAssertionDensity(text string) (int, int, float64) {
+	// 统计各类断言（概念上都是验证点）
+	assertCount := 0
+
+	// 1. JUnit 5 Assertions.* methods
+	assertCount += strings.Count(text, "Assertions.assertEquals")
+	assertCount += strings.Count(text, "Assertions.assertTrue")
+	assertCount += strings.Count(text, "Assertions.assertFalse")
+	assertCount += strings.Count(text, "Assertions.assertNull")
+	assertCount += strings.Count(text, "Assertions.assertNotNull")
+	assertCount += strings.Count(text, "Assertions.assertThrows")
+	assertCount += strings.Count(text, "Assertions.assertThat")
+	assertCount += strings.Count(text, "Assertions.assertSame")
+	assertCount += strings.Count(text, "Assertions.assertNotSame")
+	assertCount += strings.Count(text, "Assertions.assertArrayEquals")
+	assertCount += strings.Count(text, "Assertions.assertLinesMatch")
+	assertCount += strings.Count(text, "Assertions.assertTimeout")
+	assertCount += strings.Count(text, "Assertions.assertTimeoutPreemptively")
+	assertCount += strings.Count(text, "Assertions.assertIterableEquals")
+	assertCount += strings.Count(text, "Assertions.assertNotEquals")
+	assertCount += strings.Count(text, "Assertions.assertDoesNotThrow")
+	assertCount += strings.Count(text, "Assertions.fail")
+
+	// 2. JUnit 4 style (static import, without Assertions prefix)
+	assertCount += strings.Count(text, "assertEquals(")
+	assertCount += strings.Count(text, "assertTrue(")
+	assertCount += strings.Count(text, "assertFalse(")
+	assertCount += strings.Count(text, "assertNull(")
+	assertCount += strings.Count(text, "assertNotNull(")
+	assertCount += strings.Count(text, "assertSame(")
+	assertCount += strings.Count(text, "assertNotSame(")
+	assertCount += strings.Count(text, "assertThrows(")
+	assertCount += strings.Count(text, "assertThat(")
+	assertCount += strings.Count(text, "assertArrayEquals(")
+	assertCount += strings.Count(text, "assertDoesNotThrow(")
+	assertCount += strings.Count(text, "expect(")
+	assertCount += strings.Count(text, "fail(")
+
+	// 3. Mockito 验证（验证调用行为）
+	// verify(mock).method() 是验证点，确认 mock 被正确调用
+	assertCount += strings.Count(text, "verify(")
+	assertCount += strings.Count(text, "verifyNoMoreInteractions")
+	assertCount += strings.Count(text, "verifyZeroInteractions")
+	assertCount += strings.Count(text, "verifyNoInteractions")
+	assertCount += strings.Count(text, "Mockito.verify")
+	assertCount += strings.Count(text, "InOrder.verify")
+
+	// 4. AssertJ 流式断言（现代 Java 测试常用）
+	// assertThat(actual).isEqualTo(expected)
+	assertCount += strings.Count(text, "assertThat(")
+	assertCount += strings.Count(text, "Assertions.assertThat(") // 已在上面统计，但 AssertJ 也用这个
+
+	// 5. Hamcrest matchers（虽然 assertThat 已统计，但 matcher 本身也是验证概念）
+	// 注意：matcher 通常在 assertThat 内部，所以不重复统计
+
+	// 统计测试用例：@Test 注解
+	testCount := strings.Count(text, "@Test")
+
+	// 注意：不统计 @Before/@After 等，它们不是测试方法
+
 	if testCount <= 0 {
 		return assertCount, 0, 0
 	}
@@ -1113,20 +1635,41 @@ func estimateGoAssertionDensity(text string) (int, int, float64) {
 }
 
 func parsePytestCounts(output string) (*int, *int) {
+	// 解析 pytest 摘要行，如 "2 passed, 1 failed, 1 skipped, 1 xfailed"
+	// 注意：passed 和 failed 是实际执行并产生结果的测试
+	// skipped/xfailed/xpassed/error 是特殊状态，不计入通过率分母
 	passed := extractFirstInt(output, `(\d+)\s+passed`)
 	failed := extractFirstInt(output, `(\d+)\s+failed`)
+	skipped := extractFirstInt(output, `(\d+)\s+skipped`)
+	xfailed := extractFirstInt(output, `(\d+)\s+xfailed`)
+	xpassed := extractFirstInt(output, `(\d+)\s+xpassed`)
+	errors := extractFirstInt(output, `(\d+)\s+error`)
+	_ = skipped // 用于判断是否有特殊状态
+	_ = xfailed
+	_ = xpassed
+	_ = errors
+
+	// 如果有明确的 passed 或 failed 数字，优先使用
 	if passed != nil || failed != nil {
-		if passed != nil && failed != nil {
-			total := *passed + *failed
-			return passed, &total
-		}
+		// 只统计真正执行的测试（passed + failed）
+		// skipped/xfailed 等不计入分母，因为它们没有实际验证行为
+		passCount := 0
 		if passed != nil {
-			total := *passed
-			return passed, &total
+			passCount = *passed
+		}
+		totalCount := passCount
+		if failed != nil {
+			totalCount = passCount + *failed
+		}
+		if totalCount > 0 {
+			return &passCount, &totalCount
 		}
 		return nil, nil
 	}
 
+	// 备用：解析进度条 [100%] 行
+	// pytest 输出进度时，每个字符代表一个测试状态
+	// . = passed, F = failed, E = error, s = skipped, x = xfailed, X = xpassed
 	lines := strings.Split(output, "\n")
 	var shortLine string
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -1134,7 +1677,8 @@ func parsePytestCounts(output string) (*int, *int) {
 		if line == "" {
 			continue
 		}
-		if strings.Contains(line, "[100%]") {
+		// pytest 7.0+ 使用不同的进度显示格式
+		if strings.Contains(line, "[100%]") || strings.Contains(line, "passed") || strings.Contains(line, "failed") {
 			shortLine = line
 			break
 		}
@@ -1143,27 +1687,34 @@ func parsePytestCounts(output string) (*int, *int) {
 		return nil, nil
 	}
 
+	// 从进度条字符统计
 	passedCount := 0
 	failedCount := 0
 	for _, ch := range shortLine {
 		switch ch {
-		case '.', 's', 'S':
+		case '.': // passed
 			passedCount++
-		case 'F', 'E', 'x', 'X', '!':
+		case 'F', 'E', '!': // failed/error
 			failedCount++
+		// 's' = skipped, 'x' = xfailed, 'X' = xpassed - 不计入通过/失败分母
 		}
 	}
+
 	if passedCount == 0 && failedCount == 0 {
+		// 如果进度条没有字符，尝试从摘要行推断
+		// 检查是否有特殊状态的测试但没有 passed/failed
+		if skipped != nil || xfailed != nil || xpassed != nil || errors != nil {
+			// 有特殊状态但没有 passed/failed，返回 nil
+			return nil, nil
+		}
 		return nil, nil
 	}
+
 	total := passedCount + failedCount
-	if failedCount == 0 {
+	if total > 0 {
 		return &passedCount, &total
 	}
-	if passedCount == 0 {
-		return nil, &total
-	}
-	return &passedCount, &total
+	return nil, nil
 }
 
 func extractFirstInt(text, pattern string) *int {
@@ -1240,6 +1791,13 @@ func pythonExecutable() string {
 		return "python"
 	}
 	return "python3"
+}
+
+func normalizedTimeout(seconds int) time.Duration {
+	if seconds <= 0 {
+		seconds = defaultTestTimeoutSeconds
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func round(v float64, digits int) float64 {

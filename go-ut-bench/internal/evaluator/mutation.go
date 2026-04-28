@@ -10,7 +10,21 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"go-ut-bench/internal/obs"
 )
+
+var mutationLogger *obs.Logger
+
+func SetMutationLogger(logger *obs.Logger) {
+	mutationLogger = logger
+}
+
+func logMutation(level, msg string, fields ...any) {
+	if mutationLogger != nil {
+		mutationLogger.ToFile("evaluator").Trace(msg, fields...)
+	}
+}
 
 func collectPythonMutation(ctx context.Context, workdir, testName string, mutationTargets []string, timeoutSeconds int, testOutput string) (float64, mutationStats, string) {
 	if len(mutationTargets) == 0 {
@@ -19,35 +33,91 @@ func collectPythonMutation(ctx context.Context, workdir, testName string, mutati
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 120
 	}
-	failingTests := collectFailingTestsByRerun(ctx, workdir, testName)
-	if len(failingTests) == 0 {
+
+	fmt.Printf("        [MUTATION] Python mutmut 开始 | 目标: %v | 超时: %ds | 测试文件: %s\n", mutationTargets, timeoutSeconds, testName)
+	logMutation("DEBUG-1", "mutation_start", "workdir", workdir, "test_name", testName, "targets", mutationTargets, "timeout_seconds", timeoutSeconds)
+
+	// Step 1: 收集失败测试
+	fmt.Printf("        [MUTATION] 步骤1: 收集失败测试...\n")
+	logMutation("DEBUG-2", "mutation_step", "step", "collect_failing_tests", "workdir", workdir)
+	failingTestsStart := time.Now()
+	failingTests, failingErr := collectFailingTestsByRerun(ctx, workdir, testName)
+	if len(failingTests) == 0 && failingErr == "" {
 		failingTests = collectFailingTestsFromPytestOutput(testOutput)
 	}
+	logMutation("DEBUG-2", "mutation_step_done", "step", "collect_failing_tests", "elapsed_ms", time.Since(failingTestsStart).Milliseconds(), "failing_count", len(failingTests), "error", failingErr)
+	fmt.Printf("        [MUTATION] 步骤1完成 | 发现失败测试: %d | 耗时: %dms\n", len(failingTests), time.Since(failingTestsStart).Milliseconds())
 
+	if failingErr != "" && len(failingTests) == 0 {
+		return 0, mutationStats{}, "pytest rerun before mutation failed: " + failingErr
+	}
+
+	if len(failingTests) > 0 {
+		logMutation("DEBUG-3", "failing_tests", "tests", failingTests)
+	}
+
+	// Step 2: 创建配置文件
+	fmt.Printf("        [MUTATION] 步骤2: 创建配置文件...\n")
+	logMutation("DEBUG-2", "mutation_step", "step", "create_pyproject")
 	pyprojectPath := filepath.Join(workdir, "pyproject.toml")
 	if err := os.WriteFile(pyprojectPath, []byte(buildMutmutPyproject(mutationTargets, testName, failingTests)), 0o644); err != nil {
+		logMutation("ERROR", "mutation_step_error", "step", "create_pyproject", "error", err.Error())
 		return 0, mutationStats{}, err.Error()
 	}
+	logMutation("DEBUG-2", "mutation_step_done", "step", "create_pyproject")
+	fmt.Printf("        [MUTATION] 步骤2完成\n")
+
+	// Step 3: 构建环境变量
+	fmt.Printf("        [MUTATION] 步骤3: 构建环境变量...\n")
+	logMutation("DEBUG-2", "mutation_step", "step", "build_env")
 	env, envErr := buildMutmutEnv(workdir)
 	if envErr != nil {
+		logMutation("ERROR", "mutation_step_error", "step", "build_env", "error", envErr.Error())
 		return 0, mutationStats{}, envErr.Error()
 	}
+	logMutation("DEBUG-2", "mutation_step_done", "step", "build_env")
+	fmt.Printf("        [MUTATION] 步骤3完成\n")
 
 	py := pythonExecutable()
 	mutantsDir := filepath.Join(workdir, "mutants")
 	_ = os.RemoveAll(mutantsDir)
 
+	// Step 4: 创建 mutants 目录
+	fmt.Printf("        [MUTATION] 步骤4: 创建 mutants 目录结构...\n")
+	logMutation("DEBUG-2", "mutation_step", "step", "pre_create_mutants_dir", "targets", mutationTargets)
+	preCreateStart := time.Now()
 	if err := preCreateMutantsDirectory(workdir, mutantsDir, mutationTargets, testName); err != nil {
+		logMutation("ERROR", "mutation_step_error", "step", "pre_create_mutants_dir", "error", err.Error())
 		return 0, mutationStats{}, "failed to pre-create mutants directory: " + err.Error()
 	}
+	logMutation("DEBUG-2", "mutation_step_done", "step", "pre_create_mutants_dir", "elapsed_ms", time.Since(preCreateStart).Milliseconds())
+	fmt.Printf("        [MUTATION] 步骤4完成 | 耗时: %dms\n", time.Since(preCreateStart).Milliseconds())
 
+	// Step 5: 运行 mutmut run
+	fmt.Printf("        [MUTATION] 步骤5: 运行 mutmut run (超时=%ds)...\n", timeoutSeconds)
+	logMutation("DEBUG-1", "mutation_step", "step", "mutmut_run", "timeout_seconds", timeoutSeconds, "python", py)
+	mutmutRunStart := time.Now()
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 	runOut, runErr := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "mutmut", "run"}, workdir, env)
+	mutmutRunElapsed := time.Since(mutmutRunStart)
+	logMutation("DEBUG-1", "mutation_step_done", "step", "mutmut_run", "elapsed_ms", mutmutRunElapsed.Milliseconds(), "run_err", runErr)
 
+	if runErr != nil {
+		fmt.Printf("        [MUTATION] 步骤5完成(有错误) | 耗时: %dms | 错误: %v\n", mutmutRunElapsed.Milliseconds(), runErr)
+		logMutation("DEBUG-2", "mutmut_run_output", "output", string(runOut))
+	} else {
+		fmt.Printf("        [MUTATION] 步骤5完成 | 耗时: %dms\n", mutmutRunElapsed.Milliseconds())
+	}
+
+	// Step 6: 导出统计信息
+	fmt.Printf("        [MUTATION] 步骤6: 导出统计信息...\n")
+	logMutation("DEBUG-2", "mutation_step", "step", "mutmut_export")
 	exportCtx, cancelExport := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelExport()
 	exportOut, exportErr := runCommandWithProcessGroupKill(exportCtx, py, []string{"-m", "mutmut", "export-cicd-stats"}, workdir, env)
+	logMutation("DEBUG-2", "mutation_step_done", "step", "mutmut_export", "export_err", exportErr)
+	fmt.Printf("        [MUTATION] 步骤6完成\n")
 
 	statsFile := filepath.Join(workdir, "mutants", "mutmut-cicd-stats.json")
 	raw, err := os.ReadFile(statsFile)
@@ -292,6 +362,10 @@ func toIntDefault(v any) int {
 }
 
 func formatMutationError(prefix string, runErr error, runOut []byte, exportErr error, exportOut []byte) string {
+	return formatMutationToolError("mutmut", prefix, runErr, runOut, exportErr, exportOut)
+}
+
+func formatMutationToolError(tool, prefix string, runErr error, runOut []byte, exportErr error, exportOut []byte) string {
 	runMsg := ""
 	if runErr != nil {
 		runMsg = runErr.Error()
@@ -301,9 +375,11 @@ func formatMutationError(prefix string, runErr error, runOut []byte, exportErr e
 		exportMsg = exportErr.Error()
 	}
 	return fmt.Sprintf(
-		"%s; mutmut run err=%q; mutmut export err=%q; run_out=%q; export_out=%q",
+		"%s; %s run err=%q; %s export err=%q; run_out=%q; export_out=%q",
 		prefix,
+		tool,
 		runMsg,
+		tool,
 		exportMsg,
 		trimErr(string(runOut), 1200),
 		trimErr(string(exportOut), 1200),
@@ -397,12 +473,15 @@ func collectFailingTestsFromPytestOutput(output string) []string {
 	return out
 }
 
-func collectFailingTestsByRerun(ctx context.Context, workdir, testName string) []string {
+func collectFailingTestsByRerun(ctx context.Context, workdir, testName string) ([]string, string) {
 	py := pythonExecutable()
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	out, _ := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "pytest", testName, "-q", "--tb=no", "--maxfail=9999"}, workdir, nil)
-	return collectFailingTestsFromPytestOutput(string(out))
+	if runCtx.Err() != nil {
+		return nil, "pytest timed out after 30s"
+	}
+	return collectFailingTestsFromPytestOutput(string(out)), ""
 }
 
 func extractMetaMutationStats(workdir string, mutationTargets []string) (mutationStats, bool) {

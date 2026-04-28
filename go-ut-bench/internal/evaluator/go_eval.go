@@ -22,9 +22,12 @@ func goCompileCheck(workdir, testFile string) (bool, string) {
 	}
 	defer os.Remove(tempOutput)
 
-	cmd := exec.Command("go", "test", "-c", "-o", tempOutput, ".")
-	cmd.Dir = workdir
-	output, err := cmd.CombinedOutput()
+	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
+	defer cancel()
+	output, err := runCommandWithProcessGroupKill(runCtx, "go", []string{"test", "-c", "-o", tempOutput, "."}, workdir, nil)
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("go compile timed out after %ds", defaultTestTimeoutSeconds)
+	}
 	if err == nil {
 		return true, ""
 	}
@@ -72,11 +75,15 @@ func prepareGoWorkspace(testPath, samplePath string) (string, string, string, st
 }
 
 func executeGoTests(workdir, testFile, sourceFile string) (bool, string, int) {
-	cmd := exec.Command("go", "test", "-v", filepath.Base(testFile), filepath.Base(sourceFile))
-	cmd.Dir = workdir
+	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
+	defer cancel()
 	started := time.Now()
-	output, err := cmd.CombinedOutput()
+	args := []string{"test", "-v", fmt.Sprintf("-timeout=%ds", defaultTestTimeoutSeconds), filepath.Base(testFile), filepath.Base(sourceFile)}
+	output, err := runCommandWithProcessGroupKill(runCtx, "go", args, workdir, nil)
 	latency := int(time.Since(started).Milliseconds())
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("go test timed out after %ds", defaultTestTimeoutSeconds), latency
+	}
 	if err == nil {
 		return true, string(output), latency
 	}
@@ -109,9 +116,16 @@ func parseGoTestCounts(output string) (*int, *int) {
 
 func collectGoCoverage(workdir, testFile, sourceBase string) (float64, float64, string) {
 	coverFile := filepath.Join(workdir, "cover.out")
-	cmd := exec.Command("go", "test", "-coverprofile="+filepath.Base(coverFile), filepath.Base(testFile), filepath.Base(sourceBase))
-	cmd.Dir = workdir
-	cmd.Run()
+	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
+	defer cancel()
+	args := []string{"test", fmt.Sprintf("-timeout=%ds", defaultTestTimeoutSeconds), "-coverprofile=" + filepath.Base(coverFile), filepath.Base(testFile), filepath.Base(sourceBase)}
+	out, err := runCommandWithProcessGroupKill(runCtx, "go", args, workdir, nil)
+	if runCtx.Err() != nil {
+		return 0, 0, fmt.Sprintf("go coverage timed out after %ds", defaultTestTimeoutSeconds)
+	}
+	if err != nil {
+		return 0, 0, "go coverage failed: " + trimErr(string(out), 1000)
+	}
 
 	raw, err := os.ReadFile(coverFile)
 	if err != nil {
@@ -209,7 +223,10 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 		timeoutSeconds = 120
 	}
 
-	minPassRate := GetMinPassRateForTool("gremlins")
+	fmt.Printf("        [MUTATION] Go go-mutesting 开始 | 目标: %s | 超时: %ds\n", sourceBase, timeoutSeconds)
+	logMutation("DEBUG-1", "mutation_start", "language", "go", "tool", "go-mutesting", "source_base", sourceBase, "timeout_seconds", timeoutSeconds)
+
+	minPassRate := GetMinPassRateForTool("go-mutesting")
 	passed := 0
 	total := 0
 	if testPassed > 0 || testTotal > 0 {
@@ -223,85 +240,116 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 		}
 	}
 
-	checkResult := CheckTestPassRate(passed, total, "gremlins", minPassRate)
+	checkResult := CheckTestPassRate(passed, total, "go-mutesting", minPassRate)
 	if !checkResult.ShouldRun {
+		fmt.Printf("        [MUTATION] 跳过: %s\n", checkResult.Message)
+		logMutation("DEBUG-2", "mutation_skip", "reason", checkResult.Message)
 		return 0, mutationStats{}, checkResult.Message
 	}
 
 	targetPath := filepath.Join(workdir, sourceBase)
 	if _, err := os.Stat(targetPath); err != nil {
+		fmt.Printf("        [MUTATION] 错误: 目标文件不存在\n")
+		logMutation("ERROR", "mutation_error", "error", "target file not found", "source_base", sourceBase)
 		return 0, mutationStats{}, fmt.Sprintf("target file not found: %s", sourceBase)
 	}
 
-	gremlinsPath := findGremlins()
-	if gremlinsPath == "" {
-		return 0, mutationStats{}, "gremlins not installed. Install: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest"
+	goMutestingPath := findGoMutesting()
+	if goMutestingPath == "" {
+		fmt.Printf("        [MUTATION] 错误: go-mutesting 未安装\n")
+		logMutation("ERROR", "mutation_error", "error", "go-mutesting not installed")
+		return 0, mutationStats{}, "go-mutesting not installed. Install: go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest"
 	}
 
+	fmt.Printf("        [MUTATION] 步骤1: 运行 go-mutesting (超时=%ds)...\n", timeoutSeconds)
+	logMutation("DEBUG-1", "mutation_step", "step", "go_mutesting", "go_mutesting_path", goMutestingPath)
+	mutmutRunStart := time.Now()
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
-	// gremlins 不支持 --quiet 参数，直接运行 unleash 命令
-	runOut, runErr := runCommandWithProcessGroupKill(runCtx, gremlinsPath, []string{"unleash"}, workdir, nil)
+	runOut, runErr := runCommandWithProcessGroupKill(runCtx, goMutestingPath, []string{filepath.Base(sourceBase)}, workdir, nil)
+	mutmutRunElapsed := time.Since(mutmutRunStart)
+	logMutation("DEBUG-1", "mutation_step_done", "step", "go_mutesting", "elapsed_ms", mutmutRunElapsed.Milliseconds(), "run_err", runErr)
 
-	stats, parseErr := parseGremlinsOutput(string(runOut))
+	if runErr != nil {
+		fmt.Printf("        [MUTATION] 步骤1完成(有错误) | 耗时: %dms | 错误: %v\n", mutmutRunElapsed.Milliseconds(), runErr)
+	} else {
+		fmt.Printf("        [MUTATION] 步骤1完成 | 耗时: %dms\n", mutmutRunElapsed.Milliseconds())
+	}
+
+	stats, parseErr := parseGoMutestingOutput(string(runOut))
 	if parseErr != "" {
-		return 0, stats, formatMutationError("gremlins parse error", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("go-mutesting", parseErr, runErr, runOut, nil, nil)
 	}
 
 	if stats.Total <= 0 {
-		return 0, stats, formatMutationError("gremlins produced zero mutants", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("go-mutesting", "go-mutesting produced zero mutants", runErr, runOut, nil, nil)
 	}
 
 	processed := stats.Killed + stats.Survived + stats.NoTests + stats.Timeout + stats.Skipped + stats.Suspicious
 	if processed <= 0 {
-		return 0, stats, formatMutationError("gremlins did not execute any mutants", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("go-mutesting", "go-mutesting did not execute any mutants", runErr, runOut, nil, nil)
 	}
 
 	if stats.Killed+stats.Survived <= 0 {
-		return 0, stats, formatMutationError("gremlins no killed/survived results", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("go-mutesting", "go-mutesting no killed/survived results", runErr, runOut, nil, nil)
 	}
 
-	effectiveTotal := stats.Killed + stats.Survived + stats.NoTests
-	if effectiveTotal == 0 {
+	if stats.Total == 0 {
 		return 0, stats, "no effective mutants found"
 	}
-	score := round(float64(stats.Killed)/float64(effectiveTotal), 6)
+	score := round(float64(stats.Killed)/float64(stats.Total), 6)
 	return score, stats, ""
 }
 
-func findGremlins() string {
+func findGoMutesting() string {
 	candidates := []string{
-		"gremlins",
-		filepath.Join(os.Getenv("HOME"), "go", "bin", "gremlins"),
-		"/usr/local/go/bin/gremlins",
+		"go-mutesting",
+		filepath.Join(os.Getenv("HOME"), "go", "bin", "go-mutesting"),
+		"/usr/local/go/bin/go-mutesting",
 	}
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
 			return c
 		}
-		if path, err := exec.LookPath("gremlins"); err == nil {
-			return path
-		}
+	}
+	if path, err := exec.LookPath("go-mutesting"); err == nil {
+		return path
 	}
 	return ""
 }
 
-func parseGremlinsOutput(output string) (mutationStats, string) {
+func parseGoMutestingOutput(output string) (mutationStats, string) {
 	stats := mutationStats{}
+	normalized := strings.ToLower(output)
+	if strings.Contains(normalized, "no mutations") || strings.Contains(normalized, "no mutants") {
+		return stats, "go-mutesting no results to report"
+	}
 
-	stats.Killed = extractFirstIntOrZero(output, `Killed:\s*(\d+)`)
-	stats.Survived = extractFirstIntOrZero(output, `Survived:\s*(\d+)`)
-	stats.NoTests = extractFirstIntOrZero(output, `Not covered:\s*(\d+)`)
-	stats.Timeout = extractFirstIntOrZero(output, `Timeout:\s*(\d+)`)
-	stats.Skipped = extractFirstIntOrZero(output, `Skipped:\s*(\d+)`)
+	summary := regexp.MustCompile(`(?i)mutation score is\s+([0-9]*\.?[0-9]+)\s*\(\s*(\d+)\s+passed,\s*(\d+)\s+failed,\s*(?:(\d+)\s+duplicated,\s*)?(\d+)\s+skipped,\s*total\s+is\s+(\d+)\s*\)`)
+	if match := summary.FindStringSubmatch(output); len(match) == 7 {
+		stats.Killed = atoiOrZero(match[2])
+		stats.Survived = atoiOrZero(match[3])
+		stats.Duplicated = atoiOrZero(match[4])
+		stats.Skipped = atoiOrZero(match[5])
+		stats.Total = atoiOrZero(match[6])
+		return stats, ""
+	}
 
-	stats.Total = stats.Killed + stats.Survived + stats.NoTests + stats.Timeout + stats.Skipped
+	stats.Killed = countGoMutestingStatus(output, "PASS")
+	stats.Survived = countGoMutestingStatus(output, "FAIL")
+	stats.Skipped = countGoMutestingStatus(output, "SKIP")
+	stats.Total = stats.Killed + stats.Survived + stats.Skipped
 
-	if stats.Total == 0 && !strings.Contains(output, "gremlins") {
-		return stats, "no gremlins output found"
+	if stats.Total == 0 {
+		return stats, "no go-mutesting output found"
 	}
 	return stats, ""
+}
+
+func countGoMutestingStatus(output, status string) int {
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(status) + `\s+"`)
+	return len(re.FindAllString(output, -1))
 }
 
 func extractFirstIntOrZero(s, pattern string) int {
@@ -309,6 +357,14 @@ func extractFirstIntOrZero(s, pattern string) int {
 		return *match
 	}
 	return 0
+}
+
+func atoiOrZero(s string) int {
+	var v int
+	if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
+		return 0
+	}
+	return v
 }
 
 func inferGoMutationTargets(workdir, testFile, sourceBase string) []string {

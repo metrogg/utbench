@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 )
 
-const defaultTestTimeoutSeconds = 120
+const defaultTestTimeoutSeconds = 180
 
 const javaPomTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -93,6 +92,13 @@ const javaPomTemplate = `<?xml version="1.0" encoding="UTF-8"?>
                 <groupId>org.pitest</groupId>
                 <artifactId>pitest-maven</artifactId>
                 <version>1.19.6</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-junit5-plugin</artifactId>
+                        <version>1.2.1</version>
+                    </dependency>
+                </dependencies>
                 <configuration>
                     <targetClasses>%s</targetClasses>
                     <targetTests>%s</targetTests>
@@ -282,9 +288,12 @@ func splitJavaSourceByClasses(source string) map[string]string {
 }
 
 func javaCompileCheck(workdir string) (bool, string) {
-	cmd := exec.Command("mvn", "test-compile", "-q")
-	cmd.Dir = workdir
-	output, err := cmd.CombinedOutput()
+	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
+	defer cancel()
+	output, err := runCommandWithProcessGroupKill(runCtx, "mvn", []string{"test-compile", "-q"}, workdir, nil)
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("java compile timed out after %ds", defaultTestTimeoutSeconds)
+	}
 	if err == nil {
 		return true, ""
 	}
@@ -299,23 +308,14 @@ func executeJavaTestsWithTimeout(workdir string, timeoutSeconds int) (bool, stri
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = defaultTestTimeoutSeconds
 	}
-	cmd := exec.Command("mvn", "test", "-q")
-	cmd.Dir = workdir
 	started := time.Now()
-	done := make(chan error, 1)
-	var output []byte
-	var err error
-	go func() {
-		output, err = cmd.CombinedOutput()
-		done <- nil
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Duration(timeoutSeconds) * time.Second):
-		cmd.Process.Kill()
-		return false, "test execution timed out", int(time.Since(started).Milliseconds())
-	}
+	runCtx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
+	output, err := runCommandWithProcessGroupKill(runCtx, "mvn", []string{"test", "-q"}, workdir, nil)
 	latency := int(time.Since(started).Milliseconds())
+	if runCtx.Err() != nil {
+		return false, fmt.Sprintf("java test timed out after %ds", timeoutSeconds), latency
+	}
 	if err == nil {
 		return true, string(output), latency
 	}
@@ -329,9 +329,10 @@ func stripANSICodes(s string) string {
 func parseJavaTestCounts(output string) (*int, *int) {
 	clean := stripANSICodes(output)
 
-	// Match: Tests run: X, Failures: Y, Errors: Z
-	// Note: Maven may output either "Failures" or "Errors" or both
-	passedPattern := regexp.MustCompile(`Tests run:\s*(\d+),\s*Failures:\s*(\d+)(?:,\s*Errors:\s*(\d+))?`)
+	// Match: Tests run: X, Failures: Y, Errors: Z, Skipped: W
+	// Maven Surefire 输出格式，Skipped 也需要统计
+	// 注意：Skipped 不计入通过/失败分母，因为它们没有实际执行
+	passedPattern := regexp.MustCompile(`Tests run:\s*(\d+),\s*Failures:\s*(\d+)(?:,\s*Errors:\s*(\d+))?(?:,\s*Skipped:\s*(\d+))?`)
 	match := passedPattern.FindStringSubmatch(clean)
 	if match != nil && len(match) >= 3 {
 		totalRuns := parseIntOrZero(match[1])
@@ -340,10 +341,23 @@ func parseJavaTestCounts(output string) (*int, *int) {
 		if len(match) >= 4 && match[3] != "" {
 			errors = parseIntOrZero(match[3])
 		}
+		skipped := 0
+		if len(match) >= 5 && match[4] != "" {
+			skipped = parseIntOrZero(match[4])
+		}
+		// 实际执行的测试 = totalRuns - skipped
+		// 通过的测试 = totalRuns - failures - errors
+		executedTotal := totalRuns - skipped
+		if executedTotal < 0 {
+			executedTotal = totalRuns // 安全处理
+		}
 		totalFailures := failures + errors
-		passed := totalRuns - totalFailures
+		passed := executedTotal - totalFailures
 		if passed < 0 {
 			passed = 0
+		}
+		if executedTotal > 0 {
+			return &passed, &executedTotal
 		}
 		return &passed, &totalRuns
 	}
@@ -453,6 +467,9 @@ func collectJavaMutation(ctx context.Context, workdir, className string, timeout
 		timeoutSeconds = 120
 	}
 
+	fmt.Printf("        [MUTATION] Java PITest 开始 | 类名: %s | 超时: %ds\n", className, timeoutSeconds)
+	logMutation("DEBUG-1", "mutation_start", "language", "java", "tool", "pitest", "class_name", className, "timeout_seconds", timeoutSeconds)
+
 	minPassRate := GetMinPassRateForTool("pitest")
 	passed := 0
 	total := 0
@@ -472,30 +489,43 @@ func collectJavaMutation(ctx context.Context, workdir, className string, timeout
 
 	checkResult := CheckTestPassRate(passed, total, "PITest", minPassRate)
 	if !checkResult.ShouldRun {
+		fmt.Printf("        [MUTATION] 跳过: %s\n", checkResult.Message)
+		logMutation("DEBUG-2", "mutation_skip", "reason", checkResult.Message)
 		return 0, mutationStats{}, checkResult.Message
 	}
 
+	fmt.Printf("        [MUTATION] 步骤1: 运行 mvn pitest (超时=%ds)...\n", timeoutSeconds)
+	logMutation("DEBUG-1", "mutation_step", "step", "mvn_pitest")
+	mutmutRunStart := time.Now()
 	runCtx, cancelRun := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancelRun()
 
 	runOut, runErr := runCommandWithProcessGroupKill(runCtx, "mvn", []string{"org.pitest:pitest-maven:mutationCoverage", "-q"}, workdir, nil)
+	mutmutRunElapsed := time.Since(mutmutRunStart)
+	logMutation("DEBUG-1", "mutation_step_done", "step", "mvn_pitest", "elapsed_ms", mutmutRunElapsed.Milliseconds(), "run_err", runErr)
+
+	if runErr != nil {
+		fmt.Printf("        [MUTATION] 步骤1完成(有错误) | 耗时: %dms | 错误: %v\n", mutmutRunElapsed.Milliseconds(), runErr)
+	} else {
+		fmt.Printf("        [MUTATION] 步骤1完成 | 耗时: %dms\n", mutmutRunElapsed.Milliseconds())
+	}
 
 	stats, parseErr := parsePitXML(workdir)
 	if parseErr != "" {
-		return 0, stats, formatMutationError("pitest parse error", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("pitest", "pitest parse error", runErr, runOut, nil, nil)
 	}
 
 	if stats.Total <= 0 {
-		return 0, stats, formatMutationError("pitest produced zero mutants", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("pitest", "pitest produced zero mutants", runErr, runOut, nil, nil)
 	}
 
 	processed := stats.Killed + stats.Survived + stats.NoTests + stats.Timeout + stats.Skipped + stats.Suspicious
 	if processed <= 0 {
-		return 0, stats, formatMutationError("pitest did not execute any mutants", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("pitest", "pitest did not execute any mutants", runErr, runOut, nil, nil)
 	}
 
 	if stats.Killed+stats.Survived <= 0 {
-		return 0, stats, formatMutationError("pitest no killed/survived results", runErr, runOut, nil, nil)
+		return 0, stats, formatMutationToolError("pitest", "pitest no killed/survived results", runErr, runOut, nil, nil)
 	}
 
 	score := round(float64(stats.Killed)/float64(stats.Killed+stats.Survived), 6)

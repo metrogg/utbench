@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"f:\\\\Code\\\\ut-bench\\\\ut-bench-feat_go\\\\ut-bench\\\\go-ut-bench\\\\datasets 2>/dev/null || echo path\" issue)",
+      "Bash(go build:*)",
+      "Bash(go vet:*)"
+    ]
+  }
+}

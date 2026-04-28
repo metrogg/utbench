@@ -7,6 +7,10 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 
+# Replace with Aliyun mirror for better connectivity in China
+RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources
+
 # Install base tools first (needed for adding LLVM repo)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -18,12 +22,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Add LLVM official repository for LLVM 19
+# Re-apply mirror after add-apt-repository (it may restore original sources)
 RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
     add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" && \
+    sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
     apt-get update
 
 # System dependencies - Install LLVM 19 for Mull 19 compatibility
-RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
+RUN apt-get install -y --fix-missing --no-install-recommends \
     build-essential \
     gcc \
     g++ \
@@ -34,6 +41,8 @@ RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     python3-pip \
     python3-dev \
     python3-pytest \
+    python3-six \
+    python3-dateutil \
     python3-venv \
     openjdk-21-jdk \
     maven \
@@ -50,10 +59,24 @@ RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     && cd /usr/src/gtest && cmake . && make && cp lib/*.a /usr/lib/ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Go 1.24 (latest stable)
-RUN wget https://go.dev/dl/go1.24.2.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz && \
-    rm go1.24.2.linux-amd64.tar.gz
+# Install Go 1.24. Keep multiple download endpoints because TLS to go.dev can
+# be flaky in some build networks.
+ARG GO_VERSION=1.24.2
+ARG GO_DOWNLOAD_URLS=
+RUN set -eux; \
+    tarball="go${GO_VERSION}.linux-amd64.tar.gz"; \
+    urls="${GO_DOWNLOAD_URLS:-https://go.dev/dl/${tarball} https://dl.google.com/go/${tarball} https://mirrors.aliyun.com/golang/${tarball}}"; \
+    for url in ${urls}; do \
+        echo "Downloading Go from ${url}"; \
+        if curl -fL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -o /tmp/go.tar.gz "${url}"; then \
+            break; \
+        fi; \
+        rm -f /tmp/go.tar.gz; \
+    done; \
+    test -s /tmp/go.tar.gz; \
+    rm -rf /usr/local/go; \
+    tar -C /usr/local -xzf /tmp/go.tar.gz; \
+    rm /tmp/go.tar.gz
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 ENV GOPROXY=https://goproxy.cn,direct
 
@@ -82,8 +105,8 @@ RUN python3 -m venv /opt/venv && \
     ln -sf /opt/venv/bin/mutmut /usr/local/bin/mutmut && \
     ln -sf /opt/venv/bin/coverage /usr/local/bin/coverage
 
-# Install Go mutation testing tool (gremlins - modern replacement for go-mutesting)
-RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+# Install Go mutation testing tool
+RUN go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest
 
 WORKDIR /app
 

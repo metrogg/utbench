@@ -12,7 +12,15 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["model", "language", "sample_id", "compile_pass"]
+        "required": ["model", "language", "sample_id", "compile_pass"],
+        "properties": {
+          "failure_origin": {
+            "type": "string",
+            "enum": ["none", "model", "environment", "dataset", "tool"]
+          },
+          "score_eligible": { "type": "boolean" },
+          "score_exclusion_reason": { "type": "string" }
+        }
       }
     }
   }

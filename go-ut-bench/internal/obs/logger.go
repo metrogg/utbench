@@ -5,6 +5,7 @@ package obs
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -104,6 +105,26 @@ func NewLogger(verbose bool, logDir string) *Logger {
 		fileHandlers:    fileHandlers,
 		context:         make(map[string]any),
 		level:           level,
+	}
+}
+
+// NewLoggerWithWriter creates a logger whose terminal stream is the provided writer.
+// File category logs are disabled because this is used for per-run Web log capture.
+func NewLoggerWithWriter(verbose bool, w io.Writer) *Logger {
+	level := LevelInfo
+	if verbose {
+		level = LevelDebug
+	}
+	if w == nil {
+		w = os.Stderr
+	}
+	return &Logger{
+		terminalHandler: slog.NewTextHandler(w, &slog.HandlerOptions{
+			Level: level.toSlogLevel(),
+		}),
+		fileHandlers: make(map[string]slog.Handler),
+		context:      make(map[string]any),
+		level:        level,
 	}
 }
 
