@@ -305,12 +305,12 @@ function renderScenarioCharts(items) {
 
   if (scenarioTrendChart) scenarioTrendChart.destroy();
   scenarioTrendChart = new Chart(document.getElementById('scenarioTrendChart'), {
-    type: 'line',
+    type: 'bar',
     data: {
       labels,
       datasets: [
-        { label: '行覆盖率', data: items.map(item => item.lineCoverage), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.12)', tension: .3, fill: true },
-        { label: '变异分数', data: mutationRates, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.12)', tension: .3, fill: true }
+        { label: '行覆盖率', data: items.map(item => item.lineCoverage), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.5)' },
+        { label: '变异分数', data: mutationRates, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.5)' }
       ]
     },
     options: {
@@ -320,30 +320,6 @@ function renderScenarioCharts(items) {
       scales: { y: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%' } } }
     }
   });
-}
-
-function renderHeatmap(containerId, rows, metricKey) {
-  const container = document.getElementById(containerId);
-  const grouped = new Map();
-  rows.forEach(row => {
-    const scenario = getScenarioFromSample(row.sample_id);
-    if (!grouped.has(scenario)) grouped.set(scenario, []);
-    grouped.get(scenario).push(row);
-  });
-  let html = '<div class="heatmap">';
-  Array.from(grouped.entries()).sort((a,b) => a[0].localeCompare(b[0])).forEach(([scenario, scenarioRows]) => {
-    html += '<div class="heatmap-row"><div class="heatmap-label">' + safeText(scenarioLabel(scenario)) + '</div>';
-    scenarioRows.slice(0, 8).forEach(row => {
-      const raw = row[metricKey];
-      const value = raw === null || raw === undefined ? 0 : raw;
-      const hue = Math.round(value * 120);
-      const bg = 'hsla(' + hue + ', 75%, 85%, 1)';
-      html += '<div class="heatmap-cell" style="background:' + bg + ';">' + safeText(row.sample_id) + '<br>' + Math.round(value * 100) + '%</div>';
-    });
-    html += '</div>';
-  });
-  html += '</div>';
-  container.innerHTML = html;
 }
 
 function exportScenarioCSV(items) {
@@ -601,8 +577,6 @@ function renderFilteredSections() {
   renderErrorTable(aggregated.failureRows);
   renderErrorCharts(aggregated.failureRows);
   renderScenarioCharts(aggregated.scenarios);
-  renderHeatmap('coverageHeatmap', aggregated.filtered, 'line_coverage');
-  renderHeatmap('mutationHeatmap', aggregated.filtered, 'mutation_score');
   const exportBtn = document.getElementById('export-scenario-csv');
   if (exportBtn) exportBtn.onclick = () => exportScenarioCSV(aggregated.scenarios);
 }

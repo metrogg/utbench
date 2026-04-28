@@ -37,76 +37,104 @@ body {
 .runtime-banner.visible { display: block; }
 
 /* 紧凑Hero样式 */
-.hero-compact {
-  background: #1e3a5f;
-  border-radius: 16px;
-  padding: 16px 20px;
-  margin-bottom: 16px;
+.hero {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 20px;
+  padding: 28px 32px;
+  margin-bottom: 24px;
   color: white;
-  box-shadow: 0 4px 20px rgba(30, 58, 95, 0.25);
+  box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
+  position: relative;
+  overflow: hidden;
 }
-.hero-compact-main {
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 60%);
+  pointer-events: none;
+}
+.hero-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+.hero-title-group {
+  flex: 1;
+}
+.hero-badge {
+  display: inline-block;
+  background: rgba(255,255,255,0.2);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
   margin-bottom: 12px;
+  border: 1px solid rgba(255,255,255,0.3);
 }
-.hero-compact h1 {
+.hero h1 {
   margin: 0;
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 28px;
+  font-weight: 800;
   font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  letter-spacing: 0.5px;
 }
-.hero-compact-meta {
-  font-size: 13px;
-  opacity: 0.85;
-}
-.hero-compact-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-.hero-primary-stats {
-  grid-template-columns: minmax(240px, 2fr) minmax(220px, 1.4fr) repeat(4, minmax(110px, 1fr));
-}
-.hero-secondary-stats {
-  grid-template-columns: minmax(360px, 1fr) 140px 140px;
+.hero-subtitle {
+  font-size: 14px;
+  opacity: 0.9;
   margin-top: 8px;
 }
-.hc-stat {
-  background: rgba(255,255,255,0.12);
-  border-radius: 10px;
-  padding: 10px 8px;
-  text-align: center;
-  border: 1px solid rgba(255,255,255,0.1);
+.hero-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
 }
-.hc-label {
-  font-size: 11px;
-  opacity: 0.75;
-  margin-bottom: 4px;
+.hero-card {
+  background: rgba(255,255,255,0.15);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid rgba(255,255,255,0.2);
+  transition: transform 0.2s, background 0.2s;
 }
-.hc-value {
-  font-size: 16px;
+.hero-card:hover {
+  transform: translateY(-2px);
+  background: rgba(255,255,255,0.25);
+}
+.hero-card-icon {
+  font-size: 32px;
+  opacity: 0.95;
+}
+.hero-card-content {
+  flex: 1;
+}
+.hero-card-label {
+  font-size: 12px;
+  opacity: 0.8;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.hero-card-value {
+  font-size: 15px;
   font-weight: 700;
-}
-.hc-wide .hc-value {
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-.hc-mini {
-  padding: 8px;
-}
-.hc-mini .hc-value {
-  font-size: 14px;
+  line-height: 1.4;
 }
 @media (max-width: 900px) {
-  .hero-compact-stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-@media (max-width: 600px) {
-  .hero-compact-stats {
+  .hero-cards {
     grid-template-columns: 1fr;
+  }
+  .hero {
+    padding: 20px 24px;
+  }
+  .hero h1 {
+    font-size: 22px;
   }
 }
 .jump-nav { 
@@ -868,7 +896,6 @@ tbody tr:nth-child(even) {
 .chart-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .chart-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .chart-box.tall { height: 320px; }
-.chart-box.heatmap-box { height: auto; min-height: 320px; }
 .efficiency-panel {
   position: relative;
   padding: 18px 20px 16px;
@@ -982,30 +1009,6 @@ tbody tr:nth-child(even) {
   margin-top: 12px;
   color: #475569;
   font-size: 13px;
-}
-.heatmap {
-  display: grid;
-  gap: 8px;
-}
-.heatmap-row {
-  display: grid;
-  grid-template-columns: 160px repeat(auto-fit, minmax(72px, 1fr));
-  gap: 8px;
-  align-items: center;
-}
-.heatmap-label {
-  font-size: 13px;
-  color: #334155;
-  font-weight: 600;
-}
-.heatmap-cell {
-  border-radius: 12px;
-  padding: 12px 8px;
-  text-align: center;
-  color: #0f172a;
-  font-weight: 700;
-  font-size: 12px;
-  border: 1px solid rgba(255,255,255,.35);
 }
 .back-to-top {
   position: fixed;

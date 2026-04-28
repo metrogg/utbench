@@ -1396,40 +1396,45 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 <div id="runtime-banner" class="runtime-banner" role="alert"></div>
 `)
 
-	// Hero Section - 紧凑版本
+	// Hero Section - 现代美观版本
 	b.WriteString(fmt.Sprintf(`
-<div class="hero-compact">
-  <div class="hero-compact-main">
-    <h1>模型评测报告</h1>
-    <div class="hero-compact-meta">%s · 共%d个样本</div>
+<div class="hero">
+  <div class="hero-header">
+    <div class="hero-title-group">
+      <div class="hero-badge">UT-BENCH</div>
+      <h1>模型评测报告</h1>
+      <div class="hero-subtitle">%s · %d 个样本</div>
+    </div>
   </div>
-  <div class="hero-compact-stats hero-primary-stats">
-    <div class="hc-stat hc-wide"><div class="hc-label">模型</div><div class="hc-value">%s</div></div>
-    <div class="hc-stat hc-wide"><div class="hc-label">语言</div><div class="hc-value">%s</div></div>
-    <div class="hc-stat"><div class="hc-label">编译通过</div><div class="hc-value" style="color:%s;">%.1f%%</div></div>
-    <div class="hc-stat"><div class="hc-label">测试通过</div><div class="hc-value" style="color:%s;">%.1f%%</div></div>
-    <div class="hc-stat"><div class="hc-label">行覆盖率</div><div class="hc-value">%.1f%%</div></div>
-    <div class="hc-stat"><div class="hc-label">变异分数</div><div class="hc-value">%.1f%%</div></div>
-  </div>
-  <div class="hero-compact-stats hero-secondary-stats">
-    <div class="hc-stat hc-wide"><div class="hc-label">样本类型</div><div class="hc-value">%s</div></div>
-    <div class="hc-stat hc-mini"><div class="hc-label">断言密度</div><div class="hc-value">%.1f</div></div>
-    <div class="hc-stat hc-mini"><div class="hc-label">平均耗时</div><div class="hc-value">%.1fs</div></div>
+  <div class="hero-cards">
+    <div class="hero-card">
+      <div class="hero-card-icon">🤖</div>
+      <div class="hero-card-content">
+        <div class="hero-card-label">评测模型</div>
+        <div class="hero-card-value">%s</div>
+      </div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-card-icon">💻</div>
+      <div class="hero-card-content">
+        <div class="hero-card-label">编程语言</div>
+        <div class="hero-card-value">%s</div>
+      </div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-card-icon">📦</div>
+      <div class="hero-card-content">
+        <div class="hero-card-label">样本类型</div>
+        <div class="hero-card-value">%s</div>
+      </div>
+    </div>
   </div>
 </div>`,
 		payload.GeneratedAtUTC.Format("2006-01-02 15:04"),
 		payload.Summary.TotalSamples,
 		escapeHTML(summarizeList(heroModels, 6)),
 		escapeHTML(summarizeList(heroLangs, 6)),
-		statusColor(payload.Summary.CompilePassRate, 0.85, 0.65),
-		payload.Summary.CompilePassRate*100,
-		statusColor(payload.Summary.SampleTestPassRate, 0.75, 0.5),
-		payload.Summary.SampleTestPassRate*100,
-		payload.Summary.AvgLineCoverage*100,
-		payload.Summary.AvgMutationScore*100,
-		escapeHTML(summarizeList(heroTypeLabels, 6)),
-		payload.Summary.AvgAssertionDensity,
-		avgLatencyFromRows(rows)))
+		escapeHTML(summarizeList(heroTypeLabels, 6))))
 
 	// Navigation
 	b.WriteString(`
@@ -2869,18 +2874,8 @@ func buildChartsSection(models []contracts.ModelRank) string {
       <div class="chart-box tall"><canvas id="scenarioBarChart"></canvas></div>
     </div>
     <div class="panel">
-      <h3>场景覆盖与变异对比</h3>
+      <h3>场景覆盖与变异对比（柱状图）</h3>
       <div class="chart-box tall"><canvas id="scenarioTrendChart"></canvas></div>
-    </div>
-  </div>
-  <div class="chart-grid-2" style="margin-top:16px;">
-    <div class="panel">
-      <h3>覆盖率热力图</h3>
-      <div id="coverageHeatmap" class="chart-box heatmap-box"></div>
-    </div>
-    <div class="panel">
-      <h3>变异分数热力图</h3>
-      <div id="mutationHeatmap" class="chart-box heatmap-box"></div>
     </div>
   </div>
 </div>`
