@@ -1,3 +1,5 @@
+// reporter/service_insights.go 提供洞察生成功能
+// 自动分析评测结果，生成最佳模型、弱项场景、强项场景等洞察
 package reporter
 
 import (

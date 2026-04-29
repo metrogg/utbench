@@ -1,3 +1,6 @@
+// reporter 包提供评测报告生成功能
+// 负责汇总评测结果、生成 JSON/HTML 报告、构建多维度分析数据
+// 支持按模型、语言、场景等维度进行聚合分析
 package reporter
 
 import (
@@ -17,52 +20,78 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Service 报告生成服务
+// 持有日志记录器实例
 type Service struct {
 	logger *obs.Logger
 }
 
+// Output 报告生成输出
+// 包含报告数据和文件路径
 type Output struct {
-	Report         contracts.ReportPayload
-	ReportJSONPath string
-	ReportHTMLPath string
+	Report         contracts.ReportPayload // 报告数据结构
+	ReportJSONPath string                  // JSON 报告文件路径
+	ReportHTMLPath string                  // HTML 报告文件路径
 }
 
+// mutationBreakdown 变异测试统计分布
+// 包含各状态（killed/survived/no_tests等）的计数
 type mutationBreakdown struct {
-	Total      int                     `json:"total"`
-	Killed     int                     `json:"killed"`
-	Survived   int                     `json:"survived"`
-	NoTests    int                     `json:"no_tests"`
-	Timeouts   int                     `json:"timeouts"`
-	Skipped    int                     `json:"skipped"`
-	Suspicious int                     `json:"suspicious"`
-	ByTool     []mutationToolBreakdown `json:"by_tool,omitempty"`
+	Total      int                     `json:"total"`      // 变异体总数
+	Killed     int                     `json:"killed"`     // 被杀死数
+	Survived   int                     `json:"survived"`   // 存活数
+	NoTests    int                     `json:"no_tests"`   // 无测试数
+	Timeouts   int                     `json:"timeouts"`   // 超时数
+	Skipped    int                     `json:"skipped"`    // 跳过数
+	Suspicious int                     `json:"suspicious"` // 可疑数
+	ByTool     []mutationToolBreakdown `json:"by_tool,omitempty"` // 按工具分解
 }
 
+// mutationToolBreakdown 按变异工具的统计分布
 type mutationToolBreakdown struct {
-	Tool       string `json:"tool"`
-	Total      int    `json:"total"`
-	Killed     int    `json:"killed"`
-	Survived   int    `json:"survived"`
-	NoTests    int    `json:"no_tests"`
-	Timeouts   int    `json:"timeouts"`
-	Skipped    int    `json:"skipped"`
-	Suspicious int    `json:"suspicious"`
+	Tool       string `json:"tool"`       // 工具名称（如 mutmut、go-mutesting、pitest）
+	Total      int    `json:"total"`      // 变异体总数
+	Killed     int    `json:"killed"`     // 被杀死数
+	Survived   int    `json:"survived"`   // 存活数
+	NoTests    int    `json:"no_tests"`   // 无测试数
+	Timeouts   int    `json:"timeouts"`   // 超时数
+	Skipped    int    `json:"skipped"`    // 跳过数
+	Suspicious int    `json:"suspicious"` // 可疑数
 }
 
+// ModelDetail 模型详细信息
+// 包含模型标识、具体型号、提供商信息
 type ModelDetail struct {
-	Name     string
-	ModelID  string
-	Provider string
+	Name     string // 模型标识名（如 deepseek）
+	ModelID  string // 具体型号（如 deepseek-chat）
+	Provider string // 提供商（如 deepseek、dashscope）
 }
 
 func getPromptTemplate(language string) string {
 	return runner.PromptTemplatePreview(language)
 }
 
+// NewService 创建报告生成服务实例
+// 参数:
+//   - logger: 日志记录器
+//
+// 返回值:
+//   - *Service: 报告服务实例
 func NewService(logger *obs.Logger) *Service {
 	return &Service{logger: logger}
 }
 
+// Generate 从评测结果文件生成报告
+// 读取 evaluation_result.json，构建多维度分析数据，生成 JSON 和 HTML 报告
+//
+// 参数:
+//   - _ctx: 上下文（当前未使用）
+//   - spec: 运行规格说明
+//   - evaluationPath: 评测结果文件路径
+//
+// 返回值:
+//   - Output: 报告输出（包含报告数据和文件路径）
+//   - error: 生成过程中的错误
 func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluationPath string) (Output, error) {
 	set, err := contracts.ReadEvaluationResultSet(evaluationPath)
 	if err != nil {
@@ -71,6 +100,17 @@ func (s *Service) Generate(_ context.Context, spec contracts.RunSpec, evaluation
 	return s.GenerateFromResultSet(spec, set, evaluationPath)
 }
 
+// GenerateFromResultSet 从评测结果集直接生成报告
+// 不需要读取文件，直接使用传入的结果集数据
+//
+// 参数:
+//   - spec: 运行规格说明
+//   - set: 评测结果集
+//   - sourceEvaluation: 源评测文件路径（用于记录）
+//
+// 返回值:
+//   - Output: 报告输出
+//   - error: 生成过程中的错误
 func (s *Service) GenerateFromResultSet(spec contracts.RunSpec, set contracts.EvaluationResultSet, sourceEvaluation string) (Output, error) {
 	promptStrategy, promptVersionID, promptSnapshotDir, prompts := loadPromptArtifacts(set.ManifestPath, sourceEvaluation)
 

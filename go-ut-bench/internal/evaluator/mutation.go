@@ -1,3 +1,6 @@
+// evaluator/mutation.go 提供变异测试功能
+// 使用 mutmut（Python）、go-mutesting（Go）、PITest（Java）、Mull（C++）执行变异测试
+// 计算变异得分，统计 killed/survived/no_tests 等状态
 package evaluator
 
 import (
@@ -14,18 +17,44 @@ import (
 	"go-ut-bench/internal/obs"
 )
 
+// mutationLogger 变异测试专用日志记录器
 var mutationLogger *obs.Logger
 
+// SetMutationLogger 设置变异测试日志记录器
+//
+// 参数:
+//   - logger: 日志记录器实例
 func SetMutationLogger(logger *obs.Logger) {
 	mutationLogger = logger
 }
 
+// logMutation 记录变异测试日志
+//
+// 参数:
+//   - level: 日志级别
+//   - msg: 日志消息
+//   - fields: 日志字段
 func logMutation(level, msg string, fields ...any) {
 	if mutationLogger != nil {
 		mutationLogger.ToFile("evaluator").Trace(msg, fields...)
 	}
 }
 
+// collectPythonMutation 执行 Python 变异测试
+// 使用 mutmut 工具对源码进行变异并计算变异得分
+//
+// 参数:
+//   - ctx: 上下文
+//   - workdir: 工作目录
+//   - testName: 测试文件名
+//   - mutationTargets: 变异目标文件列表
+//   - timeoutSeconds: 超时时间（秒）
+//   - testOutput: 测试输出（用于提取失败测试）
+//
+// 返回值:
+//   - float64: 变异得分（0-1）
+//   - mutationStats: 变异统计数据
+//   - string: 错误信息（成功时为空）
 func collectPythonMutation(ctx context.Context, workdir, testName string, mutationTargets []string, timeoutSeconds int, testOutput string) (float64, mutationStats, string) {
 	if len(mutationTargets) == 0 {
 		return 0, mutationStats{}, "missing mutation targets"
@@ -154,6 +183,17 @@ func collectPythonMutation(ctx context.Context, workdir, testName string, mutati
 	return score, stats, ""
 }
 
+// preCreateMutantsDirectory 预创建 mutants 目录结构
+// 复制测试文件和依赖到 mutants 目录
+//
+// 参数:
+//   - workdir: 工作目录
+//   - mutantsDir: mutants 目录路径
+//   - mutationTargets: 变异目标列表
+//   - testName: 测试文件名
+//
+// 返回值:
+//   - error: 创建错误
 func preCreateMutantsDirectory(workdir, mutantsDir string, mutationTargets []string, testName string) error {
 	absWorkdir, err := filepath.Abs(workdir)
 	if err != nil {
@@ -215,6 +255,16 @@ func preCreateMutantsDirectory(workdir, mutantsDir string, mutationTargets []str
 	return nil
 }
 
+// copyPackageDependencies 复制包依赖到目标目录
+// 递归复制 Python 文件，排除 __pycache__ 和目标文件
+//
+// 参数:
+//   - srcPackageDir: 源包目录
+//   - dstPackageDir: 目标包目录
+//   - targetFileName: 目标文件名（不复制）
+//
+// 返回值:
+//   - error: 复制错误
 func copyPackageDependencies(srcPackageDir, dstPackageDir, targetFileName string) error {
 	if err := os.MkdirAll(dstPackageDir, 0o755); err != nil {
 		return err
@@ -256,6 +306,16 @@ func copyPackageDependencies(srcPackageDir, dstPackageDir, targetFileName string
 	return nil
 }
 
+// buildMutmutPyproject 构建 mutmut 配置文件内容
+// 设置 paths_to_mutate 和 pytest 参数
+//
+// 参数:
+//   - sourceNames: 源文件列表
+//   - testName: 测试文件名
+//   - failingTests: 需排除的失败测试列表
+//
+// 返回值:
+//   - string: pyproject.toml 内容
 func buildMutmutPyproject(sourceNames []string, testName string, failingTests []string) string {
 	sources, _ := json.Marshal(sourceNames)
 	args := []string{"-q", "--tb=no", "--maxfail=9999"}
@@ -272,6 +332,15 @@ func buildMutmutPyproject(sourceNames []string, testName string, failingTests []
 		"pytest_add_cli_args = " + string(argsJSON) + "\n"
 }
 
+// buildMutmutEnv 构建 mutmut 运行环境变量
+// 设置 PYTHONPATH 和 multiprocessing shim
+//
+// 参数:
+//   - workdir: 工作目录
+//
+// 返回值:
+//   - []string: 环境变量列表
+//   - error: 构建错误
 func buildMutmutEnv(workdir string) ([]string, error) {
 	env := os.Environ()
 	absWorkdir, err := filepath.Abs(workdir)
@@ -328,6 +397,15 @@ func buildMutmutEnv(workdir string) ([]string, error) {
 	return out, nil
 }
 
+// parseMutationStats 解析变异测试统计 JSON
+// 从 mutmut-cicd-stats.json 提取 killed/survived 等计数
+//
+// 参数:
+//   - raw: JSON 原始数据
+//
+// 返回值:
+//   - mutationStats: 统计数据
+//   - string: 解析错误（成功时为空）
 func parseMutationStats(raw []byte) (mutationStats, string) {
 	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
@@ -386,6 +464,16 @@ func formatMutationToolError(tool, prefix string, runErr error, runOut []byte, e
 	)
 }
 
+// inferMutationTargets 从测试文件推断变异目标
+// 分析 import 语句，查找可变异的源文件
+//
+// 参数:
+//   - workdir: 工作目录
+//   - testName: 测试文件名
+//   - sourceBase: 默认源文件名
+//
+// 返回值:
+//   - []string: 变异目标列表
 func inferMutationTargets(workdir, testName, sourceBase string) []string {
 	testPath := filepath.Join(workdir, testName)
 	raw, err := os.ReadFile(testPath)
@@ -484,6 +572,16 @@ func collectFailingTestsByRerun(ctx context.Context, workdir, testName string) (
 	return collectFailingTestsFromPytestOutput(string(out)), ""
 }
 
+// extractMetaMutationStats 从 .meta 文件提取变异统计
+// 备用方案，当 cicd-stats.json 解析失败时使用
+//
+// 参数:
+//   - workdir: 工作目录
+//   - mutationTargets: 变异目标列表
+//
+// 返回值:
+//   - mutationStats: 统计数据
+//   - bool: 是否成功提取
 func extractMetaMutationStats(workdir string, mutationTargets []string) (mutationStats, bool) {
 	mutantsDir := filepath.Join(workdir, "mutants")
 	if _, err := os.Stat(mutantsDir); err != nil {

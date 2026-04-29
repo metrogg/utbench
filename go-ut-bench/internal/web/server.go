@@ -1,3 +1,5 @@
+// web 包提供 HTTP 管理服务
+// 提供 Web UI 和 API 接口，用于启动评测、查看进度、生成报告
 package web
 
 import (

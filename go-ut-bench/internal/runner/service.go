@@ -319,6 +319,22 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	return Output{Manifest: manifest, ManifestPath: manifestPath}, nil
 }
 
+// generateOne 执行单个样本的测试生成
+// 处理文件准备、prompt 构建、API 调用、结果保存等完整流程
+//
+// 参数:
+//   - ctx: 上下文
+//   - spec: 运行规格
+//   - testRoot: 测试文件输出目录
+//   - metaRoot: 元数据输出目录
+//   - promptRoot: prompt 输出目录
+//   - promptVersionID: prompt 版本标识
+//   - reuseStore: 复用数据库（可选）
+//   - modelCfg: 模型配置
+//   - sample: 样本引用
+//
+// 返回值:
+//   - GeneratedCase: 生成结果
 func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testRoot, metaRoot, promptRoot, promptVersionID string, reuseStore *store.SQLiteStore, modelCfg modelConfig, sample contracts.SampleRef) contracts.GeneratedCase {
 	model := modelCfg.Name
 	started := time.Now()
@@ -588,6 +604,13 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 	}
 }
 
+// languageExt 返回编程语言的文件扩展名
+//
+// 参数:
+//   - language: 编程语言名称
+//
+// 返回值:
+//   - string: 文件扩展名（如 ".py"、"java"）
 func languageExt(language string) string {
 	switch strings.ToLower(language) {
 	case "python":
@@ -603,6 +626,15 @@ func languageExt(language string) string {
 	}
 }
 
+// buildPlaceholderTest 构建占位符测试代码
+// 用于 dry-run 模式，生成简单但不执行真实 API 调用的测试
+//
+// 参数:
+//   - language: 编程语言
+//   - sampleID: 样本 ID
+//
+// 返回值:
+//   - string: 占位符测试代码
 func buildPlaceholderTest(language, sampleID string) string {
 	switch language {
 	case "python":
@@ -618,11 +650,26 @@ func buildPlaceholderTest(language, sampleID string) string {
 	}
 }
 
+// sha256Bytes 计算数据的 SHA256 哈希值
+//
+// 参数:
+//   - data: 输入数据
+//
+// 返回值:
+//   - string: 十六进制哈希字符串
 func sha256Bytes(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
+// copyFile 复制文件到目标路径
+//
+// 参数:
+//   - src: 源文件路径
+//   - dst: 目标文件路径
+//
+// 返回值:
+//   - error: 复制失败时的错误
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -643,6 +690,14 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
+// sanitizeIdentifier 将字符串规范化为合法标识符
+// 移除特殊字符，转换为小写
+//
+// 参数:
+//   - raw: 原始字符串
+//
+// 返回值:
+//   - string: 规范化后的标识符
 func sanitizeIdentifier(raw string) string {
 	raw = strings.ToLower(raw)
 	b := strings.Builder{}
@@ -673,10 +728,29 @@ func max(a, b int) int {
 	return b
 }
 
+// taskKey 构建任务的唯一标识键
+// 格式为 "model|language|sampleID"
+//
+// 参数:
+//   - model: 模型名称
+//   - language: 编程语言
+//   - sampleID: 样本 ID
+//
+// 返回值:
+//   - string: 任务键
 func taskKey(model, language, sampleID string) string {
 	return model + "|" + language + "|" + sampleID
 }
 
+// buildCheckpointPath 构建 checkpoint 文件路径
+// 根据运行规格参数生成唯一哈希，确保参数变化时 checkpoint 失效
+//
+// 参数:
+//   - spec: 运行规格
+//   - models: 模型配置列表
+//
+// 返回值:
+//   - string: checkpoint 文件路径
 func buildCheckpointPath(spec contracts.RunSpec, models []modelConfig) string {
 	modelNames := make([]string, 0, len(models))
 	for _, item := range models {
@@ -705,6 +779,15 @@ func buildCheckpointPath(spec contracts.RunSpec, models []modelConfig) string {
 	return filepath.Join(spec.OutputRoot, "checkpoints", "runner_"+hash+".checkpoint.json")
 }
 
+// loadCheckpoint 加载 checkpoint 文件
+// 解析已完成的任务列表，用于增量运行
+//
+// 参数:
+//   - path: checkpoint 文件路径
+//
+// 返回值:
+//   - map[string]struct{}: 已完成任务键集合
+//   - error: 加载错误（文件不存在时返回空集合）
 func loadCheckpoint(path string) (map[string]struct{}, error) {
 	result := map[string]struct{}{}
 	raw, err := os.ReadFile(path)
@@ -725,6 +808,15 @@ func loadCheckpoint(path string) (map[string]struct{}, error) {
 	return result, nil
 }
 
+// saveCheckpoint 保存 checkpoint 文件
+// 将已完成任务列表写入 JSON 文件
+//
+// 参数:
+//   - path: checkpoint 文件路径
+//   - completed: 已完成任务键集合
+//
+// 返回值:
+//   - error: 保存错误
 func saveCheckpoint(path string, completed map[string]struct{}) error {
 	items := make([]string, 0, len(completed))
 	for item := range completed {
@@ -738,6 +830,13 @@ func saveCheckpoint(path string, completed map[string]struct{}) error {
 	return contracts.WriteJSON(path, payload)
 }
 
+// getModelNames 从模型配置列表提取模型名称
+//
+// 参数:
+//   - configs: 模型配置列表
+//
+// 返回值:
+//   - []string: 模型名称列表
 func getModelNames(configs []modelConfig) []string {
 	names := make([]string, 0, len(configs))
 	for _, c := range configs {
@@ -746,6 +845,13 @@ func getModelNames(configs []modelConfig) []string {
 	return names
 }
 
+// getLanguagesFromSamples 从样本列表统计语言分布
+//
+// 参数:
+//   - samples: 样本列表
+//
+// 返回值:
+//   - string: 语言分布统计字符串（如 "python:10, go:5"）
 func getLanguagesFromSamples(samples []contracts.SampleRef) string {
 	langs := make(map[string]int)
 	for _, s := range samples {
@@ -760,6 +866,14 @@ func getLanguagesFromSamples(samples []contracts.SampleRef) string {
 	return strings.Join(parts, ", ")
 }
 
+// trimErrorMsg 截断错误消息到指定长度
+//
+// 参数:
+//   - msg: 原始消息
+//   - max: 最大长度
+//
+// 返回值:
+//   - string: 截断后的消息
 func trimErrorMsg(msg string, max int) string {
 	msg = strings.TrimSpace(msg)
 	if len(msg) <= max {
@@ -768,6 +882,14 @@ func trimErrorMsg(msg string, max int) string {
 	return msg[:max] + "..."
 }
 
+// errorMsgSafe 安全提取错误消息
+// 从 ErrorInfo 结构中获取截断后的消息
+//
+// 参数:
+//   - err: 错误信息结构
+//
+// 返回值:
+//   - string: 截断后的错误消息（无错误时返回空字符串）
 func errorMsgSafe(err *contracts.ErrorInfo) string {
 	if err == nil {
 		return ""

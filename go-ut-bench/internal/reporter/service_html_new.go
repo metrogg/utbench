@@ -1,3 +1,5 @@
+// reporter/service_html_new.go 提供 HTML 报告生成功能
+// 构建洞察区域、图表、样式表等 HTML 内容
 package reporter
 
 import (

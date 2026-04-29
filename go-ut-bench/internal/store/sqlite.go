@@ -1,3 +1,6 @@
+// store 包提供 SQLite 数据库存储功能
+// 负责持久化评测运行数据、索引 artifacts、提供查询接口
+// 支持生成结果复用、历史查询、跨运行对比报告
 package store
 
 import (
@@ -20,64 +23,75 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// schemaVersion 数据库 Schema 版本
 const schemaVersion = "store.v2"
 
+// SQLiteStore SQLite 存储实例
+// 持有数据库连接和路径信息
 type SQLiteStore struct {
-	db   *sql.DB
-	path string
+	db   *sql.DB // 数据库连接
+	path string  // 数据库文件路径
 }
 
+// DBOverview 数据库概览统计
+// 包含各表记录数和最新运行列表
 type DBOverview struct {
-	DBPath            string      `json:"db_path"`
-	SchemaVersion     string      `json:"schema_version"`
-	GenerationRuns    int         `json:"generation_runs"`
-	EvaluationRuns    int         `json:"evaluation_runs"`
-	GeneratedCases    int         `json:"generated_cases"`
-	EvaluationResults int         `json:"evaluation_results"`
-	Artifacts         int         `json:"artifacts"`
-	Reports           int         `json:"reports"`
-	LatestRuns        []DBRunItem `json:"latest_runs"`
+	DBPath            string      `json:"db_path"`            // 数据库文件路径
+	SchemaVersion     string      `json:"schema_version"`     // Schema 版本
+	GenerationRuns    int         `json:"generation_runs"`    // 生成运行数
+	EvaluationRuns    int         `json:"evaluation_runs"`    // 评测运行数
+	GeneratedCases    int         `json:"generated_cases"`    // 生成案例数
+	EvaluationResults int         `json:"evaluation_results"` // 评测结果数
+	Artifacts         int         `json:"artifacts"`          // artifacts 数
+	Reports           int         `json:"reports"`            // 报告数
+	LatestRuns        []DBRunItem `json:"latest_runs"`        // 最新运行列表
 }
 
+// DBRunItem 运行记录摘要
+// 用于概览中展示运行基本信息
 type DBRunItem struct {
-	RunID             string `json:"run_id"`
-	ExperimentID      string `json:"experiment_id,omitempty"`
-	ExperimentName    string `json:"experiment_name,omitempty"`
-	CreatedAtUTC      string `json:"created_at_utc,omitempty"`
-	EvaluatedAtUTC    string `json:"evaluated_at_utc,omitempty"`
-	Models            int    `json:"models"`
-	Languages         int    `json:"languages"`
-	GeneratedCases    int    `json:"generated_cases"`
-	EvaluationResults int    `json:"evaluation_results"`
-	Reports           int    `json:"reports"`
+	RunID             string `json:"run_id"`                       // 运行ID
+	ExperimentID      string `json:"experiment_id,omitempty"`      // 实验ID
+	ExperimentName    string `json:"experiment_name,omitempty"`    // 实验名称
+	CreatedAtUTC      string `json:"created_at_utc,omitempty"`     // 创建时间
+	EvaluatedAtUTC    string `json:"evaluated_at_utc,omitempty"`   // 评测时间
+	Models            int    `json:"models"`                       // 模型数
+	Languages         int    `json:"languages"`                    // 语言数
+	GeneratedCases    int    `json:"generated_cases"`              // 生成案例数
+	EvaluationResults int    `json:"evaluation_results"`           // 评测结果数
+	Reports           int    `json:"reports"`                      // 报告数
 }
 
+// DBResultItem 评测结果记录
+// 用于查询结果列表展示
 type DBResultItem struct {
-	EvaluationResultID   string   `json:"evaluation_result_id"`
-	EvaluationRunID      string   `json:"evaluation_run_id"`
-	RunID                string   `json:"run_id"`
-	Model                string   `json:"model"`
-	Language             string   `json:"language"`
-	SampleID             string   `json:"sample_id"`
-	CompilePass          bool     `json:"compile_pass"`
-	TestPass             *bool    `json:"test_pass,omitempty"`
-	LineCoverage         *float64 `json:"line_coverage,omitempty"`
-	MutationScore        *float64 `json:"mutation_score,omitempty"`
-	MutationTotal        *int     `json:"mutation_total,omitempty"`
-	FailureOrigin        string   `json:"failure_origin,omitempty"`
-	ScoreEligible        bool     `json:"score_eligible"`
-	ScoreExclusionReason string   `json:"score_exclusion_reason,omitempty"`
-	RuntimeMS            *int     `json:"runtime_ms,omitempty"`
+	EvaluationResultID   string   `json:"evaluation_result_id"`       // 评测结果ID
+	EvaluationRunID      string   `json:"evaluation_run_id"`          // 评测运行ID
+	RunID                string   `json:"run_id"`                     // 运行ID
+	Model                string   `json:"model"`                      // 模型名
+	Language             string   `json:"language"`                   // 语言
+	SampleID             string   `json:"sample_id"`                  // 样本ID
+	CompilePass          bool     `json:"compile_pass"`               // 编译是否通过
+	TestPass             *bool    `json:"test_pass,omitempty"`        // 测试是否通过
+	LineCoverage         *float64 `json:"line_coverage,omitempty"`    // 行覆盖率
+	MutationScore        *float64 `json:"mutation_score,omitempty"`   // 变异得分
+	MutationTotal        *int     `json:"mutation_total,omitempty"`   // 变异体总数
+	FailureOrigin        string   `json:"failure_origin,omitempty"`   // 失败归因
+	ScoreEligible        bool     `json:"score_eligible"`             // 是否计入排名
+	ScoreExclusionReason string   `json:"score_exclusion_reason,omitempty"` // 排名剔除原因
+	RuntimeMS            *int     `json:"runtime_ms,omitempty"`       // 运行耗时（毫秒）
 }
 
+// DBArtifactItem artifact 记录
+// 用于索引文件产物信息
 type DBArtifactItem struct {
-	ArtifactID   string `json:"artifact_id"`
-	Kind         string `json:"kind"`
-	Path         string `json:"path"`
-	SizeBytes    int64  `json:"size_bytes"`
-	SHA256       string `json:"sha256"`
-	Redacted     bool   `json:"redacted"`
-	CreatedAtUTC string `json:"created_at_utc"`
+	ArtifactID   string `json:"artifact_id"`   // artifact ID
+	Kind         string `json:"kind"`          // 类型（manifest/evaluation/report等）
+	Path         string `json:"path"`          // 文件路径
+	SizeBytes    int64  `json:"size_bytes"`    // 文件大小
+	SHA256       string `json:"sha256"`        // SHA256 哈希
+	Redacted     bool   `json:"redacted"`      // 是否已脱敏
+	CreatedAtUTC string `json:"created_at_utc"` // 创建时间
 	DeletedAtUTC string `json:"deleted_at_utc,omitempty"`
 }
 
@@ -279,6 +293,15 @@ type ingestContext struct {
 	summary *IngestSummary
 }
 
+// OpenSQLite 打开 SQLite 数据库
+// 如果目录不存在会自动创建，如果数据库文件不存在会在 Init 时创建
+//
+// 参数:
+//   - path: 数据库文件路径
+//
+// 返回值:
+//   - *SQLiteStore: 存储实例
+//   - error: 打开过程中的错误
 func OpenSQLite(path string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
@@ -290,6 +313,7 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 	return &SQLiteStore{db: db, path: path}, nil
 }
 
+// Close 关闭数据库连接
 func (s *SQLiteStore) Close() error {
 	if s.db == nil {
 		return nil
@@ -297,6 +321,14 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
+// Init 初始化数据库表结构
+// 创建所有必要的表（experiments、generation_runs、evaluation_runs、generated_cases、evaluation_results 等）
+//
+// 参数:
+//   - ctx: 上下文
+//
+// 返回值:
+//   - error: 初始化过程中的错误
 func (s *SQLiteStore) Init(ctx context.Context) error {
 	ddl := []string{
 		`PRAGMA foreign_keys = ON;`,
@@ -618,6 +650,16 @@ func (s *SQLiteStore) IngestReportFile(ctx context.Context, path string) (Ingest
 	return sum, nil
 }
 
+// IngestRun 入库整个运行目录
+// 自动检测并入库 manifest、evaluation、report 文件
+//
+// 参数:
+//   - ctx: 上下文
+//   - opts: 入库选项，包含 RunDir 路径
+//
+// 返回值:
+//   - IngestSummary: 入库统计摘要
+//   - error: 入库过程中的错误
 func (s *SQLiteStore) IngestRun(ctx context.Context, opts IngestRunOptions) (IngestSummary, error) {
 	runDir := opts.RunDir
 	if runDir == "" {

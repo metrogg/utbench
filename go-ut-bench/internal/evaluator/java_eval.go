@@ -1,3 +1,7 @@
+// java_eval.go 提供 Java 语言单元测试评测功能
+// 使用 Maven 进行编译和测试执行
+// 使用 JaCoCo 进行覆盖率收集
+// 使用 PITest 进行变异测试
 package evaluator
 
 import (
@@ -12,8 +16,11 @@ import (
 	"time"
 )
 
+// defaultTestTimeoutSeconds 默认测试超时时间（秒）
 const defaultTestTimeoutSeconds = 180
 
+// javaPomTemplate Maven POM 模板
+// 包含 JUnit 5、JaCoCo、PITest 等必要插件配置
 const javaPomTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -137,6 +144,18 @@ const javaPomTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 </project>
 `
 
+// prepareJavaWorkspace 准备 Java 评测工作区
+// 创建 Maven 项目结构，复制源码和测试文件，生成 pom.xml
+//
+// 参数:
+//   - testPath: 生成的测试文件路径
+//   - samplePath: 源码文件路径
+//
+// 返回值:
+//   - string: 工作目录路径（失败时为空）
+//   - string: 测试文件名（失败时为错误信息）
+//   - string: 源码文件名
+//   - string: 主类名
 func prepareJavaWorkspace(testPath, samplePath string) (string, string, string, string) {
 	testSource, err := os.ReadFile(testPath)
 	if err != nil {
@@ -287,6 +306,15 @@ func splitJavaSourceByClasses(source string) map[string]string {
 	return result
 }
 
+// javaCompileCheck 检查 Java 测试代码是否能编译通过
+// 使用 Maven test-compile 命令检查编译
+//
+// 参数:
+//   - workdir: 工作目录（包含 pom.xml 和 src 目录）
+//
+// 返回值:
+//   - bool: 编译是否通过
+//   - string: 编译错误信息（成功时为空）
 func javaCompileCheck(workdir string) (bool, string) {
 	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
 	defer cancel()
@@ -300,10 +328,23 @@ func javaCompileCheck(workdir string) (bool, string) {
 	return false, trimErr(string(output), 2000)
 }
 
+// executeJavaTests 执行 Java 测试（使用默认超时）
+// 使用 Maven test 命令运行 JUnit 测试
 func executeJavaTests(workdir string) (bool, string, int) {
 	return executeJavaTestsWithTimeout(workdir, defaultTestTimeoutSeconds)
 }
 
+// executeJavaTestsWithTimeout 执行 Java 测试（指定超时时间）
+// 使用 Maven test 命令运行 JUnit 测试
+//
+// 参数:
+//   - workdir: 工作目录
+//   - timeoutSeconds: 超时时间（秒）
+//
+// 返回值:
+//   - bool: 测试是否通过
+//   - string: 测试输出或错误信息
+//   - int: 执行耗时（毫秒）
 func executeJavaTestsWithTimeout(workdir string, timeoutSeconds int) (bool, string, int) {
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = defaultTestTimeoutSeconds
@@ -326,6 +367,15 @@ func stripANSICodes(s string) string {
 	return regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(s, "")
 }
 
+// parseJavaTestCounts 解析 Maven test 输出中的测试结果计数
+// 从 "Tests run:" 行统计通过和失败数
+//
+// 参数:
+//   - output: Maven test 输出内容
+//
+// 返回值:
+//   - *int: 通过的测试数
+//   - *int: 总测试数
 func parseJavaTestCounts(output string) (*int, *int) {
 	clean := stripANSICodes(output)
 
@@ -381,6 +431,17 @@ func parseIntOrZero(s string) int {
 	return result
 }
 
+// collectJavaCoverage 收集 Java 测试覆盖率数据
+// 从 JaCoCo XML 报告解析行覆盖率和分支覆盖率
+//
+// 参数:
+//   - workdir: 工作目录
+//   - className: 目标类名（用于过滤）
+//
+// 返回值:
+//   - float64: 行覆盖率（0-1）
+//   - float64: 分支覆盖率（0-1）
+//   - string: 错误信息（成功时为空）
 func collectJavaCoverage(workdir, className string) (float64, float64, string) {
 	jacocoXML := filepath.Join(workdir, "target", "site", "jacoco", "jacoco.xml")
 	if _, err := os.Stat(jacocoXML); err != nil {
@@ -462,6 +523,22 @@ func parseJacocoXML(content, className string) (float64, float64, string) {
 	return 0, 0, "class not found in coverage report"
 }
 
+// collectJavaMutation 执行 Java 变异测试
+// 使用 PITest 工具对源码进行变异并计算变异得分
+//
+// 参数:
+//   - ctx: 上下文
+//   - workdir: 工作目录
+//   - className: 目标类名
+//   - timeoutSeconds: 超时时间（秒）
+//   - testPassRate: 测试通过率（用于判断是否运行变异测试）
+//   - testPassed: 通过的测试数
+//   - testTotal: 总测试数
+//
+// 返回值:
+//   - float64: 变异得分（0-1）
+//   - mutationStats: 变异统计数据
+//   - string: 错误信息（成功时为空）
 func collectJavaMutation(ctx context.Context, workdir, className string, timeoutSeconds int, testPassRate *float64, testPassed, testTotal int) (float64, mutationStats, string) {
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 120

@@ -1,3 +1,6 @@
+// dataset 包提供数据集发现和验证功能
+// 负责扫描数据集目录、验证配置参数、分类样本、计算源码哈希
+// 支持从目录扫描和从清单文件加载两种样本发现方式
 package dataset
 
 import (
@@ -14,12 +17,32 @@ import (
 	"go-ut-bench/internal/contracts"
 )
 
+// Service 数据集服务
+// 提供样本发现、验证、依赖检查等功能
 type Service struct{}
 
+// NewService 创建数据集服务实例
+// 返回值:
+//   - *Service: 数据集服务实例
 func NewService() *Service {
 	return &Service{}
 }
 
+// ValidateSpec 验证运行规格参数的有效性
+// 检查必填字段、支持的语言/类别/场景、参数范围等
+//
+// 参数:
+//   - spec: 运行规格说明
+//
+// 返回值:
+//   - error: 参数无效时的错误信息，nil表示验证通过
+//
+// 验证项:
+//  1. DatasetRoot 必填
+//  2. 如果有模型，则 OutputRoot、RunID、ConfigPath 必填
+//  3. DatasetClasses 必须为 self_contained 或 module_level
+//  4. Languages 必须为支持的语言
+//  5. MaxSamples 和 MutationTimeout 不能为负数
 func (s *Service) ValidateSpec(spec contracts.RunSpec) error {
 	if strings.TrimSpace(spec.DatasetRoot) == "" {
 		return errors.New("dataset root is required")
@@ -78,6 +101,28 @@ func (s *Service) ValidateSpec(spec contracts.RunSpec) error {
 	return nil
 }
 
+// DiscoverSamples 发现并返回符合条件的数据集样本列表
+// 支持两种发现方式：目录扫描和清单文件加载
+//
+// 参数:
+//   - spec: 运行规格说明，包含数据集根目录、语言、类别、场景等过滤条件
+//
+// 返回值:
+//   - []contracts.SampleRef: 样本引用列表
+//   - error: 发现过程中的错误
+//
+// 发现逻辑:
+//  1. 如果指定了 DatasetManifest 或 DatasetLevel，从清单文件加载
+//  2. 否则扫描数据集目录，根据目录结构推断样本属性
+//  3. 应用语言、类别、场景过滤条件
+//  4. 计算源码 MD5 哈希
+//  5. 如果指定了 MaxSamples，按语言+场景分组后限制样本数
+//
+// 目录结构推断规则:
+//  - Language: 第一级目录名（python/go/java/cpp）
+//  - Category: 第二级目录名（self_contained/module_level）
+//  - Scenario: 第三级目录名（boundary/simple_function等）
+//  - SampleID: 文件名（去掉扩展名）
 func (s *Service) DiscoverSamples(spec contracts.RunSpec) ([]contracts.SampleRef, error) {
 	if err := s.ValidateSpec(spec); err != nil {
 		return nil, err
@@ -218,6 +263,15 @@ func (s *Service) DiscoverSamples(spec contracts.RunSpec) ([]contracts.SampleRef
 	return all, nil
 }
 
+// discoverFromManifest 从清单文件加载样本列表
+// 当 spec.DatasetManifest 或 spec.DatasetLevel 指定时使用此方式
+//
+// 参数:
+//   - spec: 运行规格说明
+//
+// 返回值:
+//   - []contracts.SampleRef: 样本引用列表
+//   - error: 加载过程中的错误
 func (s *Service) discoverFromManifest(spec contracts.RunSpec) ([]contracts.SampleRef, error) {
 	manifestPath := strings.TrimSpace(spec.DatasetManifest)
 	if manifestPath == "" {
@@ -286,6 +340,14 @@ func (s *Service) discoverFromManifest(spec contracts.RunSpec) ([]contracts.Samp
 	return all, nil
 }
 
+// ValidateLayout 验证数据集目录结构是否符合要求
+// 检查数据集根目录是否存在，以及各语言目录是否完整
+//
+// 参数:
+//   - datasetRoot: 数据集根目录路径
+//
+// 返回值:
+//   - error: 验证失败的错误信息，nil表示验证通过
 func (s *Service) ValidateLayout(datasetRoot string) error {
 	if strings.TrimSpace(datasetRoot) == "" {
 		return errors.New("dataset root is required")
@@ -302,6 +364,22 @@ func (s *Service) ValidateLayout(datasetRoot string) error {
 	return nil
 }
 
+// CheckDependencies 检查 Python 样本的依赖是否可用
+// 通过嵌入的 Python 脚本扫描数据集中的 import 语句，验证是否可导入
+//
+// 参数:
+//   - datasetRoot: 数据集根目录路径
+//   - languages: 要检查的语言列表
+//
+// 返回值:
+//   - string: 检查结果输出（ALL_DEPS_AVAILABLE 或缺失依赖列表）
+//   - error: 检查过程中的错误
+//
+// 检查逻辑:
+//  1. 扫描所有 Python 文件的 import 语句
+//  2. 排除标准库模块
+//  3. 尝试导入每个第三方模块
+//  4. 对于缺失的模块，提供安装建议
 func (s *Service) CheckDependencies(datasetRoot string, languages []string) (string, error) {
 	if strings.TrimSpace(datasetRoot) == "" {
 		return "", errors.New("dataset root is required")
@@ -437,6 +515,8 @@ else:
 	return string(out), nil
 }
 
+// ValidateLayout 验证数据集目录结构（公开版本）
+// 检查数据集根目录和各语言子目录是否存在
 func ValidateLayout(datasetRoot string) error {
 	if strings.TrimSpace(datasetRoot) == "" {
 		return errors.New("dataset root is required")
@@ -453,6 +533,8 @@ func ValidateLayout(datasetRoot string) error {
 	return nil
 }
 
+// classifySampleClass 从样本ID和相对路径推断数据集类别
+// 根据路径中的 self_contained/module_level 关键字判断
 func classifySampleClass(sampleID string, relPath string) contracts.DatasetClass {
 	lower := strings.ToLower(sampleID + "|" + relPath)
 	lower = strings.ReplaceAll(lower, "\\", "/")
@@ -468,6 +550,8 @@ func classifySampleClass(sampleID string, relPath string) contracts.DatasetClass
 	return contracts.DatasetClassSelfContained
 }
 
+// classifySampleScenario 从样本ID和相对路径推断场景类型
+// 根据路径中的 boundary/simple_function/complex_dependency/interface_mock 关键字判断
 func classifySampleScenario(sampleID string, relPath string) string {
 	lower := strings.ToLower(sampleID + "|" + relPath)
 	lower = strings.ReplaceAll(lower, "\\", "/")
@@ -479,6 +563,8 @@ func classifySampleScenario(sampleID string, relPath string) string {
 	return "unknown"
 }
 
+// normalizeScenario 规范化场景名称
+// 返回有效的场景名称，无效输入返回空字符串
 func normalizeScenario(raw string) string {
 	val := strings.ToLower(strings.TrimSpace(raw))
 	switch val {
@@ -489,6 +575,8 @@ func normalizeScenario(raw string) string {
 	}
 }
 
+// matchDatasetClassFilter 检查样本类别是否匹配过滤条件
+// 如果过滤条件为空，则匹配所有类别
 func matchDatasetClassFilter(filters []string, sample contracts.DatasetClass) bool {
 	if len(filters) == 0 {
 		return true
@@ -501,6 +589,8 @@ func matchDatasetClassFilter(filters []string, sample contracts.DatasetClass) bo
 	return false
 }
 
+// isSupportedLanguage 检查语言是否为支持的语言
+// 支持的语言：python、go、java、cpp
 func isSupportedLanguage(lang string) bool {
 	for _, v := range contracts.SupportedLanguages {
 		if lang == v {
@@ -510,11 +600,15 @@ func isSupportedLanguage(lang string) bool {
 	return false
 }
 
+// matchLanguageExt 检查文件扩展名是否匹配指定语言
+// 根据语言返回对应的标准扩展名进行比较
 func matchLanguageExt(path, lang string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == languageExtByName(lang)
 }
 
+// languageExtByName 根据语言名称返回对应的文件扩展名
+// python -> .py, java -> .java, go -> .go, cpp -> .cpp
 func languageExtByName(lang string) string {
 	switch lang {
 	case "python":
@@ -530,6 +624,8 @@ func languageExtByName(lang string) string {
 	}
 }
 
+// fileMD5 计算文件的 MD5 哈希值
+// 用于样本源码的唯一标识和变更检测
 func fileMD5(path string) (string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -539,6 +635,8 @@ func fileMD5(path string) (string, error) {
 	return fmt.Sprintf("%x", h[:]), nil
 }
 
+// sortSampleRefs 对样本引用列表进行排序
+// 排序优先级：Language > Scenario > ID > Category > Path
 func sortSampleRefs(samples []contracts.SampleRef) {
 	sort.Slice(samples, func(i, j int) bool {
 		if samples[i].Language != samples[j].Language {
@@ -557,6 +655,8 @@ func sortSampleRefs(samples []contracts.SampleRef) {
 	})
 }
 
+// applyMaxSamplesPerLanguageScenario 按语言+场景分组后限制样本数量
+// 对每个 Language+Scenario 组合，最多保留 maxSamples 个样本
 func applyMaxSamplesPerLanguageScenario(samples []contracts.SampleRef, maxSamples int) []contracts.SampleRef {
 	if maxSamples <= 0 || len(samples) == 0 {
 		return samples
@@ -588,6 +688,8 @@ func applyMaxSamplesPerLanguageScenario(samples []contracts.SampleRef, maxSample
 	return result
 }
 
+// loadModuleLevelMeta 加载 module_level 类型样本的元数据
+// 从样本同目录的 .meta.json 文件加载 ModuleLevelMeta 信息
 func loadModuleLevelMeta(samplePath string) (*contracts.ModuleLevelMeta, bool) {
 	dir := filepath.Dir(samplePath)
 	base := filepath.Base(samplePath)
