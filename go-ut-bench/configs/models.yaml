@@ -1,4 +1,26 @@
 models:
+    MiMo-V2.5:
+        config:
+            api_endpoint: https://token-plan-cn.xiaomimimo.com/v1
+            api_key_env: MIMO_V25_API_KEY
+            model: mimo-v2.5
+            parameters:
+                max_tokens: 4096
+                temperature: 0.7
+                top_p: 0.9
+        enabled: true
+        provider: mimo
+    MiMo-V2.5-Pro:
+        config:
+            api_endpoint: https://token-plan-cn.xiaomimimo.com/v1
+            api_key_env: MIMO_V25_PRO_API_KEY
+            model: mimo-v2.5-pro
+            parameters:
+                max_tokens: 4096
+                temperature: 0.7
+                top_p: 0.9
+        enabled: true
+        provider: mimo
     deepseek:
         config:
             api_endpoint: https://api.deepseek.com
