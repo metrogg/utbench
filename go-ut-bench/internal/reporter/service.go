@@ -659,8 +659,8 @@ func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
 		a.mutationSum += *row.MutationScore
 		a.mutationCnt++
 	}
-	if row.RuntimeMS != nil {
-		a.latencySum += float64(*row.RuntimeMS)
+	if row.LatencyMS != nil {
+		a.latencySum += float64(*row.LatencyMS)
 		a.latencyCnt++
 	}
 	if row.PromptTokens != nil {
@@ -712,8 +712,8 @@ func mergeScenarioAgg(a *scenarioAgg, row contracts.EvaluationResult, scenario, 
 		a.mutationSum += *row.MutationScore
 		a.mutationCnt++
 	}
-	if row.RuntimeMS != nil {
-		a.latencySum += float64(*row.RuntimeMS)
+	if row.LatencyMS != nil {
+		a.latencySum += float64(*row.LatencyMS)
 		a.latencyCnt++
 	}
 	if row.TotalTokens != nil {
@@ -762,8 +762,8 @@ func mergeModelScenarioAgg(a *modelScenarioAgg, row contracts.EvaluationResult, 
 		a.mutationSum += *row.MutationScore
 		a.mutationCnt++
 	}
-	if row.RuntimeMS != nil {
-		a.latencySum += float64(*row.RuntimeMS)
+	if row.LatencyMS != nil {
+		a.latencySum += float64(*row.LatencyMS)
 		a.latencyCnt++
 	}
 	if row.TotalTokens != nil {
@@ -1396,46 +1396,50 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 <div id="runtime-banner" class="runtime-banner" role="alert"></div>
 `)
 
-	// Hero Section - 紧凑版本
+	// Hero Section - 现代美观版本
 	b.WriteString(fmt.Sprintf(`
-<div class="hero-compact">
-  <div class="hero-compact-main">
-    <h1>模型评测报告</h1>
-    <div class="hero-compact-meta">%s · 共%d个样本</div>
+<div class="hero">
+  <div class="hero-header">
+    <div class="hero-title-group">
+      <div class="hero-badge">UT-BENCH</div>
+      <h1>模型评测报告</h1>
+      <div class="hero-subtitle">%s · %d 个样本</div>
+    </div>
   </div>
-  <div class="hero-compact-stats hero-primary-stats">
-    <div class="hc-stat hc-wide"><div class="hc-label">模型</div><div class="hc-value">%s</div></div>
-    <div class="hc-stat hc-wide"><div class="hc-label">语言</div><div class="hc-value">%s</div></div>
-    <div class="hc-stat"><div class="hc-label">编译通过</div><div class="hc-value" style="color:%s;">%.1f%%</div></div>
-    <div class="hc-stat"><div class="hc-label">测试通过</div><div class="hc-value" style="color:%s;">%.1f%%</div></div>
-    <div class="hc-stat"><div class="hc-label">行覆盖率</div><div class="hc-value">%.1f%%</div></div>
-    <div class="hc-stat"><div class="hc-label">变异分数</div><div class="hc-value">%.1f%%</div></div>
-  </div>
-  <div class="hero-compact-stats hero-secondary-stats">
-    <div class="hc-stat hc-wide"><div class="hc-label">样本类型</div><div class="hc-value">%s</div></div>
-    <div class="hc-stat hc-mini"><div class="hc-label">断言密度</div><div class="hc-value">%.1f</div></div>
-    <div class="hc-stat hc-mini"><div class="hc-label">平均耗时</div><div class="hc-value">%.1fs</div></div>
+  <div class="hero-cards">
+    <div class="hero-card">
+      <div class="hero-card-icon">🤖</div>
+      <div class="hero-card-content">
+        <div class="hero-card-label">评测模型</div>
+        <div class="hero-card-value">%s</div>
+      </div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-card-icon">💻</div>
+      <div class="hero-card-content">
+        <div class="hero-card-label">编程语言</div>
+        <div class="hero-card-value">%s</div>
+      </div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-card-icon">📦</div>
+      <div class="hero-card-content">
+        <div class="hero-card-label">样本类型</div>
+        <div class="hero-card-value">%s</div>
+      </div>
+    </div>
   </div>
 </div>`,
 		payload.GeneratedAtUTC.Format("2006-01-02 15:04"),
 		payload.Summary.TotalSamples,
 		escapeHTML(summarizeList(heroModels, 6)),
 		escapeHTML(summarizeList(heroLangs, 6)),
-		statusColor(payload.Summary.CompilePassRate, 0.85, 0.65),
-		payload.Summary.CompilePassRate*100,
-		statusColor(payload.Summary.SampleTestPassRate, 0.75, 0.5),
-		payload.Summary.SampleTestPassRate*100,
-		payload.Summary.AvgLineCoverage*100,
-		payload.Summary.AvgMutationScore*100,
-		escapeHTML(summarizeList(heroTypeLabels, 6)),
-		payload.Summary.AvgAssertionDensity,
-		avgLatencyFromRows(rows)))
+		escapeHTML(summarizeList(heroTypeLabels, 6))))
 
 	// Navigation
 	b.WriteString(`
 <div class="jump-nav">
-  <a href="#benchmark-scoreboard">指标墙</a>
-  <a href="#details">图表分析</a>
+    <a href="#details">图表分析</a>
   <a href="#analysis-controls">筛选与导出</a>
   <a href="#dimension-analysis">维度分析</a>
   <a href="#score-exclusions">计分剔除</a>
@@ -1447,8 +1451,7 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 
 	// Leaderboard Section - 模型排名（重点）
 	b.WriteString(buildLeaderboardHTMLNew(payload.TopModels))
-	b.WriteString(buildBenchmarkScoreboardSection())
-	b.WriteString(buildChartsSection(payload.TopModels))
+		b.WriteString(buildChartsSection(payload.TopModels))
 	b.WriteString(buildAnalysisControlsSection(heroModels, heroLangs, heroTypes))
 	b.WriteString(buildDimensionAnalysisSection())
 
@@ -1505,8 +1508,8 @@ func buildOverviewSection(payload contracts.ReportPayload, rows []contracts.Eval
 	var totalLatency, totalTokens float64
 	var latencyCount, tokenCount int
 	for _, row := range rows {
-		if row.RuntimeMS != nil && *row.RuntimeMS > 0 {
-			totalLatency += float64(*row.RuntimeMS)
+		if row.LatencyMS != nil && *row.LatencyMS > 0 {
+			totalLatency += float64(*row.LatencyMS)
 			latencyCount++
 		}
 		if row.TotalTokens != nil && *row.TotalTokens > 0 {
@@ -1764,24 +1767,6 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
 	return b.String()
 }
 
-func buildBenchmarkScoreboardSection() string {
-	return `<div class="section benchmark-scoreboard" id="benchmark-scoreboard">
-  <div class="scoreboard-head">
-    <div>
-      <div class="scoreboard-eyebrow">Benchmark Scoreboard</div>
-      <h2>单元测试生成能力指标墙</h2>
-      <p>按关键能力拆开比较模型表现。每张小图按当前指标降序排列，所有模型使用固定颜色，模型名显示在对应柱子正下方。</p>
-    </div>
-    <div class="scoreboard-toggle" role="group" aria-label="切换指标墙显示模型数量">
-      <button type="button" class="active" data-scoreboard-scope="top">Top 6</button>
-      <button type="button" data-scoreboard-scope="all">全部</button>
-    </div>
-  </div>
-  <div id="benchmarkScoreboardLegend" class="scoreboard-legend"></div>
-  <div id="benchmarkScoreboard" class="scoreboard-grid"></div>
-</div>`
-}
-
 func buildDimensionAnalysisSection() string {
 	return `<div class="section" id="dimension-analysis">
   <h2>维度分析 Dimension Analysis</h2>
@@ -1808,7 +1793,7 @@ func buildDimensionAnalysisSection() string {
       <div id="by-model-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有模型统计数据。</div>
     </div>
   </div>
-  <div class="chart-grid-2" style="margin-top:16px;">
+  <div class="chart-grid-1" style="margin-top:16px;">
     <div class="panel">
       <h3>语言汇总 Language Summary</h3>
       <div class="table-wrap">
@@ -1829,6 +1814,8 @@ func buildDimensionAnalysisSection() string {
       </div>
       <div id="by-language-empty" class="hint-box" style="display:none;margin-top:12px;">当前筛选条件下没有语言统计数据。</div>
     </div>
+  </div>
+  <div class="chart-grid-1" style="margin-top:16px;">
     <div class="panel">
       <h3>场景 × 语言 Scenario by Language</h3>
       <div class="table-wrap">
@@ -2887,18 +2874,8 @@ func buildChartsSection(models []contracts.ModelRank) string {
       <div class="chart-box tall"><canvas id="scenarioBarChart"></canvas></div>
     </div>
     <div class="panel">
-      <h3>场景覆盖与变异对比</h3>
+      <h3>场景覆盖与变异对比（柱状图）</h3>
       <div class="chart-box tall"><canvas id="scenarioTrendChart"></canvas></div>
-    </div>
-  </div>
-  <div class="chart-grid-2" style="margin-top:16px;">
-    <div class="panel">
-      <h3>覆盖率热力图</h3>
-      <div id="coverageHeatmap" class="chart-box heatmap-box"></div>
-    </div>
-    <div class="panel">
-      <h3>变异分数热力图</h3>
-      <div id="mutationHeatmap" class="chart-box heatmap-box"></div>
     </div>
   </div>
 </div>`
@@ -3271,8 +3248,8 @@ func avgLatencyFromRows(rows []contracts.EvaluationResult) float64 {
 	var total float64
 	var count int
 	for _, row := range rows {
-		if row.RuntimeMS != nil && *row.RuntimeMS > 0 {
-			total += float64(*row.RuntimeMS) / 1000
+		if row.LatencyMS != nil && *row.LatencyMS > 0 {
+			total += float64(*row.LatencyMS) / 1000
 			count++
 		}
 	}

@@ -7,6 +7,10 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 
+# Replace with Aliyun mirror for better connectivity in China
+RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources
+
 # Install base tools first (needed for adding LLVM repo)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -18,12 +22,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Add LLVM official repository for LLVM 19
+# Re-apply mirror after add-apt-repository (it may restore original sources)
 RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
     add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" && \
+    sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
     apt-get update
 
 # System dependencies - Install LLVM 19 for Mull 19 compatibility
-RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
+RUN apt-get install -y --fix-missing --no-install-recommends \
     build-essential \
     gcc \
     g++ \

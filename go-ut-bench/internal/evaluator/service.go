@@ -274,6 +274,9 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		TotalTokens:       item.TotalTokens,
 		Truncated:         item.Truncated,
 	}
+	if item.LatencyMS > 0 {
+		row.LatencyMS = &item.LatencyMS
+	}
 	defer func() {
 		finalizeEvaluationResult(&row, start)
 		result = row

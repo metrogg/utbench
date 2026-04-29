@@ -71,7 +71,8 @@ type EvaluationResult struct {
 	TestPassCount        *int     `json:"test_pass_count,omitempty"`        // 通过的测试用例数
 	TestTotalCount       *int     `json:"test_total_count,omitempty"`       // 总测试用例数
 	TestPassRate         *float64 `json:"test_pass_rate,omitempty"`         // 测试通过率
-	RuntimeMS            *int     `json:"runtime_ms"`                       // 测试运行耗时（毫秒）
+	RuntimeMS            *int     `json:"runtime_ms"`                       // 评测运行耗时（编译+测试+覆盖率+变异，毫秒）
+	LatencyMS            *int     `json:"latency_ms"`                       // API调用耗时（模型生成代码的时间，毫秒）
 	PromptTokens         *int     `json:"prompt_tokens,omitempty"`          // 提示词token数量
 	CompletionTokens     *int     `json:"completion_tokens,omitempty"`      // 生成token数量
 	TotalTokens          *int     `json:"total_tokens,omitempty"`           // 总token数量

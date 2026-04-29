@@ -305,12 +305,12 @@ function renderScenarioCharts(items) {
 
   if (scenarioTrendChart) scenarioTrendChart.destroy();
   scenarioTrendChart = new Chart(document.getElementById('scenarioTrendChart'), {
-    type: 'line',
+    type: 'bar',
     data: {
       labels,
       datasets: [
-        { label: '行覆盖率', data: items.map(item => item.lineCoverage), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.12)', tension: .3, fill: true },
-        { label: '变异分数', data: mutationRates, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.12)', tension: .3, fill: true }
+        { label: '行覆盖率', data: items.map(item => item.lineCoverage), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.5)' },
+        { label: '变异分数', data: mutationRates, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.5)' }
       ]
     },
     options: {
@@ -320,30 +320,6 @@ function renderScenarioCharts(items) {
       scales: { y: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%' } } }
     }
   });
-}
-
-function renderHeatmap(containerId, rows, metricKey) {
-  const container = document.getElementById(containerId);
-  const grouped = new Map();
-  rows.forEach(row => {
-    const scenario = getScenarioFromSample(row.sample_id);
-    if (!grouped.has(scenario)) grouped.set(scenario, []);
-    grouped.get(scenario).push(row);
-  });
-  let html = '<div class="heatmap">';
-  Array.from(grouped.entries()).sort((a,b) => a[0].localeCompare(b[0])).forEach(([scenario, scenarioRows]) => {
-    html += '<div class="heatmap-row"><div class="heatmap-label">' + safeText(scenarioLabel(scenario)) + '</div>';
-    scenarioRows.slice(0, 8).forEach(row => {
-      const raw = row[metricKey];
-      const value = raw === null || raw === undefined ? 0 : raw;
-      const hue = Math.round(value * 120);
-      const bg = 'hsla(' + hue + ', 75%, 85%, 1)';
-      html += '<div class="heatmap-cell" style="background:' + bg + ';">' + safeText(row.sample_id) + '<br>' + Math.round(value * 100) + '%</div>';
-    });
-    html += '</div>';
-  });
-  html += '</div>';
-  container.innerHTML = html;
 }
 
 function exportScenarioCSV(items) {
@@ -395,101 +371,6 @@ function modelColor(index) {
 
 function shortModelName(value) {
   return String(value || '');
-}
-
-function aggregateModelExtras() {
-  const extras = new Map();
-  for (const item of reportTopModels) {
-    extras.set(item.model, { total: 0, branchSum: 0, branchCnt: 0, killed: 0, survived: 0, truncated: 0 });
-  }
-  for (const row of evaluationRows) {
-    if (!isScoreEligibleRow(row)) continue;
-    const model = row.model || '';
-    if (!extras.has(model)) extras.set(model, { total: 0, branchSum: 0, branchCnt: 0, killed: 0, survived: 0, truncated: 0 });
-    const item = extras.get(model);
-    item.total += 1;
-    if (row.branch_coverage !== null && row.branch_coverage !== undefined) {
-      item.branchSum += Number(row.branch_coverage || 0);
-      item.branchCnt += 1;
-    }
-    if (row.mutation_killed !== null && row.mutation_killed !== undefined) item.killed += Number(row.mutation_killed || 0);
-    if (row.mutation_survived !== null && row.mutation_survived !== undefined) item.survived += Number(row.mutation_survived || 0);
-    if (row.truncated) item.truncated += 1;
-  }
-  return extras;
-}
-
-function benchmarkMetricsForModel(model, extras) {
-  const extra = extras.get(model.model) || {};
-  const branchCoverage = extra.branchCnt ? extra.branchSum / extra.branchCnt : 0;
-  const mutationDenom = Number(extra.killed || 0) + Number(extra.survived || 0);
-  const mutationKillRate = mutationDenom ? Number(extra.killed || 0) / mutationDenom : 0;
-  return {
-    compile: Number(model.compile_pass_rate || 0) * 100,
-    sampleTest: Number(model.avg_test_pass_rate || 0) * 100,
-    testCase: Number((model.avg_test_case_pass_rate || model.avg_test_pass_rate) || 0) * 100,
-    lineCoverage: Number(model.avg_line_coverage || 0) * 100,
-    branchCoverage: branchCoverage * 100,
-    mutationScore: Number(model.avg_mutation_score || 0) * 100,
-    mutationKillRate: mutationKillRate * 100,
-    assertionDensity: normalizedAssertionDensity(model.avg_assertion_density) * 100
-  };
-}
-
-function renderBenchmarkScoreboard(scope = 'top') {
-  const container = document.getElementById('benchmarkScoreboard');
-  const legend = document.getElementById('benchmarkScoreboardLegend');
-  if (!container || !legend) return;
-  const models = (scope === 'all' ? reportTopModels : reportTopModels.slice(0, 6));
-  const extras = aggregateModelExtras();
-  const metrics = [
-    { key: 'compile', group: 'Execution', title: 'Compile Pass', sub: '编译通过' },
-    { key: 'sampleTest', group: 'Execution', title: 'Sample Test Pass', sub: '样本测试通过' },
-    { key: 'testCase', group: 'Execution', title: 'Test Case Pass', sub: '用例通过' },
-    { key: 'lineCoverage', group: 'Coverage', title: 'Line Coverage', sub: '行覆盖率' },
-    { key: 'branchCoverage', group: 'Coverage', title: 'Branch Coverage', sub: '分支覆盖率' },
-    { key: 'mutationScore', group: 'Effectiveness', title: 'Mutation Score', sub: '变异分数' },
-    { key: 'mutationKillRate', group: 'Effectiveness', title: 'Mutation Kill Rate', sub: '有效变异杀死率' },
-    { key: 'assertionDensity', group: 'Generation', title: 'Assertion Density', sub: '断言密度归一化' }
-  ];
-  const modelValues = new Map(models.map(model => [model.model, benchmarkMetricsForModel(model, extras)]));
-
-  legend.innerHTML = '<span>全部模型使用固定颜色；每张图按当前指标从高到低排序，柱底直接显示模型名。</span>';
-
-  container.innerHTML = metrics.map(metric => {
-    const values = models
-      .map((model, index) => ({ model, color: modelColor(index), value: (modelValues.get(model.model) || {})[metric.key] || 0 }))
-      .sort((a, b) => b.value - a.value || a.model.model.localeCompare(b.model.model));
-    const bars = values.map(item => {
-      const value = Math.max(0, Math.min(100, item.value));
-      return '<div class="scorebar-item" title="' + safeText(item.model.model) + ': ' + value.toFixed(1) + '">' +
-        '<div class="scorebar-value">' + value.toFixed(1) + '</div>' +
-        '<div class="scorebar-track"><div class="scorebar-fill" style="height:' + Math.max(2, value) + '%;background:' + item.color + '"></div></div>' +
-        '<div class="scorebar-label">' + safeText(shortModelName(item.model.model)) + '</div>' +
-        '</div>';
-    }).join('');
-    return '<article class="scoreboard-card">' +
-      '<div class="scoreboard-card-group">' + safeText(metric.group) + '</div>' +
-      '<div class="scoreboard-card-title">' + safeText(metric.title) + '</div>' +
-      '<div class="scoreboard-card-sub">' + safeText(metric.sub) + '</div>' +
-      '<div class="scoreboard-chart">' +
-        '<div class="scoreboard-y-axis"><span>100</span><span>75</span><span>50</span><span>25</span><span>0</span></div>' +
-        '<div class="scoreboard-plot"><div class="scoreboard-grid-lines"></div><div class="scoreboard-bars">' + bars + '</div></div>' +
-      '</div>' +
-      '</article>';
-  }).join('');
-}
-
-function initBenchmarkScoreboardToggle() {
-  const buttons = document.querySelectorAll('[data-scoreboard-scope]');
-  if (!buttons.length) return;
-  buttons.forEach(button => {
-    button.addEventListener('click', () => {
-      buttons.forEach(item => item.classList.remove('active'));
-      button.classList.add('active');
-      renderBenchmarkScoreboard(button.getAttribute('data-scoreboard-scope') || 'top');
-    });
-  });
 }
 
 function renderEfficiencyQualityChart(axis = 'latency') {
@@ -696,15 +577,11 @@ function renderFilteredSections() {
   renderErrorTable(aggregated.failureRows);
   renderErrorCharts(aggregated.failureRows);
   renderScenarioCharts(aggregated.scenarios);
-  renderHeatmap('coverageHeatmap', aggregated.filtered, 'line_coverage');
-  renderHeatmap('mutationHeatmap', aggregated.filtered, 'mutation_score');
   const exportBtn = document.getElementById('export-scenario-csv');
   if (exportBtn) exportBtn.onclick = () => exportScenarioCSV(aggregated.scenarios);
 }
 
 (async function init() {
-  renderBenchmarkScoreboard('top');
-  initBenchmarkScoreboardToggle();
   try {
     if (window.__utBenchEnsureChartJS) {
       await window.__utBenchEnsureChartJS();
