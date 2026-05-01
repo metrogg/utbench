@@ -1,402 +1,351 @@
 # UT-Bench 用户指南
 
-多语言单元测试生成效果横向评测工具，支持 Python、Go、Java、C++ 四种语言。
+## 1. 定位
 
----
+UT-Bench 现在评测的不是单一模型，而是统一被测对象 `subject`：
 
-## 目录
-
-1. [快速开始](#快速开始)
-2. [环境配置](#环境配置)
-3. [命令详解](#命令详解)
-4. [模型配置](#模型配置)
-5. [数据集说明](#数据集说明)
-6. [输出结果](#输出结果)
-7. [常见问题](#常见问题)
-
----
-
-## 快速开始
-
-### 方式一：Docker 运行（推荐）
-
-```bash
-# 1. 加载镜像（如有 tar 文件）
-docker load -i utbench.tar
-
-# 或构建镜像
-docker build -t utbench:latest .
-
-# 2. 配置 API 密钥
-cp .env.example .env
-# 编辑 .env 文件填入密钥
-
-# 3. 运行测试
-docker run --rm --env-file .env \
-  -v "$(pwd)/datasets:/app/datasets" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
-  -v "$(pwd)/configs:/app/configs" \
-  -w /app \
-  utbench:latest run \
-    --models deepseek \
-    --langs python,java \
-    --config /app/configs/models.yaml \
-    --dataset-root /app/datasets \
-    --max-samples 5 \
-    --class self_contained
+```text
+subject = framework + model + optional skill
 ```
 
-### 方式二：本地运行
+典型对比方式：
 
-```bash
-# 1. 构建
-go build -o utbench ./cmd/utbench/
+- `model_api + model + no_skill`
+- `cli_agent + framework + model + no_skill`
+- `cli_agent + framework + model + skill`
 
-# 2. 设置环境变量
-export DEEPSEEK_API_KEY="sk-xxx"
+这允许你同时回答两类问题：
 
-# 3. 运行
-./utbench run --models deepseek --langs python --max-samples 5
-```
+- Agent 相比纯模型 API 提升了多少
+- 同一 Agent 加 skill 之后提升了多少
 
----
+## 2. 支持范围
 
-## 环境配置
+### 语言
 
-### API 密钥
-
-在 `.env` 文件中配置：
-
-```bash
-DEEPSEEK_API_KEY=sk-xxx        # DeepSeek
-DASHSCOPE_API_KEY=xxx          # 通义千问 (Qwen)
-MINIMAX_API_KEY=xxx            # Minimax
-VOLCENGINE_API_KEY=xxx         # 豆包 (Doubao)
-ARK_API_KEY=xxx                # 豆包 ARK 版本
-```
-
-### 语言工具链（本地运行需要）
-
-| 语言 | 测试框架 | 覆盖率工具 | 变异测试 |
-|------|---------|-----------|---------|
+| 语言 | 编译/测试 | 覆盖率 | 变异测试 |
+|------|-----------|--------|----------|
 | Python | pytest | coverage | mutmut |
 | Go | go test | go test -cover | go-mutesting |
 | Java | Maven/JUnit | JaCoCo | pitest |
 | C++ | GoogleTest | gcov | mull |
 
-安装命令：
+### Subject 类型
+
+| kind | 说明 |
+|------|------|
+| `model_api` | 纯模型 API baseline |
+| `cli_agent` | 外部 CLI Agent，通过命令模板调用 |
+
+后续可扩展 `http_agent`、`swe_agent` 一类适配器，但当前代码里还没有实现。
+
+## 3. 运行模式
+
+### 纯模型 baseline
 
 ```bash
-# Python
-pip install pytest coverage mutmut
-
-# Go
-go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest
-
-# Java - Maven 自动下载依赖
-
-# C++ (Ubuntu)
-sudo apt-get install cmake clang-15 libgtest-dev g++-15 mull-15
-```
-
----
-
-## 命令详解
-
-### utbench run（完整流程）
-
-一键执行：生成 → 评测 → 报告
-
-```bash
-utbench run \
-  --models deepseek,qwen \
-  --langs python,java,go,cpp \
+./utbench run \
+  --models deepseek-v4-flash \
+  --langs python,go \
   --config ./configs/models.yaml \
   --dataset-root ./datasets \
   --output-root ./artifacts \
-  --class self_contained \
-  --max-samples 10 \
-  --mutation-enabled \
-  --mutation-timeout 360
+  --class self_contained
 ```
 
-**参数说明：**
+当只传 `--models` 时，系统会自动生成：
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--config` | `../benchmark/config/models.yaml` | 模型配置文件 |
-| `--models` | `deepseek` | 模型列表（逗号分隔） |
-| `--langs` | `python` | 语言列表（逗号分隔） |
-| `--dataset-root` | `./datasets` | 数据集目录 |
-| `--dataset-manifest` | `./configs/dataset_index.json` | 数据集索引 |
-| `--output-root` | `./artifacts` | 输出目录 |
-| `--class` | `self_contained` | 数据集类别 |
-| `--scenario` | 全部 | 场景过滤 |
-| `--level` | `l1` | 数据集级别 |
-| `--max-samples` | `0`（全部） | 样本数量上限 |
-| `--mode` | `full` | 运行模式：`full`/`incremental` |
-| `--mutation-enabled` | `true` | 启用变异测试 |
-| `--mutation-timeout` | `360` | 变异超时（秒） |
-| `--mutation-policy` | `warn` | 变异错误策略 |
-| `--total-timeout` | `0`（无限制） | 总超时（分钟） |
-| `--dry-run` | `false` | 试运行（不调用API） |
-| `--reset-checkpoint` | `false` | 重置断点 |
-| `--ingest` | `false` | 导入SQLite |
-| `--verbose` | `true` | 详细日志 |
+```text
+model_api__<model>__no_skill
+```
 
-### utbench generate（仅生成）
+### Agent / Skill 模式
 
 ```bash
-utbench generate \
-  --models deepseek \
+./utbench run \
+  --models deepseek-v4-flash \
   --langs python \
-  --max-samples 5 \
-  --dry-run
+  --config ./configs/models.yaml \
+  --agents-config ./configs/agents.example.yaml \
+  --subjects model_api__deepseek-v4-flash__no_skill,opencode__deepseek-v4-flash__no_skill,opencode__deepseek-v4-flash__unit_test_skill \
+  --dataset-root ./datasets \
+  --output-root ./artifacts \
+  --class self_contained \
+  --max-samples 1
 ```
 
-### utbench evaluate（仅评测）
+如果只传 `--agents-config` 不传 `--subjects`，系统会自动展开所有合法的：
+
+```text
+framework × model × skill
+```
+
+并自动保留 `model_api__<model>__no_skill`。
+
+## 4. 关键参数
+
+### `utbench run`
+
+| 参数 | 说明 |
+|------|------|
+| `--config` | 模型配置文件 |
+| `--models` | 模型列表 |
+| `--agents-config` | Agent/Skill 配置文件 |
+| `--subjects` | 显式选择 subject，格式 `framework__model__skill` |
+| `--langs` | 语言列表 |
+| `--dataset-root` | 数据集目录 |
+| `--dataset-manifest` | 数据集 manifest |
+| `--class` | 数据集类别，支持逗号分隔 |
+| `--scenario` | 场景过滤 |
+| `--level` | 数据集级别 |
+| `--max-samples` | 样本上限 |
+| `--mode` | `full` 或 `incremental` |
+| `--reset-checkpoint` | 重置 checkpoint |
+| `--dry-run` | 不调用真实模型 |
+| `--reuse-generated` | 从 SQLite 复用历史 generated case |
+| `--mutation-enabled` | 是否启用变异测试 |
+| `--mutation-timeout` | 变异超时秒数 |
+| `--test-timeout` | 测试执行超时秒数 |
+| `--workers` | 并发 worker 数 |
+| `--output-root` | 输出根目录 |
+| `--run-id` | 指定 run ID |
+
+### 分步命令
+
+- `utbench generate --manifest` 不存在，`generate` 会直接产出 `generated_manifest.json`
+- `utbench evaluate --manifest <generated_manifest.json>`
+- `utbench report --evaluation <evaluation_result.json>`
+
+## 5. `agents.yaml` 结构
+
+示例见 [configs/agents.example.yaml](/C:/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/go-ut-bench/configs/agents.example.yaml)。
+
+如果使用当前仓库提供的 `OpenCode` 示例，还要先构建对应的内层 Agent 镜像：
 
 ```bash
-utbench evaluate \
-  --manifest ./artifacts/runs/<run-id>/generated/generated_manifest.json \
-  --mutation-enabled
+docker build -t utbench-agent-opencode:latest -f ./docker/agents/opencode/Dockerfile .
 ```
 
-### utbench report（仅报告）
-
-```bash
-utbench report \
-  --input ./artifacts/runs/<run-id>/evaluation/evaluation_result.json
-```
-
-### utbench dataset（数据集管理）
-
-```bash
-# 生成数据集索引
-utbench dataset index --root ./datasets --output ./configs/dataset_index.json
-
-# 查看统计
-utbench dataset stats --manifest ./configs/dataset_index.json
-```
-
----
-
-## 模型配置
-
-配置文件：`configs/models.yaml`
-
-### 支持的模型
-
-| 模型名 | Provider | 说明 |
-|--------|----------|------|
-| `qwen` | dashscope | 通义千问 3.6-plus |
-| `deepseek` | deepseek | DeepSeek Chat |
-| `minimax` | minimax | MiniMax M2.7 |
-| `doubao-seed` | volcengine | 豆包 Seed 2.0 Pro |
-| `doubao-seed-2.0-lite` | volcengine | 豆包 Seed 2.0 Lite |
-| `doubao-seed-1.6` | volcengine | 豆包 Seed 1.6 |
-| `doubao-seed-2.0-pro-v2` | volcengine | 豆包 Seed 2.0 Pro V2 |
-
-### 配置示例
+核心结构：
 
 ```yaml
 models:
-  deepseek:
-    enabled: true
-    provider: deepseek
-    config:
-      api_endpoint: "https://api.deepseek.com/v1"
-      model: "deepseek-chat"
-      api_key_env: "DEEPSEEK_API_KEY"
-      parameters:
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 4096
+  - deepseek-v4-flash
+
+frameworks:
+  opencode:
+    kind: cli_agent
+    sandbox_mode: docker
+    docker_image: utbench-agent-opencode:latest
+    timeout_seconds: 600
+    network_disabled: true
+    cpu: "2"
+    memory: 2g
+    env:
+      OPENCODE_CONFIG_CONTENT: |
+        {"provider":{"utbench":{"options":{"baseURL":"{{.ModelEndpoint}}","apiKey":"{env:{{.ModelAPIKeyEnv}}}"}}}}
+    env_from_host:
+      - DEEPSEEK_API_KEY
+    command: >
+      opencode run --print-logs --dangerously-skip-permissions --model utbench/{{.ModelID}} "$(cat {{.ContainerPrompt}})"
+    compatible_models:
+      - deepseek-v4-flash
+    compatible_languages:
+      - python
+      - go
+    output_globs:
+      - "test_*.py"
+      - "*_test.go"
+
+skills:
+  unit_test_skill:
+    version: "1"
+    inject_mode: prompt_append
+    instruction_path: ./skills/unit_test_skill.md
+    compatible_frameworks:
+      - opencode
+
+subjects:
+  - framework: opencode
+    model: deepseek-v4-flash
+    skill: unit_test_skill
 ```
 
-### 参数说明
+### framework 字段
 
-- `max_tokens`: 最大输出长度（建议 4096-8192）
-- `temperature`: 生成随机性（0.7 推荐）
-- `top_p`: 采样范围（0.9 推荐）
+| 字段 | 说明 |
+|------|------|
+| `kind` | 目前主要是 `cli_agent` |
+| `command` | 命令模板 |
+| `sandbox_mode` | `docker` 或 `local` |
+| `docker_image` | 内层 Agent 沙箱镜像 |
+| `timeout_seconds` | 单样本 Agent 超时 |
+| `output_globs` | 测试文件发现规则 |
+| `env` | 传给 Agent 的环境变量 |
+| `env_from_host` | 从宿主环境透传进 Agent 进程或容器的变量名 |
+| `compatible_models` | 允许的模型列表 |
+| `compatible_languages` | 允许的语言列表 |
+| `network_disabled` | 是否禁网 |
+| `cpu` / `memory` | 资源限制 |
 
----
+### skill 字段
 
-## 数据集说明
+| 字段 | 说明 |
+|------|------|
+| `version` | skill 版本号 |
+| `description` | skill 描述 |
+| `instruction_path` | prompt 说明文件 |
+| `files` | 复制进工作区的文件或目录 |
+| `inject_mode` | `prompt_append` / `workspace_mount` / `agent_native` |
+| `compatible_frameworks` | 兼容的 framework |
+| `compatible_languages` | 兼容的语言 |
 
-### 目录结构
+## 6. CLI Agent 的调用约定
 
-```
-datasets/
-  python/
-    python_code_files_self_contained/
-      boundary/           # 边界条件测试
-      simple_function/    # 简单函数测试
-      complex_dependency/ # 复杂依赖测试
-      interface_mock/     # 接口模拟测试
-  java/
-  go/
-  cpp/
-```
+当前实现不是为某个 Agent 写死命令，而是统一模板渲染。
 
-### 数据集类别
+### 模板变量
 
-| 类别 | 说明 | 适用语言 |
-|------|------|---------|
-| `self_contained` | 自包含代码 | Python, Go, Java, C++ |
-| `module_level` | 模块级别(需要workspace上下文) | (待扩展) |
+常用变量：
 
-**当前数据集均为 `self_contained`**，默认 `--class self_contained` 即可正常工作。若后续新增真正的 module_level 样本（需要 meta.json 和 workspace_root），则需指定 `--class module_level`。
+- `{{.Model}}`
+- `{{.ModelID}}`
+- `{{.Framework}}`
+- `{{.SubjectID}}`
+- `{{.Skill}}`
+- `{{.Language}}`
+- `{{.SampleID}}`
+- `{{.Workspace}}`
+- `{{.PromptFile}}`
+- `{{.OutputFile}}`
+- `{{.SourceFile}}`
+- `{{.SkillDir}}`
+- `{{.ContainerWorkdir}}`
+- `{{.ContainerPrompt}}`
+- `{{.ContainerOutput}}`
+- `{{.ContainerSkillDir}}`
 
-### 场景类型
+### 执行契约
 
-- `boundary`: 边界条件测试
-- `simple_function`: 简单函数
-- `complex_dependency`: 复杂依赖
-- `interface_mock`: 接口模拟
+UT-Bench 会给 Agent 一个明确约束：
 
----
+- 只能在当前工作区内工作
+- 不要修改原始源码行为
+- 生成一个完整的单元测试文件
+- 最终测试文件必须写到指定路径
 
-## 输出结果
+如果 Agent 没在预期路径输出，UT-Bench 会按 `output_globs` 和工作区 diff 再查一次。
 
-### 目录结构
+## 7. Docker 与沙箱的边界
 
-```
-artifacts/
-  runs/
-    <run-id>/
-      generated/
-        tests/           # 生成的测试文件
-        metadata/        # 元数据（响应、统计）
-        generated_manifest.json
-      evaluation/
-        evaluation_result.json
-      report/
-        report.html      # HTML 报告
-        report_summary.json
-      run.log            # 运行日志
-      api.log            # API 调用日志
-```
+很多人会把这两件事混在一起：
 
-### 报告内容
+### 外层 Docker
 
-HTML 报告包含：
-
-1. **模型排名**：综合得分排序
-2. **按语言统计**：各语言表现
-3. **按场景统计**：各场景表现
-4. **截断分析**：截断率、续写统计、调优建议
-5. **错误分析**：失败案例详情
-6. **图表分析**：可视化对比
-
-### 关键指标
-
-- **编译通过率**：生成的测试能否编译
-- **测试通过率**：测试是否正确
-- **行覆盖率**：代码覆盖程度
-- **变异得分**：测试质量（杀死变异比例）
-
----
-
-## 常见问题
-
-### Q: 截断问题如何处理？
-
-系统已内置自动续写功能：
-- 检测到截断时自动发送续写请求
-- 最多续写 3 次
-- 报告中显示截断统计和调优建议
-
-如截断率过高，建议：
-1. 增加 `max_tokens`（如 8192）
-2. 简化提示词
-3. 选择更大上下文的模型
-
-### Q: Docker 命令在 Windows 如何运行？
-
-PowerShell 格式：
-```powershell
-docker run --rm --env-file .env `
-  -v "${PWD}/datasets:/app/datasets" `
-  -v "${PWD}/artifacts:/app/artifacts" `
-  -v "${PWD}/configs:/app/configs" `
-  -w /app `
-  utbench:latest run --models deepseek --langs python
+```text
+docker run utbench:latest ...
 ```
 
-### Q: 如何增量运行？
+这是 UT-Bench 自己的运行环境，不等于 Agent 沙箱。
 
-使用 `--mode incremental`：
-```bash
-utbench run --mode incremental --models deepseek --langs python
+### 内层 Agent 沙箱
+
+当 framework 配置为：
+
+```yaml
+sandbox_mode: docker
 ```
 
-系统会跳过已完成的样本（基于 checkpoint）。
+UT-Bench 会对每个 `subject × sample`：
 
-### Q: 变异测试太慢怎么办？
+1. 创建独立工作区
+2. 启动独立容器
+3. 只挂载该工作区到 `/workspace`
+4. 可选禁网
+5. 设置 CPU / memory / timeout
+6. 回收容器
 
-1. 减少样本数：`--max-samples 5`
-2. 缩短超时：`--mutation-timeout 180`
-3. 关闭变异：去掉 `--mutation-enabled`
+所以最终正确的隔离粒度，确实就是：
 
-### Q: 如何查看详细日志？
-
-日志文件位置：
-- `artifacts/runs/<run-id>/run.log`
-- `artifacts/runs/<run-id>/api.log`
-
----
-
-## 示例命令
-
-### 快速测试（2个样本）
-
-```bash
-docker run --rm --env-file .env \
-  -v "$(pwd)/datasets:/app/datasets" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
-  -v "$(pwd)/configs:/app/configs" \
-  -w /app \
-  utbench:latest run \
-    --models deepseek \
-    --langs python \
-    --config /app/configs/models.yaml \
-    --dataset-root /app/datasets \
-    --max-samples 2 \
-    --class module_level
+```text
+一个 Agent 执行一个样本，对应一个独立工作区，最好再对应一个独立容器
 ```
 
-### 全量评测（所有模型+语言）
+这既是安全边界，也是公平边界。
 
-```bash
-docker run --rm --env-file .env \
-  -v "$(pwd)/datasets:/app/datasets" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
-  -v "$(pwd)/configs:/app/configs" \
-  -w /app \
-  utbench:latest run \
-    --models deepseek,qwen,minimax,doubao-seed \
-    --langs python,java,go,cpp \
-    --config /app/configs/models.yaml \
-    --dataset-root /app/datasets \
-    --mutation-enabled \
-    --mutation-timeout 360
-```
+### 当前状态
 
-### 仅生成（调试用）
+当前代码已经支持这个方向的第一版：
 
-```bash
-docker run --rm --env-file .env \
-  -v "$(pwd)/datasets:/app/datasets" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
-  -v "$(pwd)/configs:/app/configs" \
-  -w /app \
-  utbench:latest generate \
-    --models deepseek \
-    --langs cpp \
-    --config /app/configs/models.yaml \
-    --dataset-root /app/datasets \
-    --max-samples 1 \
-    --class self_contained \
-    --dry-run
-```
+- 工作区按 `subject × sample` 拆分
+- `sandbox_mode: docker` 时按样本起内层容器
+- 记录 trace、diff、sandbox fingerprint
+
+但还不能说“沙箱体系已经做完”，因为还缺：
+
+- 更严格的镜像供应和固定 digest
+- 更明确的只读挂载策略
+- 更系统的网络、syscall、权限收敛
+- 语言专用基础镜像
+- 更强的隔离层，例如 gVisor / Firecracker / E2B
+
+## 8. 报告新增内容
+
+除了原有的编译、测试、覆盖率、变异得分，当前报告还会额外产出：
+
+- `agent_comparisons`
+  - 同模型、同样本下，Agent 相对 `model_api` baseline 的提升
+- `skill_uplifts`
+  - 同 framework + model、同样本下，skill 相对 `no_skill` 的提升
+
+常见比较：
+
+- `opencode__deepseek-v4-flash__no_skill` vs `model_api__deepseek-v4-flash__no_skill`
+- `opencode__deepseek-v4-flash__unit_test_skill` vs `opencode__deepseek-v4-flash__no_skill`
+
+## 9. 数据集与样本准备
+
+### `self_contained`
+
+直接使用单文件样本。对纯模型 API 和 Agent 都适用。
+
+### `module_level`
+
+如果样本旁边存在 module-level metadata，runner 会复制整个 workspace，再把目标文件交给 Agent。
+
+这意味着 Agent 视角里拿到的是一个最小可操作 repo，而不是孤立源码片段。
+
+## 10. 现在优先接哪个真实 CLI Agent
+
+建议先接 `OpenCode`。
+
+理由不是品牌偏好，而是适配目标：
+
+- 你要的是 `framework × model` 的横评能力
+- `OpenCode` 更适合作为通用 Agent 框架入口
+- `Claude Code` 更适合作为 Claude 自身工作流的专项评测
+
+所以建议顺序：
+
+1. `OpenCode`
+2. `Claude Code`
+
+## 11. 常见问题
+
+### `--models` 和 `--subjects` 要不要同时传
+
+建议传。
+
+原因是 subject 展开和模型配置加载都需要模型集合。第一版里，`agents.yaml` 也会对模型名做交集过滤。
+
+### 只传 `--models` 能不能跑
+
+可以。那就是纯模型 baseline 模式。
+
+### 只传 `--agents-config` 不传 `--subjects` 能不能跑
+
+可以。系统会自动展开全部合法组合。
+
+### `sandbox_mode: local` 有什么用
+
+主要用于本地调试和测试。正式跑 Agent 横评时，应该优先用 `sandbox_mode: docker`。

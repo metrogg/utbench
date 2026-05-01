@@ -7,9 +7,15 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 
-# Replace with Aliyun mirror for better connectivity in China
-RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
-    sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources
+ARG UBUNTU_MIRROR=
+
+# Optionally override Ubuntu archive/security hosts for build environments
+# that need a regional mirror. Leave UBUNTU_MIRROR empty to keep upstream
+# defaults and avoid hard failures when a third-party mirror is flaky.
+RUN if [ -n "${UBUNTU_MIRROR}" ]; then \
+      sed -i "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources && \
+      sed -i "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources; \
+    fi
 
 # Install base tools first (needed for adding LLVM repo)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -22,11 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Add LLVM official repository for LLVM 19
-# Re-apply mirror after add-apt-repository (it may restore original sources)
 RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
     add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" && \
-    sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
-    sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    if [ -n "${UBUNTU_MIRROR}" ]; then \
+      sed -i "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources && \
+      sed -i "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources; \
+    fi && \
     apt-get update
 
 # System dependencies - Install LLVM 19 for Mull 19 compatibility
@@ -35,6 +42,7 @@ RUN apt-get install -y --fix-missing --no-install-recommends \
     gcc \
     g++ \
     cmake \
+    docker.io \
     git \
     unzip \
     python3 \

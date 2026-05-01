@@ -47,7 +47,7 @@ func (s *Service) ValidateSpec(spec contracts.RunSpec) error {
 	if strings.TrimSpace(spec.DatasetRoot) == "" {
 		return errors.New("dataset root is required")
 	}
-	if len(spec.Models) > 0 {
+	if len(spec.Models) > 0 || len(spec.Subjects) > 0 {
 		if strings.TrimSpace(spec.OutputRoot) == "" {
 			return errors.New("output root is required")
 		}

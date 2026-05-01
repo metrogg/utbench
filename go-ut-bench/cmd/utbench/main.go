@@ -201,6 +201,7 @@ func runRun(args []string) error {
 	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
 	verbose := fs.Bool("v", false, "Verbose output")
 	config := fs.String("config", "../benchmark/config/models.yaml", "Model config path")
+	agentsConfig := fs.String("agents-config", "", "Agent/skill config path")
 	outputRoot := fs.String("output-root", "./artifacts", "Output root directory")
 	datasetRoot := fs.String("dataset-root", "./datasets", "Dataset root directory")
 	datasetManifest := fs.String("dataset-manifest", "", "Dataset manifest path")
@@ -218,6 +219,7 @@ func runRun(args []string) error {
 	testTimeout := fs.Int("test-timeout", 180, "Test execution timeout (seconds)")
 	workers := fs.Int("workers", 16, "Number of concurrent workers (default 16)")
 	models := fs.String("models", "", "Comma-separated models")
+	subjects := fs.String("subjects", "", "Comma-separated subjects (framework__model__skill)")
 	langs := fs.String("langs", "", "Comma-separated languages")
 	runID := fs.String("run-id", "", "Run ID")
 
@@ -230,28 +232,30 @@ func runRun(args []string) error {
 	}
 
 	spec := contracts.RunSpec{
-		ConfigPath:      *config,
-		OutputRoot:      *outputRoot,
-		DatasetRoot:     *datasetRoot,
-		DatasetManifest: *datasetManifest,
-		DatasetLevel:    *datasetLevel,
-		DatasetClasses:  parseCommaList(*datasetClass),
-		DatasetScenario: *datasetScenario,
-		MaxSamples:      *maxSamples,
-		Workers:         *workers,
-		Mode:            contracts.RunMode(*mode),
-		ResetCheckpoint: *resetCheckpoint,
-		DryRun:          *dryRun,
-		ReuseGenerated:  *reuseGenerated,
-		DBPath:          *dbPath,
-		MutationEnabled: *mutationEnabled,
-		MutationTimeout: *mutationTimeout,
-		MutationPolicy:  policy,
-		TestTimeout:     *testTimeout,
-		Models:          parseCommaList(*models),
-		Languages:       parseCommaList(*langs),
-		RunID:           *runID,
-		CreatedAtUTC:    time.Now().UTC(),
+		ConfigPath:       *config,
+		AgentsConfigPath: *agentsConfig,
+		OutputRoot:       *outputRoot,
+		DatasetRoot:      *datasetRoot,
+		DatasetManifest:  *datasetManifest,
+		DatasetLevel:     *datasetLevel,
+		DatasetClasses:   parseCommaList(*datasetClass),
+		DatasetScenario:  *datasetScenario,
+		MaxSamples:       *maxSamples,
+		Workers:          *workers,
+		Mode:             contracts.RunMode(*mode),
+		ResetCheckpoint:  *resetCheckpoint,
+		DryRun:           *dryRun,
+		ReuseGenerated:   *reuseGenerated,
+		DBPath:           *dbPath,
+		MutationEnabled:  *mutationEnabled,
+		MutationTimeout:  *mutationTimeout,
+		MutationPolicy:   policy,
+		TestTimeout:      *testTimeout,
+		Models:           parseCommaList(*models),
+		Subjects:         parseCommaList(*subjects),
+		Languages:        parseCommaList(*langs),
+		RunID:            *runID,
+		CreatedAtUTC:     time.Now().UTC(),
 	}
 	ensureRunID(&spec)
 
@@ -294,6 +298,7 @@ func runGenerate(args []string) error {
 
 	verbose := fs.Bool("v", false, "Verbose output")
 	config := fs.String("config", "../benchmark/config/models.yaml", "Model config path")
+	agentsConfig := fs.String("agents-config", "", "Agent/skill config path")
 	outputRoot := fs.String("output-root", "./artifacts", "Output root directory")
 	datasetRoot := fs.String("dataset-root", "./datasets", "Dataset root directory")
 	datasetManifest := fs.String("dataset-manifest", "", "Dataset manifest path")
@@ -305,6 +310,7 @@ func runGenerate(args []string) error {
 	resetCheckpoint := fs.Bool("reset-checkpoint", false, "Reset checkpoint")
 	dryRun := fs.Bool("dry-run", false, "Dry run")
 	models := fs.String("models", "", "Comma-separated models")
+	subjects := fs.String("subjects", "", "Comma-separated subjects (framework__model__skill)")
 	langs := fs.String("langs", "", "Comma-separated languages")
 	runID := fs.String("run-id", "", "Run ID")
 
@@ -313,21 +319,23 @@ func runGenerate(args []string) error {
 	}
 
 	spec := contracts.RunSpec{
-		ConfigPath:      *config,
-		OutputRoot:      *outputRoot,
-		DatasetRoot:     *datasetRoot,
-		DatasetManifest: *datasetManifest,
-		DatasetLevel:    *datasetLevel,
-		DatasetClasses:  parseCommaList(*datasetClass),
-		DatasetScenario: *datasetScenario,
-		MaxSamples:      *maxSamples,
-		Mode:            contracts.RunMode(*mode),
-		ResetCheckpoint: *resetCheckpoint,
-		DryRun:          *dryRun,
-		Models:          parseCommaList(*models),
-		Languages:       parseCommaList(*langs),
-		RunID:           *runID,
-		CreatedAtUTC:    time.Now().UTC(),
+		ConfigPath:       *config,
+		AgentsConfigPath: *agentsConfig,
+		OutputRoot:       *outputRoot,
+		DatasetRoot:      *datasetRoot,
+		DatasetManifest:  *datasetManifest,
+		DatasetLevel:     *datasetLevel,
+		DatasetClasses:   parseCommaList(*datasetClass),
+		DatasetScenario:  *datasetScenario,
+		MaxSamples:       *maxSamples,
+		Mode:             contracts.RunMode(*mode),
+		ResetCheckpoint:  *resetCheckpoint,
+		DryRun:           *dryRun,
+		Models:           parseCommaList(*models),
+		Subjects:         parseCommaList(*subjects),
+		Languages:        parseCommaList(*langs),
+		RunID:            *runID,
+		CreatedAtUTC:     time.Now().UTC(),
 	}
 	ensureRunID(&spec)
 

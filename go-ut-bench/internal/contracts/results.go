@@ -11,24 +11,33 @@ import (
 // GeneratedCase 表示单个测试生成案例的结果
 // 记录了模型生成的单元测试的完整信息，包括文件路径、耗时、token使用情况等
 type GeneratedCase struct {
-	Model             string     `json:"model"`                       // 生成测试的模型名称，如"deepseek"、"qwen"等
-	Language          string     `json:"language"`                    // 编程语言，如"python"、"go"、"java"等
-	SampleID          string     `json:"sample_id"`                   // 数据集样本的唯一标识符
-	SamplePath        string     `json:"sample_path"`                 // 原始源代码文件的路径
-	PromptVersionID   string     `json:"prompt_version_id,omitempty"` // 本次生成使用的提示词版本ID
-	PromptMode        string     `json:"prompt_mode,omitempty"`       // 提示词模式，如 full_file / module_level
-	PromptPath        string     `json:"prompt_path,omitempty"`       // 渲染后的提示词快照路径
-	GeneratedTestPath string     `json:"generated_test_path"`         // 生成的测试文件保存路径
-	ResponsePath      string     `json:"response_path"`               // 模型API响应的JSON文件路径（用于调试）
-	MetadataPath      string     `json:"metadata_path"`               // 元数据JSON文件路径
-	LatencyMS         int        `json:"latency_ms"`                  // API调用耗时，单位毫秒
-	PromptTokens      *int       `json:"prompt_tokens,omitempty"`     // 提示词token数量
-	CompletionTokens  *int       `json:"completion_tokens,omitempty"` // 生成内容token数量
-	TotalTokens       *int       `json:"total_tokens,omitempty"`      // 总token数量
-	GeneratedAtUTC    time.Time  `json:"generated_at_utc"`            // 测试生成时间（UTC时间）
-	Success           bool       `json:"success"`                     // 生成是否成功
-	Truncated         bool       `json:"truncated,omitempty"`         // API响应是否因max_tokens截断（finish_reason="length")
-	Error             *ErrorInfo `json:"error,omitempty"`             // 如果失败，记录错误详情
+	Model              string     `json:"model"`                         // 生成测试的模型名称，如"deepseek"、"qwen"等
+	SubjectID          string     `json:"subject_id,omitempty"`          // 被测对象ID：framework__model__skill
+	SubjectKind        string     `json:"subject_kind,omitempty"`        // model_api / cli_agent / http_agent / swe_agent
+	AgentFramework     string     `json:"agent_framework,omitempty"`     // Agent框架或model_api
+	AgentModel         string     `json:"agent_model,omitempty"`         // 底层模型配置名
+	SkillName          string     `json:"skill_name,omitempty"`          // skill名称，缺省no_skill
+	SkillVersion       string     `json:"skill_version,omitempty"`       // skill版本
+	Language           string     `json:"language"`                      // 编程语言，如"python"、"go"、"java"等
+	SampleID           string     `json:"sample_id"`                     // 数据集样本的唯一标识符
+	SamplePath         string     `json:"sample_path"`                   // 原始源代码文件的路径
+	PromptVersionID    string     `json:"prompt_version_id,omitempty"`   // 本次生成使用的提示词版本ID
+	PromptMode         string     `json:"prompt_mode,omitempty"`         // 提示词模式，如 full_file / module_level
+	PromptPath         string     `json:"prompt_path,omitempty"`         // 渲染后的提示词快照路径
+	GeneratedTestPath  string     `json:"generated_test_path"`           // 生成的测试文件保存路径
+	ResponsePath       string     `json:"response_path"`                 // 模型API响应的JSON文件路径（用于调试）
+	MetadataPath       string     `json:"metadata_path"`                 // 元数据JSON文件路径
+	LatencyMS          int        `json:"latency_ms"`                    // API调用耗时，单位毫秒
+	PromptTokens       *int       `json:"prompt_tokens,omitempty"`       // 提示词token数量
+	CompletionTokens   *int       `json:"completion_tokens,omitempty"`   // 生成内容token数量
+	TotalTokens        *int       `json:"total_tokens,omitempty"`        // 总token数量
+	TracePath          string     `json:"trace_path,omitempty"`          // Agent操作轨迹JSONL路径
+	WorkspaceDiffPath  string     `json:"workspace_diff_path,omitempty"` // Agent工作区diff/文件变更路径
+	SandboxFingerprint string     `json:"sandbox_fingerprint,omitempty"` // 沙箱环境指纹
+	GeneratedAtUTC     time.Time  `json:"generated_at_utc"`              // 测试生成时间（UTC时间）
+	Success            bool       `json:"success"`                       // 生成是否成功
+	Truncated          bool       `json:"truncated,omitempty"`           // API响应是否因max_tokens截断（finish_reason="length")
+	Error              *ErrorInfo `json:"error,omitempty"`               // 如果失败，记录错误详情
 }
 
 // GeneratedManifest 包含一组测试生成案例的清单
@@ -48,6 +57,12 @@ type GeneratedManifest struct {
 // 包含编译、运行、覆盖率、变异测试等全面的评测指标
 type EvaluationResult struct {
 	Model                string   `json:"model"`                            // 评测的模型名称
+	SubjectID            string   `json:"subject_id,omitempty"`             // 被测对象ID
+	SubjectKind          string   `json:"subject_kind,omitempty"`           // model_api / cli_agent / http_agent / swe_agent
+	AgentFramework       string   `json:"agent_framework,omitempty"`        // Agent框架或model_api
+	AgentModel           string   `json:"agent_model,omitempty"`            // 底层模型配置名
+	SkillName            string   `json:"skill_name,omitempty"`             // skill名称
+	SkillVersion         string   `json:"skill_version,omitempty"`          // skill版本
 	Language             string   `json:"language"`                         // 编程语言
 	SampleID             string   `json:"sample_id"`                        // 数据集样本ID
 	GeneratedTestPath    string   `json:"generated_test_path"`              // 生成的测试文件路径
@@ -81,19 +96,22 @@ type EvaluationResult struct {
 	CoverageError        string   `json:"coverage_error,omitempty"`         // 覆盖率收集错误信息
 	MutationError        string   `json:"mutation_error,omitempty"`         // 变异测试错误信息
 	MutationTool         string   `json:"mutation_tool,omitempty"`          // 使用的变异测试工具名称
+	TracePath            string   `json:"trace_path,omitempty"`             // Agent操作轨迹JSONL路径
+	WorkspaceDiffPath    string   `json:"workspace_diff_path,omitempty"`    // Agent工作区diff/文件变更路径
+	SandboxFingerprint   string   `json:"sandbox_fingerprint,omitempty"`    // 沙箱环境指纹
 	FailureOrigin        string   `json:"failure_origin,omitempty"`         // 失败归因：model/environment/dataset/tool/none
 	ScoreEligible        *bool    `json:"score_eligible,omitempty"`         // 是否进入模型排名分母；缺省按true兼容旧结果
 	ScoreExclusionReason string   `json:"score_exclusion_reason,omitempty"` // 不进入排名的原因
 }
 
 type EvaluationResultSet struct {
-	SchemaVersion         string             `json:"schema_version"`                    // 数据结构版本号
-	RunID                 string             `json:"run_id"`                            // 关联的运行ID
-	EvaluatedAtUTC        time.Time          `json:"evaluated_at_utc"`                  // 评测完成时间
-	ManifestPath          string             `json:"manifest_path"`                     // 关联的GeneratedManifest文件路径
-	Results               []EvaluationResult `json:"results"`                           // 所有评测结果列表
+	SchemaVersion          string             `json:"schema_version"`                    // 数据结构版本号
+	RunID                  string             `json:"run_id"`                            // 关联的运行ID
+	EvaluatedAtUTC         time.Time          `json:"evaluated_at_utc"`                  // 评测完成时间
+	ManifestPath           string             `json:"manifest_path"`                     // 关联的GeneratedManifest文件路径
+	Results                []EvaluationResult `json:"results"`                           // 所有评测结果列表
 	EnvironmentFingerprint string             `json:"environment_fingerprint,omitempty"` // 评测环境指纹（用于跨Run对比）
-	EnvironmentJSON       string             `json:"environment_json,omitempty"`        // 环境详情JSON
+	EnvironmentJSON        string             `json:"environment_json,omitempty"`        // 环境详情JSON
 }
 
 // ReportSummary 评测结果的汇总统计信息
@@ -171,12 +189,12 @@ type InsightItem struct {
 
 // Insights 自动洞察结论集合
 type Insights struct {
-	BestModel      InsightItem   `json:"best_model"`       // 最佳模型洞察
-	WeakScenarios  []InsightItem `json:"weak_scenarios"`   // 弱项场景
+	BestModel       InsightItem   `json:"best_model"`       // 最佳模型洞察
+	WeakScenarios   []InsightItem `json:"weak_scenarios"`   // 弱项场景
 	StrongScenarios []InsightItem `json:"strong_scenarios"` // 强项场景
-	LanguageGaps   []InsightItem `json:"language_gaps"`    // 语言差异洞察
+	LanguageGaps    []InsightItem `json:"language_gaps"`    // 语言差异洞察
 	Recommendations []InsightItem `json:"recommendations"`  // 改进建议
-	BenchmarkNotes []InsightItem `json:"benchmark_notes"`  // 评测说明
+	BenchmarkNotes  []InsightItem `json:"benchmark_notes"`  // 评测说明
 }
 
 // EfficiencyStats 效率统计
@@ -188,76 +206,76 @@ type EfficiencyStats struct {
 
 // TokenEfficiencyRow Token效率数据
 type TokenEfficiencyRow struct {
-	Model         string  `json:"model"`          // 模型名称
-	ScorePerToken float64 `json:"score_per_token"` // 每千Token得分
-	AvgTokens     float64 `json:"avg_tokens"`      // 平均Token消耗
+	Model          string  `json:"model"`           // 模型名称
+	ScorePerToken  float64 `json:"score_per_token"` // 每千Token得分
+	AvgTokens      float64 `json:"avg_tokens"`      // 平均Token消耗
 	CompositeScore float64 `json:"composite_score"` // 综合得分
-	Rank          int     `json:"rank"`           // 效率排名
+	Rank           int     `json:"rank"`            // 效率排名
 }
 
 // TimeEfficiencyRow 时间效率数据
 type TimeEfficiencyRow struct {
-	Model         string  `json:"model"`          // 模型名称
+	Model          string  `json:"model"`            // 模型名称
 	ScorePerSecond float64 `json:"score_per_second"` // 每秒得分
-	AvgLatencyMS  float64 `json:"avg_latency_ms"`  // 平均延迟（毫秒）
-	CompositeScore float64 `json:"composite_score"` // 综合得分
-	Rank          int     `json:"rank"`           // 效率排名
+	AvgLatencyMS   float64 `json:"avg_latency_ms"`   // 平均延迟（毫秒）
+	CompositeScore float64 `json:"composite_score"`  // 综合得分
+	Rank           int     `json:"rank"`             // 效率排名
 }
 
 // CostEstimate 成本估算
 type CostEstimate struct {
-	TotalTokens     int     `json:"total_tokens"`      // 总Token消耗
-	EstimatedCostUSD float64 `json:"estimated_cost_usd"` // 估算成本（美元）
+	TotalTokens        int            `json:"total_tokens"`         // 总Token消耗
+	EstimatedCostUSD   float64        `json:"estimated_cost_usd"`   // 估算成本（美元）
 	ModelCostBreakdown []ModelCostRow `json:"model_cost_breakdown"` // 各模型成本分解
 }
 
 // ModelCostRow 模型成本数据
 type ModelCostRow struct {
-	Model       string  `json:"model"`        // 模型名称
-	TotalTokens int     `json:"total_tokens"` // 该模型总Token
+	Model            string  `json:"model"`               // 模型名称
+	TotalTokens      int     `json:"total_tokens"`        // 该模型总Token
 	AvgCostPerSample float64 `json:"avg_cost_per_sample"` // 平均每样本成本
 }
 
 // ErrorDiagnosis 错误诊断
 type ErrorDiagnosis struct {
-	CompileErrors  []ErrorCategory `json:"compile_errors"`  // 编译错误分类
-	TestErrors     []ErrorCategory `json:"test_errors"`     // 测试错误分类
-	MutationErrors []ErrorCategory `json:"mutation_errors"` // 变异错误分类
-	CommonPatterns []ErrorPattern  `json:"common_patterns"` // 常见错误模式
-	Recommendations []string       `json:"recommendations"` // 针对性改进建议
+	CompileErrors   []ErrorCategory `json:"compile_errors"`  // 编译错误分类
+	TestErrors      []ErrorCategory `json:"test_errors"`     // 测试错误分类
+	MutationErrors  []ErrorCategory `json:"mutation_errors"` // 变异错误分类
+	CommonPatterns  []ErrorPattern  `json:"common_patterns"` // 常见错误模式
+	Recommendations []string        `json:"recommendations"` // 针对性改进建议
 }
 
 // ErrorCategory 错误分类
 type ErrorCategory struct {
-	Type        string   `json:"type"`         // 错误类型：syntax_error, import_error, type_error, etc
-	Count       int      `json:"count"`        // 出现次数
-	Rate        float64  `json:"rate"`         // 占比
-	ExampleMsg  string   `json:"example_msg"`  // 示例错误信息
+	Type           string   `json:"type"`            // 错误类型：syntax_error, import_error, type_error, etc
+	Count          int      `json:"count"`           // 出现次数
+	Rate           float64  `json:"rate"`            // 占比
+	ExampleMsg     string   `json:"example_msg"`     // 示例错误信息
 	AffectedModels []string `json:"affected_models"` // 受影响的模型
 	AffectedLangs  []string `json:"affected_langs"`  // 受影响的语言
 }
 
 // ErrorPattern 常见错误模式
 type ErrorPattern struct {
-	Pattern     string   `json:"pattern"`      // 错误模式描述
-	Count       int      `json:"count"`        // 出现次数
-	Advice      string   `json:"advice"`       // 改进建议
+	Pattern string `json:"pattern"` // 错误模式描述
+	Count   int    `json:"count"`   // 出现次数
+	Advice  string `json:"advice"`  // 改进建议
 }
 
 // RunConfig 运行配置信息
 type RunConfig struct {
-	Models         []string `json:"models"`          // 评测的模型列表
-	Languages      []string `json:"languages"`       // 评测的语言列表
-	DatasetClass   string   `json:"dataset_class"`   // 数据集类别
-	DatasetLevel   string   `json:"dataset_level"`   // 数据集难度级别
-	MaxSamples     int      `json:"max_samples"`     // 最大样本数
-	MutationEnabled bool    `json:"mutation_enabled"` // 是否启用变异测试
-	MaxTokens      int      `json:"max_tokens,omitempty"` // max_tokens 参数
-	Temperature    float64  `json:"temperature,omitempty"` // temperature 参数
-	PromptVersion  string   `json:"prompt_version"` // 提示词版本
-	StartedAtUTC   time.Time `json:"started_at_utc"` // 开始时间
-	EndedAtUTC     time.Time `json:"ended_at_utc"`   // 结束时间
-	DurationSeconds int     `json:"duration_seconds"` // 运行时长（秒）
+	Models          []string  `json:"models"`                // 评测的模型列表
+	Languages       []string  `json:"languages"`             // 评测的语言列表
+	DatasetClass    string    `json:"dataset_class"`         // 数据集类别
+	DatasetLevel    string    `json:"dataset_level"`         // 数据集难度级别
+	MaxSamples      int       `json:"max_samples"`           // 最大样本数
+	MutationEnabled bool      `json:"mutation_enabled"`      // 是否启用变异测试
+	MaxTokens       int       `json:"max_tokens,omitempty"`  // max_tokens 参数
+	Temperature     float64   `json:"temperature,omitempty"` // temperature 参数
+	PromptVersion   string    `json:"prompt_version"`        // 提示词版本
+	StartedAtUTC    time.Time `json:"started_at_utc"`        // 开始时间
+	EndedAtUTC      time.Time `json:"ended_at_utc"`          // 结束时间
+	DurationSeconds int       `json:"duration_seconds"`      // 运行时长（秒）
 }
 
 // ReportPayload 报告的完整数据结构
@@ -284,10 +302,12 @@ type ReportPayload struct {
 	Prompts           map[string]string   `json:"prompts"`                       // 按语言的提示词模板（key为语言，如"python"）
 	TruncationStats   TruncationStats     `json:"truncation_stats"`              // 截断统计信息
 	// 新增字段
-	Insights          Insights            `json:"insights,omitempty"`            // 自动洞察结论
-	EfficiencyStats   EfficiencyStats     `json:"efficiency_stats,omitempty"`    // 效率统计
-	ErrorDiagnosis    ErrorDiagnosis      `json:"error_diagnosis,omitempty"`     // 错误诊断
-	RunConfig         RunConfig           `json:"run_config,omitempty"`          // 运行配置信息
+	Insights         Insights             `json:"insights,omitempty"`          // 自动洞察结论
+	EfficiencyStats  EfficiencyStats      `json:"efficiency_stats,omitempty"`  // 效率统计
+	ErrorDiagnosis   ErrorDiagnosis       `json:"error_diagnosis,omitempty"`   // 错误诊断
+	RunConfig        RunConfig            `json:"run_config,omitempty"`        // 运行配置信息
+	AgentComparisons []AgentComparisonRow `json:"agent_comparisons,omitempty"` // Agent相对纯模型API的提升
+	SkillUplifts     []SkillUpliftRow     `json:"skill_uplifts,omitempty"`     // Skill相对no_skill的提升
 }
 
 // Dimensions 多维度分析数据
@@ -303,6 +323,12 @@ type Dimensions struct {
 // 统计特定模型在各指标上的表现
 type ModelDim struct {
 	Model               string  `json:"model"`                           // 模型名称
+	SubjectID           string  `json:"subject_id,omitempty"`            // 被测对象ID
+	SubjectKind         string  `json:"subject_kind,omitempty"`          // model_api / cli_agent
+	AgentFramework      string  `json:"agent_framework,omitempty"`       // Agent框架
+	AgentModel          string  `json:"agent_model,omitempty"`           // 底层模型
+	SkillName           string  `json:"skill_name,omitempty"`            // Skill名称
+	SkillVersion        string  `json:"skill_version,omitempty"`         // Skill版本
 	ModelID             string  `json:"model_id,omitempty"`              // 具体型号（如 deepseek-chat）
 	Provider            string  `json:"provider,omitempty"`              // 提供商
 	TotalSamples        int     `json:"total_samples"`                   // 该模型的样本总数
@@ -338,6 +364,12 @@ type LanguageDim struct {
 type ModelRank struct {
 	Rank                int     `json:"rank"`                            // 排名（1为最好）
 	Model               string  `json:"model"`                           // 模型名称
+	SubjectID           string  `json:"subject_id,omitempty"`            // 被测对象ID
+	SubjectKind         string  `json:"subject_kind,omitempty"`          // model_api / cli_agent
+	AgentFramework      string  `json:"agent_framework,omitempty"`       // Agent框架
+	AgentModel          string  `json:"agent_model,omitempty"`           // 底层模型
+	SkillName           string  `json:"skill_name,omitempty"`            // Skill名称
+	SkillVersion        string  `json:"skill_version,omitempty"`         // Skill版本
 	ModelID             string  `json:"model_id,omitempty"`              // 具体型号
 	Provider            string  `json:"provider,omitempty"`              // 提供商
 	CompilePassRate     float64 `json:"compile_pass_rate"`               // 编译通过率
@@ -365,6 +397,41 @@ type FailureRow struct {
 	ExampleMessage string `json:"example_message,omitempty"` // 示例错误消息
 }
 
+// AgentComparisonRow 表示同一模型/样本下 Agent 相对 model_api baseline 的增益。
+type AgentComparisonRow struct {
+	SubjectID          string  `json:"subject_id"`
+	BaselineSubjectID  string  `json:"baseline_subject_id"`
+	Framework          string  `json:"framework"`
+	Model              string  `json:"model"`
+	Skill              string  `json:"skill"`
+	Language           string  `json:"language,omitempty"`
+	SampleCount        int     `json:"sample_count"`
+	CompilePassDelta   float64 `json:"compile_pass_delta"`
+	TestPassDelta      float64 `json:"test_pass_delta"`
+	LineCoverageDelta  float64 `json:"line_coverage_delta"`
+	MutationScoreDelta float64 `json:"mutation_score_delta"`
+	LatencyMSDelta     float64 `json:"latency_ms_delta,omitempty"`
+	TotalTokensDelta   float64 `json:"total_tokens_delta,omitempty"`
+}
+
+// SkillUpliftRow 表示同一 framework/model/sample 下某个 skill 相对 no_skill 的增益。
+type SkillUpliftRow struct {
+	SubjectID          string  `json:"subject_id"`
+	BaselineSubjectID  string  `json:"baseline_subject_id"`
+	Framework          string  `json:"framework"`
+	Model              string  `json:"model"`
+	Skill              string  `json:"skill"`
+	SkillVersion       string  `json:"skill_version,omitempty"`
+	Language           string  `json:"language,omitempty"`
+	SampleCount        int     `json:"sample_count"`
+	CompilePassDelta   float64 `json:"compile_pass_delta"`
+	TestPassDelta      float64 `json:"test_pass_delta"`
+	LineCoverageDelta  float64 `json:"line_coverage_delta"`
+	MutationScoreDelta float64 `json:"mutation_score_delta"`
+	LatencyMSDelta     float64 `json:"latency_ms_delta,omitempty"`
+	TotalTokensDelta   float64 `json:"total_tokens_delta,omitempty"`
+}
+
 // ScoreExclusionRow 记录不参与排名计分的样本分布
 type ScoreExclusionRow struct {
 	Origin         string `json:"origin"`                    // environment/dataset/tool
@@ -377,12 +444,12 @@ type ScoreExclusionRow struct {
 
 // ZeroMutantSample 记录因源代码结构简单无法产生变异体的样本
 type ZeroMutantSample struct {
-	SampleID    string `json:"sample_id"`             // 样本ID
-	Language    string `json:"language"`              // 语言
-	SourcePath  string `json:"source_path"`           // 源文件路径
-	Reason      string `json:"reason"`                // 原因说明（如：无条件语句、无算术运算等）
-	ExampleMsg  string `json:"example_msg,omitempty"` // 变异工具返回的消息
-	Count       int    `json:"count"`                 // 出现次数（多个模型遇到同一样本）
+	SampleID   string `json:"sample_id"`             // 样本ID
+	Language   string `json:"language"`              // 语言
+	SourcePath string `json:"source_path"`           // 源文件路径
+	Reason     string `json:"reason"`                // 原因说明（如：无条件语句、无算术运算等）
+	ExampleMsg string `json:"example_msg,omitempty"` // 变异工具返回的消息
+	Count      int    `json:"count"`                 // 出现次数（多个模型遇到同一样本）
 }
 
 // Thresholds 评估阈值配置

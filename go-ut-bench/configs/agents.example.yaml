@@ -1,0 +1,83 @@
+# Agent/Skill subject configuration for UT-Bench.
+# Subject = framework + model + optional skill.
+#
+# This example uses OpenCode as the first real CLI agent framework.
+# UT-Bench will still add model_api__<model>__no_skill automatically
+# as the pure-model baseline.
+
+models:
+  - deepseek-v4-flash
+
+frameworks:
+  opencode:
+    enabled: true
+    kind: cli_agent
+    sandbox_mode: docker
+    docker_image: utbench-agent-opencode:latest
+    timeout_seconds: 600
+    network_disabled: false
+    memory: 2g
+    cpu: "2"
+    env:
+      OPENCODE_DISABLE_CLAUDE_CODE: "true"
+      OPENCODE_DISABLE_DEFAULT_PLUGINS: "true"
+      OPENCODE_CONFIG_CONTENT: |
+        {
+          "$schema": "https://opencode.ai/config.json",
+          "provider": {
+            "utbench": {
+              "npm": "@ai-sdk/openai-compatible",
+              "name": "UT-Bench Provider",
+              "options": {
+                "baseURL": "{{.ModelEndpoint}}",
+                "apiKey": "{env:{{.ModelAPIKeyEnv}}}"
+              },
+              "models": {
+                "{{.ModelID}}": {
+                  "name": "{{.ModelID}}"
+                }
+              }
+            }
+          }
+        }
+    env_from_host:
+      - DEEPSEEK_API_KEY
+      - DASHSCOPE_API_KEY
+      - MINIMAX_API_KEY
+      - MINIMAX2.5_API_KEY
+      - VOLCENGINE_API_KEY
+      - ARK_API_KEY
+      - BIGMODEL_API_KEY
+    command: >
+      opencode run --print-logs --dangerously-skip-permissions --model utbench/{{.ModelID}} "$(cat {{.ContainerPrompt}})"
+    compatible_models:
+      - deepseek-v4-flash
+    compatible_languages:
+      - python
+      - go
+      - java
+      - cpp
+    output_globs:
+      - generated_test.py
+      - "test_*.py"
+      - "*_test.go"
+      - "*Test.java"
+      - "*test*.cpp"
+
+skills:
+  unit_test_skill:
+    enabled: true
+    version: "1"
+    description: Extra unit-test generation guidance and helper assets.
+    inject_mode: prompt_append
+    instruction_path: ./skills/unit_test_skill.md
+    compatible_frameworks:
+      - opencode
+      - claude_code
+
+# If omitted, UT-Bench expands all legal framework x model x skill combinations
+# and always includes model_api__<model>__no_skill as the pure model baseline.
+# subjects:
+#   - framework: opencode
+#     model: deepseek-v4-flash
+#     skill: unit_test_skill

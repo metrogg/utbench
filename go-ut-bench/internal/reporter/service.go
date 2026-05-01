@@ -37,13 +37,13 @@ type Output struct {
 // mutationBreakdown 变异测试统计分布
 // 包含各状态（killed/survived/no_tests等）的计数
 type mutationBreakdown struct {
-	Total      int                     `json:"total"`      // 变异体总数
-	Killed     int                     `json:"killed"`     // 被杀死数
-	Survived   int                     `json:"survived"`   // 存活数
-	NoTests    int                     `json:"no_tests"`   // 无测试数
-	Timeouts   int                     `json:"timeouts"`   // 超时数
-	Skipped    int                     `json:"skipped"`    // 跳过数
-	Suspicious int                     `json:"suspicious"` // 可疑数
+	Total      int                     `json:"total"`             // 变异体总数
+	Killed     int                     `json:"killed"`            // 被杀死数
+	Survived   int                     `json:"survived"`          // 存活数
+	NoTests    int                     `json:"no_tests"`          // 无测试数
+	Timeouts   int                     `json:"timeouts"`          // 超时数
+	Skipped    int                     `json:"skipped"`           // 跳过数
+	Suspicious int                     `json:"suspicious"`        // 可疑数
 	ByTool     []mutationToolBreakdown `json:"by_tool,omitempty"` // 按工具分解
 }
 
@@ -134,6 +134,8 @@ func (s *Service) GenerateFromResultSet(spec contracts.RunSpec, set contracts.Ev
 	insights := buildInsights(topModels, dims, summary, failures)
 	efficiencyStats := buildEfficiencyStats(topModels, set.Results)
 	errorDiagnosis := buildErrorDiagnosis(set.Results)
+	agentComparisons := buildAgentComparisons(set.Results)
+	skillUplifts := buildSkillUplifts(set.Results)
 
 	payload := contracts.ReportPayload{
 		SchemaVersion:     contracts.SchemaVersion,
@@ -163,9 +165,11 @@ func (s *Service) GenerateFromResultSet(spec contracts.RunSpec, set contracts.Ev
 		Prompts:         prompts,
 		TruncationStats: truncationStats,
 		// 新增字段
-		Insights:        insights,
-		EfficiencyStats: efficiencyStats,
-		ErrorDiagnosis:  errorDiagnosis,
+		Insights:         insights,
+		EfficiencyStats:  efficiencyStats,
+		ErrorDiagnosis:   errorDiagnosis,
+		AgentComparisons: agentComparisons,
+		SkillUplifts:     skillUplifts,
 	}
 
 	jsonPath := filepath.Join(reportRoot, "report_summary.json")
@@ -191,6 +195,8 @@ func (s *Service) GenerateFromResultSet(spec contracts.RunSpec, set contracts.Ev
 		"mutation_breakdown":  breakdown,
 		"thresholds":          payload.Thresholds,
 		"prompts":             payload.Prompts,
+		"agent_comparisons":   payload.AgentComparisons,
+		"skill_uplifts":       payload.SkillUplifts,
 	}
 	if err := contracts.WriteJSON(jsonPath, summaryJSON); err != nil {
 		return Output{}, err
@@ -452,6 +458,9 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 	var byModel []contracts.ModelDim
 	for _, agg := range modelMap {
 		detail, ok := modelDetails[agg.key]
+		if !ok && agg.agentModel != "" {
+			detail, ok = modelDetails[agg.agentModel]
+		}
 		modelID := agg.key
 		provider := ""
 		if ok {
@@ -460,6 +469,12 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 		}
 		byModel = append(byModel, contracts.ModelDim{
 			Model:               agg.key,
+			SubjectID:           agg.subjectID,
+			SubjectKind:         agg.subjectKind,
+			AgentFramework:      agg.agentFramework,
+			AgentModel:          agg.agentModel,
+			SkillName:           agg.skillName,
+			SkillVersion:        agg.skillVersion,
 			ModelID:             modelID,
 			Provider:            provider,
 			TotalSamples:        agg.count,
@@ -556,6 +571,12 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 // 聚合器类型定义
 type modelAgg struct {
 	key                 string
+	subjectID           string
+	subjectKind         string
+	agentFramework      string
+	agentModel          string
+	skillName           string
+	skillVersion        string
 	count               int
 	compilePass         int
 	sampleTestPass      int
@@ -671,6 +692,14 @@ func getOrCreateModelScenarioAgg(m map[string]*modelScenarioAgg, key string) *mo
 }
 
 func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
+	if a.subjectID == "" {
+		a.subjectID = firstNonEmpty(row.SubjectID, row.Model)
+		a.subjectKind = row.SubjectKind
+		a.agentFramework = row.AgentFramework
+		a.agentModel = row.AgentModel
+		a.skillName = row.SkillName
+		a.skillVersion = row.SkillVersion
+	}
 	a.count++
 	if row.CompilePass {
 		a.compilePass++
@@ -852,6 +881,177 @@ func buildTokenStats(rows []contracts.EvaluationResult) contracts.TokenStats {
 	return stats
 }
 
+type comparisonAgg struct {
+	subjectID         string
+	baselineSubjectID string
+	framework         string
+	model             string
+	skill             string
+	skillVersion      string
+	language          string
+	count             int
+	compileDelta      float64
+	testDelta         float64
+	lineDelta         float64
+	mutationDelta     float64
+	latencyDelta      float64
+	latencyCount      int
+	tokensDelta       float64
+	tokensCount       int
+}
+
+func buildAgentComparisons(rows []contracts.EvaluationResult) []contracts.AgentComparisonRow {
+	byKey := resultLookup(rows)
+	aggs := map[string]*comparisonAgg{}
+	for _, row := range rows {
+		if row.AgentFramework == "" || row.AgentFramework == "model_api" || row.SkillName != "no_skill" {
+			continue
+		}
+		model := firstNonEmpty(row.AgentModel, row.Model)
+		baselineKey := comparisonKey("model_api", model, "no_skill", row.Language, row.SampleID)
+		baseline, ok := byKey[baselineKey]
+		if !ok {
+			continue
+		}
+		key := strings.Join([]string{row.Model, baseline.Model, row.AgentFramework, model, row.Language}, "|")
+		agg := getComparisonAgg(aggs, key)
+		agg.subjectID = firstNonEmpty(row.SubjectID, row.Model)
+		agg.baselineSubjectID = firstNonEmpty(baseline.SubjectID, baseline.Model)
+		agg.framework = row.AgentFramework
+		agg.model = model
+		agg.skill = "no_skill"
+		agg.language = row.Language
+		addComparisonDelta(agg, row, baseline)
+	}
+	return agentComparisonRows(aggs)
+}
+
+func buildSkillUplifts(rows []contracts.EvaluationResult) []contracts.SkillUpliftRow {
+	byKey := resultLookup(rows)
+	aggs := map[string]*comparisonAgg{}
+	for _, row := range rows {
+		skill := firstNonEmpty(row.SkillName, "no_skill")
+		if skill == "no_skill" {
+			continue
+		}
+		framework := firstNonEmpty(row.AgentFramework, "model_api")
+		model := firstNonEmpty(row.AgentModel, row.Model)
+		baselineKey := comparisonKey(framework, model, "no_skill", row.Language, row.SampleID)
+		baseline, ok := byKey[baselineKey]
+		if !ok {
+			continue
+		}
+		key := strings.Join([]string{row.Model, baseline.Model, framework, model, skill, row.Language}, "|")
+		agg := getComparisonAgg(aggs, key)
+		agg.subjectID = firstNonEmpty(row.SubjectID, row.Model)
+		agg.baselineSubjectID = firstNonEmpty(baseline.SubjectID, baseline.Model)
+		agg.framework = framework
+		agg.model = model
+		agg.skill = skill
+		agg.skillVersion = row.SkillVersion
+		agg.language = row.Language
+		addComparisonDelta(agg, row, baseline)
+	}
+	return skillUpliftRows(aggs)
+}
+
+func resultLookup(rows []contracts.EvaluationResult) map[string]contracts.EvaluationResult {
+	out := map[string]contracts.EvaluationResult{}
+	for _, row := range rows {
+		framework := firstNonEmpty(row.AgentFramework, inferFramework(row.Model))
+		model := firstNonEmpty(row.AgentModel, inferAgentModel(row.Model))
+		skill := firstNonEmpty(row.SkillName, inferSkill(row.Model))
+		out[comparisonKey(framework, model, skill, row.Language, row.SampleID)] = row
+	}
+	return out
+}
+
+func comparisonKey(framework, model, skill, language, sampleID string) string {
+	return strings.Join([]string{framework, model, skill, language, sampleID}, "|")
+}
+
+func getComparisonAgg(aggs map[string]*comparisonAgg, key string) *comparisonAgg {
+	if agg, ok := aggs[key]; ok {
+		return agg
+	}
+	agg := &comparisonAgg{}
+	aggs[key] = agg
+	return agg
+}
+
+func addComparisonDelta(agg *comparisonAgg, row, baseline contracts.EvaluationResult) {
+	agg.count++
+	agg.compileDelta += boolMetric(row.CompilePass) - boolMetric(baseline.CompilePass)
+	agg.testDelta += ptrBoolMetric(row.TestPass) - ptrBoolMetric(baseline.TestPass)
+	agg.lineDelta += ptrFloatMetric(row.LineCoverage) - ptrFloatMetric(baseline.LineCoverage)
+	agg.mutationDelta += ptrFloatMetric(row.MutationScore) - ptrFloatMetric(baseline.MutationScore)
+	if row.LatencyMS != nil && baseline.LatencyMS != nil {
+		agg.latencyDelta += float64(*row.LatencyMS - *baseline.LatencyMS)
+		agg.latencyCount++
+	}
+	if row.TotalTokens != nil && baseline.TotalTokens != nil {
+		agg.tokensDelta += float64(*row.TotalTokens - *baseline.TotalTokens)
+		agg.tokensCount++
+	}
+}
+
+func agentComparisonRows(aggs map[string]*comparisonAgg) []contracts.AgentComparisonRow {
+	keys := make([]string, 0, len(aggs))
+	for key := range aggs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]contracts.AgentComparisonRow, 0, len(keys))
+	for _, key := range keys {
+		agg := aggs[key]
+		out = append(out, contracts.AgentComparisonRow{
+			SubjectID:          agg.subjectID,
+			BaselineSubjectID:  agg.baselineSubjectID,
+			Framework:          agg.framework,
+			Model:              agg.model,
+			Skill:              agg.skill,
+			Language:           agg.language,
+			SampleCount:        agg.count,
+			CompilePassDelta:   avg(agg.compileDelta, agg.count),
+			TestPassDelta:      avg(agg.testDelta, agg.count),
+			LineCoverageDelta:  avg(agg.lineDelta, agg.count),
+			MutationScoreDelta: avg(agg.mutationDelta, agg.count),
+			LatencyMSDelta:     avg(agg.latencyDelta, agg.latencyCount),
+			TotalTokensDelta:   avg(agg.tokensDelta, agg.tokensCount),
+		})
+	}
+	return out
+}
+
+func skillUpliftRows(aggs map[string]*comparisonAgg) []contracts.SkillUpliftRow {
+	keys := make([]string, 0, len(aggs))
+	for key := range aggs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]contracts.SkillUpliftRow, 0, len(keys))
+	for _, key := range keys {
+		agg := aggs[key]
+		out = append(out, contracts.SkillUpliftRow{
+			SubjectID:          agg.subjectID,
+			BaselineSubjectID:  agg.baselineSubjectID,
+			Framework:          agg.framework,
+			Model:              agg.model,
+			Skill:              agg.skill,
+			SkillVersion:       agg.skillVersion,
+			Language:           agg.language,
+			SampleCount:        agg.count,
+			CompilePassDelta:   avg(agg.compileDelta, agg.count),
+			TestPassDelta:      avg(agg.testDelta, agg.count),
+			LineCoverageDelta:  avg(agg.lineDelta, agg.count),
+			MutationScoreDelta: avg(agg.mutationDelta, agg.count),
+			LatencyMSDelta:     avg(agg.latencyDelta, agg.latencyCount),
+			TotalTokensDelta:   avg(agg.tokensDelta, agg.tokensCount),
+		})
+	}
+	return out
+}
+
 func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 	var sorted []contracts.ModelDim
 	for _, m := range models {
@@ -879,6 +1079,12 @@ func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 		out = append(out, contracts.ModelRank{
 			Rank:                i + 1,
 			Model:               m.Model,
+			SubjectID:           m.SubjectID,
+			SubjectKind:         m.SubjectKind,
+			AgentFramework:      m.AgentFramework,
+			AgentModel:          m.AgentModel,
+			SkillName:           m.SkillName,
+			SkillVersion:        m.SkillVersion,
 			ModelID:             m.ModelID,
 			Provider:            m.Provider,
 			CompilePassRate:     m.CompilePassRate,
@@ -1380,6 +1586,51 @@ func rate(num, den int) float64 {
 	return round(float64(num)/float64(den), 6)
 }
 
+func boolMetric(v bool) float64 {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func ptrBoolMetric(v *bool) float64 {
+	if v != nil && *v {
+		return 1
+	}
+	return 0
+}
+
+func ptrFloatMetric(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
+func inferFramework(subjectID string) string {
+	parts := strings.Split(subjectID, "__")
+	if len(parts) >= 1 && parts[0] != "" {
+		return parts[0]
+	}
+	return "model_api"
+}
+
+func inferAgentModel(subjectID string) string {
+	parts := strings.Split(subjectID, "__")
+	if len(parts) >= 2 && parts[1] != "" {
+		return parts[1]
+	}
+	return subjectID
+}
+
+func inferSkill(subjectID string) string {
+	parts := strings.Split(subjectID, "__")
+	if len(parts) >= 3 && parts[2] != "" {
+		return parts[2]
+	}
+	return "no_skill"
+}
+
 func avg(sum float64, count int) float64 {
 	if count <= 0 {
 		return 0
@@ -1491,7 +1742,7 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 
 	// Leaderboard Section - 模型排名（重点）
 	b.WriteString(buildLeaderboardHTMLNew(payload.TopModels))
-		b.WriteString(buildChartsSection(payload.TopModels))
+	b.WriteString(buildChartsSection(payload.TopModels))
 	b.WriteString(buildAnalysisControlsSection(heroModels, heroLangs, heroTypes))
 	b.WriteString(buildDimensionAnalysisSection())
 

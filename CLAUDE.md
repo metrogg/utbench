@@ -27,6 +27,16 @@ go test ./internal/runner/... -run TestCheckpoint
 go test -v ./internal/evaluator/... -run TestPythonEval
 ```
 
+### Environment self-check
+
+```bash
+# Check that all evaluation toolchains are working
+./utbench doctor --langs python,go,java,cpp --mutation-enabled
+
+# Validate dataset readiness
+./utbench dataset validate --dataset-root ./datasets --langs python,go,java,cpp --class self_contained --strict
+```
+
 ### Quick dry-run (no API calls)
 
 ```bash
@@ -51,8 +61,8 @@ go test -v ./internal/evaluator/... -run TestPythonEval
 # Generate report
 ./utbench report --evaluation ./artifacts/runs/<run-id>/evaluation/evaluation_result.json
 
-# Ingest into SQLite
-./utbench ingest --evaluation ./artifacts/runs/<run-id>/evaluation/evaluation_result.json --db-path ./storage/utbench.db
+# Ingest into SQLite (replaces old `utbench ingest`)
+./utbench db ingest-evaluation --evaluation ./artifacts/runs/<run-id>/evaluation/evaluation_result.json --db-path ./storage/utbench.db
 ```
 
 ### Docker (recommended when running evaluation toolchains)
@@ -92,6 +102,26 @@ Pre-built convenience wrappers for Docker runs:
 .\run_bench.ps1 [models] [langs] [max-samples] [mutation]
 ```
 
+### Web management UI
+
+```bash
+# Launch on localhost:8080 (supports Docker and local runs)
+./utbench web --addr :8080 --config ./configs/models.yaml
+
+# Custom database and Docker image
+./utbench web --addr :8080 --db-path ./storage/utbench.db --docker-image utbench:latest
+```
+
+### Database management
+
+```bash
+./utbench db init --db-path ./storage/utbench.db
+./utbench db ingest-run --run-id <run-id> --output-root ./artifacts --db-path ./storage/utbench.db
+./utbench db overview --db-path ./storage/utbench.db
+./utbench db list-results --run-id <run-id> --db-path ./storage/utbench.db
+./utbench db report --run-ids <run-a>,<run-b> --models deepseek,qwen --langs python,go --db-path ./storage/utbench.db
+```
+
 ### Dataset management
 
 ```bash
@@ -114,9 +144,12 @@ Five-stage pipeline orchestrated by `internal/orchestrator/service.go`:
 
 1. **dataset** (`internal/dataset/`) — discovers samples; infers language/class/scenario from directory structure; computes MD5 hashes; applies filters
 2. **runner** (`internal/runner/`) — worker pool calling LLM APIs concurrently; checkpoint-based incremental execution; retry with exponential backoff; truncation detection and auto-continuation (max 3 retries when `finish_reason: "length"` or incomplete code blocks)
-3. **evaluator** (`internal/evaluator/`) — language-specific compile → test → coverage → mutation in isolated temp dirs; Python `self_contained` and `module_level` both supported
-4. **reporter** (`internal/reporter/`) — multi-dimensional aggregation (by model, language, scenario); composite score = 0.3×compile + 0.3×pass_rate + 0.2×coverage + 0.2×mutation; HTML report via Chart.js CDN; mutation breakdown (total/killed/survived/no_tests/timeouts/skipped/suspicious); truncation statistics with tuning recommendations
-5. **store** (`internal/store/`) — SQLite upsert on `(run_id, model, language, sample_id)`
+3. **evaluator** (`internal/evaluator/`) — language-specific compile → test → coverage → mutation in isolated temp dirs; Python `self_contained` and `module_level` both supported; environment fingerprinting for cross-run comparison
+4. **reporter** (`internal/reporter/`) — multi-dimensional aggregation (by model, language, scenario); composite score = 0.3×compile + 0.3×pass_rate + 0.2×coverage + 0.2×mutation; HTML report via Chart.js CDN; mutation breakdown (total/killed/survived/no_tests/timeouts/skipped/suspicious); truncation statistics with tuning recommendations; auto-generated insights and efficiency stats
+5. **store** (`internal/store/`) — SQLite v2 schema; upsert on `(run_id, model, language, sample_id)`; artifact indexing; supports `--reuse-generated` for skipping API calls when same prompt+source+model already exists
+6. **web** (`internal/web/`) — HTTP management UI (`utbench web`); supports Docker and local runs; model config display; database browsing; embedded static assets
+7. **obs** (`internal/obs/`) — structured logging (slog wrapper); progress reporting with per-task status lines
+8. **ctrl** (`internal/ctrl/`) — pause/resume gate for web-triggered pause during generation
 
 ### Data contracts
 
@@ -140,8 +173,10 @@ Runner in incremental mode hashes `(dataset_root + classes + level + manifest + 
 - **Default `--class` is `self_contained`**: current Python and Go datasets are also `self_contained`, so the default works correctly. Use `--class module_level` only when using actual module-level samples that require workspace context.
 - **Module-level samples** require `meta.json` with `workspace_root` and `module_import`; the evaluator does not clean up their workspaces (reused in-place).
 - **Checkpoint invalidation**: changing any of models, langs, class, level, manifest, max-samples, or dataset-root changes the hash and starts a fresh run.
-- **Mutation testing tools**: Python uses `mutmut`, Go uses `gremlins` (`go install github.com/go-gremlins/gremlins/cmd/gremlins@latest`). Windows mutation testing for Python is validated on Linux only; use Docker on Windows.
+- **Mutation testing tools**: Python uses `mutmut`, Go uses `go-mutesting` (`go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest`), Java uses `pitest` (Maven plugin), C++ uses `mull`. Windows mutation testing for Python is validated on Linux only; use Docker on Windows.
 - **Line endings on Windows**: normalize with `git add --renormalize .`
+- **`utbench ingest` is deprecated**: replaced by `utbench db ingest-evaluation`, `utbench db ingest-manifest`, `utbench db ingest-report`, and `utbench db ingest-run`.
+- **Run with `--ingest`**: `./utbench run --ingest --db-path ./storage/utbench.db` auto-ingests the run directory into SQLite after completion.
 
 ## Code Style
 
@@ -162,7 +197,16 @@ Copy `.env.example` (at repo root) or create `go-ut-bench/.env` and fill in:
 | `DASHSCOPE_API_KEY` | Qwen (Dashscope) |
 | `MINIMAX_API_KEY` | MiniMax |
 | `VOLCENGINE_API_KEY` | doubao-seed (original) |
-| `ARK_API_KEY` | doubao-seed-2.0-lite/1.6/2.0-pro-v2, glm-4.7 |
+| `ARK_API_KEY` | doubao-seed-2.0-lite/1.6/2.0-pro-v2, glm-4.7, deepseek-v3.2 |
+
+# Supported Languages and Tools
+
+| Language | Test Framework | Coverage | Mutation Tool |
+|----------|---------------|----------|--------------|
+| Python   | pytest        | coverage | mutmut       |
+| Go       | go test       | go test -cover | go-mutesting |
+| Java     | JUnit 5 (Maven) | JaCoCo | pitest      |
+| C++      | GoogleTest    | gcov     | mull         |
 
 # Prompt System
 
@@ -171,7 +215,7 @@ The runner uses three prompt modes (`internal/runner/prompt.go`):
 - `completion` — for continuation after truncation
 - `module_level` — for samples with workspace context and module imports
 
-Prompt strategy: `structured-v1`. System message emphasizes runnable tests only, no explanations or placeholders. Use `BuildPromptCatalog()` to inspect templates.
+Prompt strategy: `structured-v1`. System message emphasizes runnable tests only, no explanations or placeholders. Use `BuildPromptCatalog()` to inspect templates. Version ID is a SHA1 hash of the entire catalog content for traceability.
 
 # Key Files to Read First
 
@@ -179,5 +223,12 @@ Prompt strategy: `structured-v1`. System message emphasizes runnable tests only,
 - `go-ut-bench/internal/orchestrator/service.go` — pipeline orchestration logic
 - `go-ut-bench/internal/contracts/spec.go` — core data structures (RunSpec, SampleRef)
 - `go-ut-bench/internal/contracts/constants.go` — SchemaVersion, DatasetClass, RunMode
-- `go-ut-bench/internal/runner/prompt.go` — prompt construction
+- `go-ut-bench/internal/contracts/results.go` — all result/report data structures
+- `go-ut-bench/internal/runner/prompt.go` — prompt construction (3 modes)
+- `go-ut-bench/internal/runner/api.go` — LLM API client with auto-continuation
+- `go-ut-bench/internal/runner/models.go` — model config loading from YAML
 - `go-ut-bench/internal/evaluator/service.go` — evaluation pipeline per language
+- `go-ut-bench/internal/reporter/service.go` — report aggregation and generation
+- `go-ut-bench/internal/store/sqlite.go` — SQLite v2 schema and queries
+- `go-ut-bench/internal/web/server.go` — Web management UI server
+- `go-ut-bench/configs/models.yaml` — model provider/endpoints/API key env vars

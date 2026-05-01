@@ -40,14 +40,14 @@ type Output struct {
 // evalTask 评测任务结构
 // 用于 worker 之间传递任务
 type evalTask struct {
-	index int                   // 任务序号
+	index int                     // 任务序号
 	item  contracts.GeneratedCase // 待评测的生成结果
 }
 
 // evalResultItem 评测结果项
 // 包含序号和评测结果
 type evalResultItem struct {
-	index int                      // 任务序号
+	index int                        // 任务序号
 	row   contracts.EvaluationResult // 评测结果
 }
 
@@ -277,15 +277,24 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item contracts.GeneratedCase, setPhase func(string)) (result contracts.EvaluationResult) {
 	start := time.Now()
 	row := contracts.EvaluationResult{
-		Model:             item.Model,
-		Language:          item.Language,
-		SampleID:          item.SampleID,
-		GeneratedTestPath: item.GeneratedTestPath,
-		SourcePath:        item.SamplePath,
-		PromptTokens:      item.PromptTokens,
-		CompletionTokens:  item.CompletionTokens,
-		TotalTokens:       item.TotalTokens,
-		Truncated:         item.Truncated,
+		Model:              item.Model,
+		SubjectID:          item.SubjectID,
+		SubjectKind:        item.SubjectKind,
+		AgentFramework:     item.AgentFramework,
+		AgentModel:         item.AgentModel,
+		SkillName:          item.SkillName,
+		SkillVersion:       item.SkillVersion,
+		Language:           item.Language,
+		SampleID:           item.SampleID,
+		GeneratedTestPath:  item.GeneratedTestPath,
+		SourcePath:         item.SamplePath,
+		PromptTokens:       item.PromptTokens,
+		CompletionTokens:   item.CompletionTokens,
+		TotalTokens:        item.TotalTokens,
+		Truncated:          item.Truncated,
+		TracePath:          item.TracePath,
+		WorkspaceDiffPath:  item.WorkspaceDiffPath,
+		SandboxFingerprint: item.SandboxFingerprint,
 	}
 	if item.LatencyMS > 0 {
 		row.LatencyMS = &item.LatencyMS
@@ -1642,9 +1651,9 @@ func estimatePythonAssertionDensity(text string) (int, int, float64) {
 
 	// 统计 unittest 风格测试方法（以 test 开头的方法）
 	// 但要排除 pytest 的 def test_
- unittestPattern := regexp.MustCompile(`(?m)^\s+def test_\w+\s*\(`)
- unittestMatches := unittestPattern.FindAllString(text, -1)
- unittestCount := len(unittestMatches)
+	unittestPattern := regexp.MustCompile(`(?m)^\s+def test_\w+\s*\(`)
+	unittestMatches := unittestPattern.FindAllString(text, -1)
+	unittestCount := len(unittestMatches)
 
 	// 如果有 unittest 风格的测试方法，也计入
 	// 注意：unittest 方法通常缩进在类内部，所以单独统计
@@ -1832,7 +1841,7 @@ func parsePytestCounts(output string) (*int, *int) {
 			passedCount++
 		case 'F', 'E', '!': // failed/error
 			failedCount++
-		// 's' = skipped, 'x' = xfailed, 'X' = xpassed - 不计入通过/失败分母
+			// 's' = skipped, 'x' = xfailed, 'X' = xpassed - 不计入通过/失败分母
 		}
 	}
 

@@ -223,3 +223,80 @@ func TestBuildFailureRowsUsesMutationErrorCategories(t *testing.T) {
 		t.Fatalf("did not expect generic mutation_error bucket, got %+v", failures)
 	}
 }
+
+func TestBuildAgentAndSkillComparisons(t *testing.T) {
+	pass := true
+	baseLine := 0.5
+	agentLine := 0.8
+	skillLine := 0.9
+	baseMut := 0.4
+	agentMut := 0.7
+	skillMut := 0.85
+	baseLatency := 100
+	agentLatency := 160
+	skillLatency := 170
+
+	rows := []contracts.EvaluationResult{
+		{
+			Model:          "model_api__deepseek__no_skill",
+			SubjectID:      "model_api__deepseek__no_skill",
+			AgentFramework: "model_api",
+			AgentModel:     "deepseek",
+			SkillName:      "no_skill",
+			Language:       "python",
+			SampleID:       "boundary_000",
+			CompilePass:    true,
+			TestPass:       &pass,
+			LineCoverage:   &baseLine,
+			MutationScore:  &baseMut,
+			LatencyMS:      &baseLatency,
+		},
+		{
+			Model:          "aider__deepseek__no_skill",
+			SubjectID:      "aider__deepseek__no_skill",
+			SubjectKind:    "cli_agent",
+			AgentFramework: "aider",
+			AgentModel:     "deepseek",
+			SkillName:      "no_skill",
+			Language:       "python",
+			SampleID:       "boundary_000",
+			CompilePass:    true,
+			TestPass:       &pass,
+			LineCoverage:   &agentLine,
+			MutationScore:  &agentMut,
+			LatencyMS:      &agentLatency,
+		},
+		{
+			Model:          "aider__deepseek__unit_test_skill",
+			SubjectID:      "aider__deepseek__unit_test_skill",
+			SubjectKind:    "cli_agent",
+			AgentFramework: "aider",
+			AgentModel:     "deepseek",
+			SkillName:      "unit_test_skill",
+			SkillVersion:   "1",
+			Language:       "python",
+			SampleID:       "boundary_000",
+			CompilePass:    true,
+			TestPass:       &pass,
+			LineCoverage:   &skillLine,
+			MutationScore:  &skillMut,
+			LatencyMS:      &skillLatency,
+		},
+	}
+
+	agentRows := buildAgentComparisons(rows)
+	if len(agentRows) != 1 {
+		t.Fatalf("expected one agent comparison, got %+v", agentRows)
+	}
+	if agentRows[0].LineCoverageDelta != 0.3 || agentRows[0].MutationScoreDelta != 0.3 || agentRows[0].LatencyMSDelta != 60 {
+		t.Fatalf("unexpected agent comparison: %+v", agentRows[0])
+	}
+
+	skillRows := buildSkillUplifts(rows)
+	if len(skillRows) != 1 {
+		t.Fatalf("expected one skill uplift, got %+v", skillRows)
+	}
+	if skillRows[0].LineCoverageDelta != 0.1 || skillRows[0].MutationScoreDelta != 0.15 || skillRows[0].LatencyMSDelta != 10 {
+		t.Fatalf("unexpected skill uplift: %+v", skillRows[0])
+	}
+}

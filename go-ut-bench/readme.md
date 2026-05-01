@@ -1,153 +1,209 @@
 # go-ut-bench
 
-多语言单元测试生成效果横向评测 CLI 工具。
+UT-Bench 的 Go CLI。当前版本既能评测纯模型 API，也能评测编码 Agent，并支持 `framework + model + optional skill` 的横向对比。
 
-## 支持语言
+核心链路：
 
-| 语言 | 测试框架 | 覆盖率工具 | 变异测试 |
-|------|---------|-----------|---------|
-| Python | pytest | coverage | mutmut |
-| Go | go test | go test -cover | go-mutesting |
-| Java | Maven/JUnit | JaCoCo | pitest |
-| C++ | GoogleTest | gcov | mull |
+```text
+sample -> subject generates tests -> compile/test/coverage/mutation -> report
+```
 
-## 支持模型
+其中 `subject` 是统一被测对象：
 
-| 模型 | Provider | 说明 |
-|------|----------|------|
-| deepseek | deepseek | DeepSeek Chat |
-| qwen | dashscope | 通义千问 3.6-plus |
-| minimax | minimax | MiniMax M2.7 |
-| doubao-seed | volcengine | 豆包 Seed 2.0 Pro |
-| doubao-seed-2.0-lite | volcengine | 豆包 Seed 2.0 Lite |
-| doubao-seed-1.6 | volcengine | 豆包 Seed 1.6 |
-| doubao-seed-2.0-pro-v2 | volcengine | 豆包 Seed 2.0 Pro V2 |
+- `model_api + model + no_skill`：纯模型基线
+- `cli_agent + framework + model + no_skill`：Agent 基线
+- `cli_agent + framework + model + skill`：Agent + skill
+
+## 当前能力
+
+- 多语言评测：Python、Go、Java、C++
+- 多维指标：编译、测试、覆盖率、变异测试
+- 统一 subject 抽象：`framework__model__skill`
+- 纯模型 API baseline：自动生成 `model_api__<model>__no_skill`
+- 通用 CLI Agent 适配器：通过 `agents.yaml` 的命令模板驱动
+- skill 注入：
+  - `prompt_append`
+  - `workspace_mount`
+  - `agent_native` 预留
+- Agent 过程产物：
+  - trace
+  - workspace diff
+  - sandbox fingerprint
+- 报告新增：
+  - `agent_comparisons`
+  - `skill_uplifts`
+
+## 核心概念
+
+### Subject
+
+被测对象统一表示为：
+
+```text
+subject = framework + model + optional skill
+```
+
+示例：
+
+- `model_api__deepseek-v4-flash__no_skill`
+- `opencode__deepseek-v4-flash__no_skill`
+- `opencode__deepseek-v4-flash__unit_test_skill`
+
+### Skill
+
+Skill 是通用能力包，不绑定某个 Agent 的原生 skill 机制。第一版支持两种注入：
+
+- `prompt_append`：把 skill 说明追加到 prompt
+- `workspace_mount`：把 skill 文件复制到 Agent 工作区
+
+### CLI Agent
+
+第一版 `cli_agent` 通过 `agents.yaml` 中的命令模板调用。UT-Bench 会为每个 `subject × sample` 准备独立工作区，并把模板渲染成 shell 命令执行。
+
+最关键的模板变量：
+
+- `{{.Model}}`：UT-Bench 模型名
+- `{{.ModelID}}`：底层模型 ID
+- `{{.PromptFile}}` / `{{.ContainerPrompt}}`
+- `{{.OutputFile}}` / `{{.ContainerOutput}}`
+- `{{.SourceFile}}`
+- `{{.SkillDir}}` / `{{.ContainerSkillDir}}`
+- `{{.Workspace}}`
+- `{{.Language}}`
+- `{{.SampleID}}`
 
 ## 快速开始
 
-### Docker 运行（推荐）
-
-```bash
-# 构建镜像
-docker build -t utbench:latest .
-
-# 配置 API 密钥
-cp .env.example .env
-
-# 运行测试
-docker run --rm --env-file .env \
-  -v "$(pwd)/datasets:/app/datasets" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
-  -v "$(pwd)/configs:/app/configs" \
-  -w /app \
-  utbench:latest run \
-    --models deepseek \
-    --langs python,java \
-    --config /app/configs/models.yaml \
-    --dataset-root /app/datasets \
-    --max-samples 5
-```
-
-### 本地运行
+### 1. 构建
 
 ```bash
 go build -o utbench ./cmd/utbench/
-export DEEPSEEK_API_KEY="sk-xxx"
-./utbench run --models deepseek --langs python --max-samples 5
 ```
 
-## 命令
+或：
+
+```bash
+docker build -t utbench:latest .
+```
+
+### 2. 纯模型 baseline
+
+```bash
+./utbench run \
+  --models deepseek-v4-flash \
+  --langs python \
+  --config ./configs/models.yaml \
+  --dataset-root ./datasets \
+  --output-root ./artifacts \
+  --class self_contained \
+  --max-samples 2
+```
+
+这等价于运行 subject：
+
+```text
+model_api__deepseek-v4-flash__no_skill
+```
+
+### 3. Agent + Skill
+
+先准备 Agent 配置文件，例如 [agents.example.yaml](/C:/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/go-ut-bench/configs/agents.example.yaml)。
+
+```bash
+./utbench run \
+  --models deepseek-v4-flash \
+  --langs python \
+  --config ./configs/models.yaml \
+  --agents-config ./configs/agents.example.yaml \
+  --subjects model_api__deepseek-v4-flash__no_skill,opencode__deepseek-v4-flash__no_skill,opencode__deepseek-v4-flash__unit_test_skill \
+  --dataset-root ./datasets \
+  --output-root ./artifacts \
+  --class self_contained \
+  --max-samples 1
+```
+
+如果不传 `--subjects`，系统会自动展开所有合法的 `framework × model × skill` 组合，并始终保留纯模型 baseline。
+
+## CLI 命令
 
 | 命令 | 说明 |
 |------|------|
-| `utbench run` | 完整流程 (generate → evaluate → report) |
-| `utbench generate` | 仅生成单元测试 |
-| `utbench evaluate` | 评测已生成的单元测试 |
-| `utbench report` | 生成评测报告 |
-| `utbench db` | 初始化、入库和查询 SQLite 评测数据库 |
-| `utbench dataset` | 数据集管理 |
-| `utbench doctor` | 检查评测工具链并运行 canary 自检 |
+| `utbench run` | 完整流程：generate -> evaluate -> report |
+| `utbench generate` | 仅生成测试 |
+| `utbench evaluate` | 仅评测，输入 `generated_manifest.json` |
+| `utbench report` | 仅报告，输入 `evaluation_result.json` |
+| `utbench db` | SQLite 入库与查询 |
+| `utbench dataset` | 数据集索引、manifest、validate |
+| `utbench doctor` | 检查工具链并运行 canary |
+| `utbench web` | 启动 Web 管理界面 |
+
+## Docker 与沙箱
+
+要分清两层：
+
+- 外层 `docker run utbench:latest ...`：只是运行 UT-Bench 本身的执行环境
+- 内层 `cli_agent` 的 `sandbox_mode: docker`：才是按 `subject × sample` 启动的 Agent 执行沙箱
+
+当前实现里，CLI Agent 在 `sandbox_mode: docker` 时会：
+
+- 为每个 `subject × sample` 创建独立工作区
+- 启动一个独立容器
+- 只挂载该工作区到 `/workspace`
+- 可选 `--network none`
+- 记录 trace、diff、sandbox fingerprint
+- 超时后结束该容器
+
+如果外层 UT-Bench 本身也是用 Docker 启动的，那么这条链当前走的是 DOOD 方式：外层容器内的 `docker` CLI 控制宿主机 Docker daemon。具体挂载方式见 [docs/DOCKER_GUIDE.md](/C:/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/go-ut-bench/docs/DOCKER_GUIDE.md)。
+
+这已经比“整项目一个 Docker 容器”更接近真正沙箱，但还不是最终形态。后续还需要补：
+
+- 更严格的镜像和依赖管理
+- 更强的只读挂载边界
+- 更细的资源治理
+- 可选 gVisor / Firecracker / E2B 一类隔离增强
+
+## 当前建议的首个真实 CLI Agent
+
+如果要先打通一个真实 CLI Agent，优先建议 `OpenCode`，不是 `Claude Code`。
+
+原因很直接：
+
+- UT-Bench 的目标是 `framework × model` 的 N×M 组合
+- `OpenCode` 更适合作为“Agent 外壳 + 任意底层模型”的统一入口
+- `Claude Code` 更适合评测 Claude 自身工作流，不是最自然的多模型矩阵入口
+
+所以顺序建议是：
+
+1. 先做 `OpenCode`
+2. 再补 `Claude Code`
 
 ## 输出结构
 
-```
+```text
 artifacts/runs/<run-id>/
-  generated/           # 生成的测试文件
-  evaluation/          # 评测结果 JSON
-  report/              # HTML 报告
-  logs/                # run/evaluator/api/errors 结构化日志
+  generated/
+    generated_manifest.json
+    tests/
+    prompts/
+    metadata/
+  evaluation/
+    evaluation_result.json
+  report/
+    report_summary.json
+    report.html
+  agent_workspaces/
+  logs/
+  run_summary.json
 ```
 
-## 特性
-
-- **截断自动续写**：检测到输出截断时自动发送续写请求
-- **截断统计分析**：报告中显示截断率、续写统计、调优建议
-- **增量运行**：支持 checkpoint 断点续跑
-- **变异测试**：可选启用变异测试评估测试质量
-- **评测自检**：`utbench doctor` 检查工具版本并运行临时 canary 样本
-- **数据集审计**：`utbench dataset validate` 统计样本并标记外部 I/O、非确定性和复杂度风险
-- **结果数据库**：`utbench db` 以 v2 schema 保存 manifest、生成测试、模型响应、评测结果、报告和 artifact 索引，支持跨运行复用和对比
-- **Web 数据管理**：Web 后台提供“数据管理”页，可查看数据库运行、样本结果和 artifact，并补录已有 run 目录
-
-## 数据集说明
-
-当前仓库内置数据集实际为 `self_contained`：Python、Go、Java、C++ 各 4 个场景，每个场景 50 个样本。正式运行请显式使用 `--class self_contained`，避免旧文档中的 module-level 说明造成样本集合不一致。
-
-## 报告口径
-
-- `compile_pass_rate`、`sample_test_pass_rate`、`avg_test_pass_rate` 都是样本级口径。
-- `test_case_pass_rate`、`avg_test_case_pass_rate` 是测试用例级口径，用来补充说明单个样本内部测试函数通过情况。
-- 排名和综合分默认使用样本级测试通过率，避免样本内测试函数数量差异放大分数。
-- `avg_latency_ms` 现在表示单样本完整评测耗时，不再是某个子阶段的局部时间。
-- 所有语言都必须样本级测试通过后才运行变异测试；基线测试失败的样本变异分记 0，并归入模型问题。
-- 变异测试失败会按原因细分展示：`mutation_skipped_baseline_failed`、`mutation_target_not_exercised`、`mutation_no_results`、`mutation_no_coverage`、`mutation_no_effective_mutants`、`mutation_timeout`、`mutation_tool_error`、`mutation_error`。
-- 工具/环境/数据集问题不进入模型排名分母；模型生成代码导致的编译或测试失败仍进入排名。
-
-```bash
-./utbench doctor --langs python,go,java,cpp --mutation-enabled --mutation-timeout 120
-./utbench dataset validate --dataset-root ./datasets --langs python,go,java,cpp --class self_contained --strict
-```
-
-## 数据库
-
-```bash
-./utbench db init --db-path ./storage/utbench.db
-./utbench db ingest-run --run-id <run-id> --output-root ./artifacts --db-path ./storage/utbench.db
-./utbench db overview --db-path ./storage/utbench.db
-./utbench db list-results --run-id <run-id> --db-path ./storage/utbench.db
-./utbench db report --run-ids <run-a>,<run-b> --models deepseek,qwen --langs python,go --db-path ./storage/utbench.db
-```
-
-`run --ingest --db-path ./storage/utbench.db` 会在运行结束后自动把当前 run 目录中的 `generated_manifest.json`、`evaluation_result.json`、`report_summary.json` 以及关联的测试代码、prompt、模型响应、元数据和报告 artifact 写入数据库。不再使用旧的 `utbench ingest` 两表结构。
-`run --reuse-generated --db-path ./storage/utbench.db` 会在同模型、同源码 SHA256、同 prompt version 的情况下复用数据库中的历史 generated test，跳过模型 API 调用；评测仍按当前环境重新执行。
-`utbench db report` 会从数据库筛选历史结果并复用现有 reporter 生成新的 `report_summary.json` 和 `report.html`，用于把不同运行中的模型放到同一份报告里比较。
-
-HTML 报告沿用可视化评测页布局：紧凑概览、模型排名、图表分析、语言/场景统计、失败分析和原始数据明细。
+更细的说明见 [docs/output-convention.md](/C:/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/go-ut-bench/docs/output-convention.md)。
 
 ## 文档
 
-- [用户指南](docs/USER_GUIDE.md) - 完整使用文档
-- [CLI 参数](docs/cli-spec.md) - 命令行参数详解
-- [Docker 使用](docs/DOCKER_GUIDE.md) - Docker 运行指南
-- [架构设计](docs/architecture-mvp.md) - 系统架构
-
-## 环境要求
-
-### Python
-```bash
-pip install pytest coverage mutmut
-```
-
-### Go
-```bash
-go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest
-```
-
-### Java
-- JDK 17+
-- Maven 3+
-
-### C++
-```bash
-sudo apt-get install cmake clang-15 libgtest-dev g++-15 mull-15
-```
+- [快速开始](QUICKSTART.md)
+- [Agent 升级状态](docs/AGENT_UPGRADE.md)
+- [用户指南](docs/USER_GUIDE.md)
+- [输出规范](docs/output-convention.md)
+- [CLI 参数](docs/cli-spec.md)
+- [Docker 使用](docs/DOCKER_GUIDE.md)
+- [架构设计](docs/architecture-mvp.md)
