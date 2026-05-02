@@ -19,22 +19,25 @@ const (
 )
 
 type FrameworkSpec struct {
-	Name             string            `json:"name"`
-	Kind             string            `json:"kind"`
-	Enabled          bool              `json:"enabled"`
-	Command          string            `json:"command,omitempty"`
-	DockerImage      string            `json:"docker_image,omitempty"`
-	SandboxMode      string            `json:"sandbox_mode,omitempty"`
-	TimeoutSeconds   int               `json:"timeout_seconds,omitempty"`
-	OutputGlobs      []string          `json:"output_globs,omitempty"`
-	Env              map[string]string `json:"env,omitempty"`
-	EnvFromHost      []string          `json:"env_from_host,omitempty"`
-	CompatibleModels []string          `json:"compatible_models,omitempty"`
-	CompatibleLangs  []string          `json:"compatible_languages,omitempty"`
-	DisableNoSkill   bool              `json:"disable_no_skill,omitempty"`
-	NetworkDisabled  bool              `json:"network_disabled,omitempty"`
-	CPU              string            `json:"cpu,omitempty"`
-	Memory           string            `json:"memory,omitempty"`
+	Name                     string              `json:"name"`
+	Kind                     string              `json:"kind"`
+	Enabled                  bool                `json:"enabled"`
+	Command                  string              `json:"command,omitempty"`
+	DockerImage              string              `json:"docker_image,omitempty"`
+	DockerImages             map[string]string   `json:"docker_images,omitempty"`
+	SandboxMode              string              `json:"sandbox_mode,omitempty"`
+	TimeoutSeconds           int                 `json:"timeout_seconds,omitempty"`
+	OutputGlobs              []string            `json:"output_globs,omitempty"`
+	Env                      map[string]string   `json:"env,omitempty"`
+	EnvFromHost              []string            `json:"env_from_host,omitempty"`
+	Preflight                map[string][]string `json:"preflight,omitempty"`
+	ForbiddenCommandPatterns []string            `json:"forbidden_command_patterns,omitempty"`
+	CompatibleModels         []string            `json:"compatible_models,omitempty"`
+	CompatibleLangs          []string            `json:"compatible_languages,omitempty"`
+	DisableNoSkill           bool                `json:"disable_no_skill,omitempty"`
+	NetworkDisabled          bool                `json:"network_disabled,omitempty"`
+	CPU                      string              `json:"cpu,omitempty"`
+	Memory                   string              `json:"memory,omitempty"`
 }
 
 type SubjectEntry struct {
@@ -57,21 +60,24 @@ type ResolvedSubject struct {
 type fileConfig struct {
 	Models     []string `yaml:"models"`
 	Frameworks map[string]struct {
-		Enabled             *bool             `yaml:"enabled"`
-		Kind                string            `yaml:"kind"`
-		Command             string            `yaml:"command"`
-		DockerImage         string            `yaml:"docker_image"`
-		SandboxMode         string            `yaml:"sandbox_mode"`
-		TimeoutSeconds      int               `yaml:"timeout_seconds"`
-		OutputGlobs         []string          `yaml:"output_globs"`
-		Env                 map[string]string `yaml:"env"`
-		EnvFromHost         []string          `yaml:"env_from_host"`
-		CompatibleModels    []string          `yaml:"compatible_models"`
-		CompatibleLanguages []string          `yaml:"compatible_languages"`
-		DisableNoSkill      bool              `yaml:"disable_no_skill"`
-		NetworkDisabled     *bool             `yaml:"network_disabled"`
-		CPU                 string            `yaml:"cpu"`
-		Memory              string            `yaml:"memory"`
+		Enabled                  *bool               `yaml:"enabled"`
+		Kind                     string              `yaml:"kind"`
+		Command                  string              `yaml:"command"`
+		DockerImage              string              `yaml:"docker_image"`
+		DockerImages             map[string]string   `yaml:"docker_images"`
+		SandboxMode              string              `yaml:"sandbox_mode"`
+		TimeoutSeconds           int                 `yaml:"timeout_seconds"`
+		OutputGlobs              []string            `yaml:"output_globs"`
+		Env                      map[string]string   `yaml:"env"`
+		EnvFromHost              []string            `yaml:"env_from_host"`
+		Preflight                map[string][]string `yaml:"preflight"`
+		ForbiddenCommandPatterns []string            `yaml:"forbidden_command_patterns"`
+		CompatibleModels         []string            `yaml:"compatible_models"`
+		CompatibleLanguages      []string            `yaml:"compatible_languages"`
+		DisableNoSkill           bool                `yaml:"disable_no_skill"`
+		NetworkDisabled          *bool               `yaml:"network_disabled"`
+		CPU                      string              `yaml:"cpu"`
+		Memory                   string              `yaml:"memory"`
 	} `yaml:"frameworks"`
 	Skills map[string]struct {
 		Enabled              *bool    `yaml:"enabled"`
@@ -150,22 +156,25 @@ func normalizeFrameworks(cfg fileConfig) map[string]FrameworkSpec {
 			networkDisabled = *item.NetworkDisabled
 		}
 		out[name] = FrameworkSpec{
-			Name:             name,
-			Kind:             kind,
-			Enabled:          true,
-			Command:          item.Command,
-			DockerImage:      item.DockerImage,
-			SandboxMode:      defaultString(item.SandboxMode, "docker"),
-			TimeoutSeconds:   item.TimeoutSeconds,
-			OutputGlobs:      item.OutputGlobs,
-			Env:              item.Env,
-			EnvFromHost:      uniqueNonEmpty(item.EnvFromHost),
-			CompatibleModels: item.CompatibleModels,
-			CompatibleLangs:  item.CompatibleLanguages,
-			DisableNoSkill:   item.DisableNoSkill,
-			NetworkDisabled:  networkDisabled,
-			CPU:              item.CPU,
-			Memory:           item.Memory,
+			Name:                     name,
+			Kind:                     kind,
+			Enabled:                  true,
+			Command:                  item.Command,
+			DockerImage:              item.DockerImage,
+			DockerImages:             normalizeStringMap(item.DockerImages),
+			SandboxMode:              defaultString(item.SandboxMode, "docker"),
+			TimeoutSeconds:           item.TimeoutSeconds,
+			OutputGlobs:              item.OutputGlobs,
+			Env:                      item.Env,
+			EnvFromHost:              uniqueNonEmpty(item.EnvFromHost),
+			Preflight:                normalizeStringSliceMap(item.Preflight),
+			ForbiddenCommandPatterns: uniqueNonEmpty(item.ForbiddenCommandPatterns),
+			CompatibleModels:         item.CompatibleModels,
+			CompatibleLangs:          item.CompatibleLanguages,
+			DisableNoSkill:           item.DisableNoSkill,
+			NetworkDisabled:          networkDisabled,
+			CPU:                      item.CPU,
+			Memory:                   item.Memory,
 		}
 	}
 	return out
@@ -363,6 +372,47 @@ func resolveRelative(baseDir, path string) string {
 		return path
 	}
 	return filepath.Clean(filepath.Join(baseDir, path))
+}
+
+func normalizeStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeStringSliceMap(in map[string][]string) map[string][]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(in))
+	for key, values := range in {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		cleaned := uniqueNonEmpty(values)
+		if len(cleaned) == 0 {
+			continue
+		}
+		out[key] = cleaned
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func uniqueNonEmpty(items []string) []string {

@@ -26,18 +26,18 @@ import (
 // apiClient LLM API 客户端
 // 管理 HTTP 连接、重试策略和退避时间
 type apiClient struct {
-	client  *http.Client // HTTP 客户端，设置超时时间
-	retries int          // 最大重试次数
+	client  *http.Client  // HTTP 客户端，设置超时时间
+	retries int           // 最大重试次数
 	backoff time.Duration // 基础退避时间
 }
 
 // 全局模型速率限制器
 // 用于错开对同一模型提供者/端点的调用，避免触发速率限制
 var (
-	globalRateLimiter sync.Mutex            // 全局互斥锁，保护模型调用时间记录
+	globalRateLimiter sync.Mutex                   // 全局互斥锁，保护模型调用时间记录
 	modelLastCall     = make(map[string]time.Time) // 各模型最后调用时间
-	modelMinInterval  = 200 * time.Millisecond // 同一模型调用最小间隔
-	modelJitter       = 100 * time.Millisecond // 最大随机抖动时间
+	modelMinInterval  = 200 * time.Millisecond     // 同一模型调用最小间隔
+	modelJitter       = 100 * time.Millisecond     // 最大随机抖动时间
 )
 
 // newAPIClient 创建新的 API 客户端
@@ -242,6 +242,13 @@ func (c *apiClient) doOnce(
 
 	rawBytes, _ := io.ReadAll(resp.Body)
 	rawText := string(rawBytes)
+	if len(rawBytes) == 0 {
+		return "", nil, nil, nil, nil, false, &contracts.ErrorInfo{
+			Kind:      "response_parse_error",
+			Message:   "empty response body",
+			Retryable: true,
+		}
+	}
 
 	if resp.StatusCode >= 400 {
 		retryable := resp.StatusCode == 408 || resp.StatusCode == 429 || resp.StatusCode >= 500
@@ -256,7 +263,11 @@ func (c *apiClient) doOnce(
 
 	var payload map[string]any
 	if err := json.Unmarshal(rawBytes, &payload); err != nil {
-		return "", nil, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "response_parse_error", Message: err.Error(), Retryable: false}
+		return "", nil, nil, nil, nil, false, &contracts.ErrorInfo{
+			Kind:      "response_parse_error",
+			Message:   fmt.Sprintf("%s | body=%s", err.Error(), trimText(rawText, 500)),
+			Retryable: true,
+		}
 	}
 
 	text, err := extractResponseText(payload, provider)
@@ -1056,7 +1067,7 @@ func containsComparator(line string) bool {
 	return false
 }
 
-// extractModuleLevelSymbols 从源代码中提取模块级别的符号
+// extractRepoLevelSymbols 从源代码中提取仓库级别的符号
 // 用于提示词中告知模型可导入的符号
 //
 // 参数:
@@ -1065,7 +1076,7 @@ func containsComparator(line string) bool {
 //
 // 返回值:
 //   - string: 符号列表说明文本
-func extractModuleLevelSymbols(sourceCode, language string) string {
+func extractRepoLevelSymbols(sourceCode, language string) string {
 	var symbols []string
 	seen := make(map[string]struct{})
 
@@ -1132,12 +1143,12 @@ func extractModuleLevelSymbols(sourceCode, language string) string {
 	if len(symbols) == 0 {
 		return ""
 	}
-	return "Module-level symbols available to import: " + strings.Join(symbols, ", ") + "."
+	return "Repo-level symbols available to import: " + strings.Join(symbols, ", ") + "."
 }
 
-// moduleLevelMetaForRunner 模块级别样本的元数据结构
-// 用于 Runner 加载和处理模块级别样本
-type moduleLevelMetaForRunner struct {
+// repoLevelMetaForRunner 仓库级别样本的元数据结构
+// 用于 Runner 加载和处理仓库级别样本
+type repoLevelMetaForRunner struct {
 	SampleID      string   `json:"sample_id"`              // 样本 ID
 	ModuleImport  string   `json:"module_import"`          // 模块导入路径
 	PackageName   string   `json:"package_name"`           // 包名
@@ -1146,15 +1157,15 @@ type moduleLevelMetaForRunner struct {
 	Requirements  []string `json:"requirements,omitempty"` // 依赖包列表
 }
 
-// loadModuleLevelMetaForRunner 从样本路径加载模块级别元数据
+// loadRepoLevelMetaForRunner 从样本路径加载仓库级别元数据
 // 查找并解析 meta.json 或 {name}.meta.json 文件
 //
 // 参数:
 //   - samplePath: 样本文件路径
 //
 // 返回值:
-//   - *moduleLevelMetaForRunner: 元数据（失败时为 nil）
-func loadModuleLevelMetaForRunner(samplePath string) *moduleLevelMetaForRunner {
+//   - *repoLevelMetaForRunner: 元数据（失败时为 nil）
+func loadRepoLevelMetaForRunner(samplePath string) *repoLevelMetaForRunner {
 	dir := filepath.Dir(samplePath)
 	base := filepath.Base(samplePath)
 	ext := filepath.Ext(base)
@@ -1174,7 +1185,7 @@ func loadModuleLevelMetaForRunner(samplePath string) *moduleLevelMetaForRunner {
 	if err != nil {
 		return nil
 	}
-	var meta moduleLevelMetaForRunner
+	var meta repoLevelMetaForRunner
 	if err := json.Unmarshal(raw, &meta); err != nil {
 		return nil
 	}

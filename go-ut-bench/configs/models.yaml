@@ -6,6 +6,32 @@ models:
       api_endpoint: "https://api.deepseek.com"
       model: "deepseek-v4-flash"
       api_key_env: "DEEPSEEK_API_KEY"
+      pricing:
+        # 使用非缓存输入价和输出价。
+        # 官方价格：输入 1 元 / 百万 tokens，输出 2 元 / 百万 tokens。
+        # 当前代码内部使用 USD 计价，这里按 1 USD ≈ 7.2 CNY 录入：
+        # prompt_per_1k_usd     = 1 / 1_000_000 * 1000 / 7.2
+        # completion_per_1k_usd = 2 / 1_000_000 * 1000 / 7.2
+        prompt_per_1k_usd: 0.000138889
+        completion_per_1k_usd: 0.000277778
+      parameters:
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 4096
+
+  deepseek-v4-pro:
+    enabled: true
+    provider: deepseek
+    config:
+      api_endpoint: "https://api.deepseek.com"
+      model: "deepseek-v4-pro"
+      api_key_env: "DEEPSEEK_API_KEY"
+      pricing:
+        # 使用当前生效的折后非缓存输入价和输出价。
+        # 官方价格：输入 3 元 / 百万 tokens，输出 6 元 / 百万 tokens。
+        # 按 1 USD ≈ 7.2 CNY 录入。
+        prompt_per_1k_usd: 0.000416667
+        completion_per_1k_usd: 0.000833333
       parameters:
         temperature: 0.7
         top_p: 0.9

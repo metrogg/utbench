@@ -98,11 +98,13 @@ framework × model × skill
 | `--class` | 数据集类别，支持逗号分隔 |
 | `--scenario` | 场景过滤 |
 | `--level` | 数据集级别 |
+| `--db-path` | SQLite 资产库路径，默认 `./storage/utbench.db` |
+| `--reuse-generated` | 复用相同资产 key 的历史生成结果，默认开启 |
+| `--reuse-evaluation` | 复用相同 evaluation key 的历史评测结果，默认关闭 |
 | `--max-samples` | 样本上限 |
 | `--mode` | `full` 或 `incremental` |
 | `--reset-checkpoint` | 重置 checkpoint |
 | `--dry-run` | 不调用真实模型 |
-| `--reuse-generated` | 从 SQLite 复用历史 generated case |
 | `--mutation-enabled` | 是否启用变异测试 |
 | `--mutation-timeout` | 变异超时秒数 |
 | `--test-timeout` | 测试执行超时秒数 |
@@ -110,20 +112,63 @@ framework × model × skill
 | `--output-root` | 输出根目录 |
 | `--run-id` | 指定 run ID |
 
+## 5. 资产复用
+
+UT-Bench 现在会把生成结果和评测结果索引到本地 SQLite。生成复用默认开启：
+
+```bash
+./utbench run \
+  --models deepseek-v4-flash \
+  --langs cpp \
+  --config ./configs/models.yaml \
+  --agents-config ./configs/agents.example.yaml \
+  --subjects model_api__deepseek-v4-flash__no_skill,opencode__deepseek-v4-flash__no_skill \
+  --dataset-root ./datasets \
+  --output-root ./artifacts \
+  --db-path ./storage/utbench.db \
+  --reuse-generated=true \
+  --reuse-evaluation=false
+```
+
+生成复用按 `subject_version_id + sample_uid + prompt + dependency + sandbox/env fingerprint` 判断，不会跨 subject、skill、framework 或环境复用。命中复用时，当前 run 仍会写出完整 manifest，并标注来源 run/case。
+
+评测复用目前需要显式开启：
+
+```bash
+./utbench run ... --reuse-evaluation=true
+```
+
+建议在 evaluator 环境和 mutation 配置稳定后再打开。
+
+### 查询资产
+
+```bash
+./utbench assets subjects --db-path ./storage/utbench.db
+./utbench assets generations --subject opencode__deepseek-v4-flash__no_skill --lang go
+./utbench assets evaluations --subject opencode__deepseek-v4-flash__no_skill --lang go --sample boundary_000
+./utbench assets explain-reuse --subject opencode__deepseek-v4-flash__no_skill --lang go --sample boundary_000
+```
+
+`explain-reuse` 会输出当前数据库里最新的可复用生成候选、`generation_key`、来源 run 和 artifact 路径。
+如果要手工比对当前环境，可以额外传 `--generation-key`、`--dependency-fingerprint`、`--generation-env-fingerprint`。
+
 ### 分步命令
 
 - `utbench generate --manifest` 不存在，`generate` 会直接产出 `generated_manifest.json`
 - `utbench evaluate --manifest <generated_manifest.json>`
 - `utbench report --evaluation <evaluation_result.json>`
 
-## 5. `agents.yaml` 结构
+## 6. `agents.yaml` 结构
 
 示例见 [configs/agents.example.yaml](/C:/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/go-ut-bench/configs/agents.example.yaml)。
 
 如果使用当前仓库提供的 `OpenCode` 示例，还要先构建对应的内层 Agent 镜像：
 
 ```bash
-docker build -t utbench-agent-opencode:latest -f ./docker/agents/opencode/Dockerfile .
+docker build -t utbench-agent-opencode-python:latest -f ./docker/agents/opencode/python.Dockerfile .
+docker build -t utbench-agent-opencode-go:latest -f ./docker/agents/opencode/go.Dockerfile .
+docker build -t utbench-agent-opencode-java:latest -f ./docker/agents/opencode/java.Dockerfile .
+docker build -t utbench-agent-opencode-cpp:latest -f ./docker/agents/opencode/cpp.Dockerfile .
 ```
 
 核心结构：
@@ -136,18 +181,29 @@ frameworks:
   opencode:
     kind: cli_agent
     sandbox_mode: docker
-    docker_image: utbench-agent-opencode:latest
+    docker_images:
+      python: utbench-agent-opencode-python:latest
+      go: utbench-agent-opencode-go:latest
     timeout_seconds: 600
-    network_disabled: true
+    network_disabled: false
     cpu: "2"
     memory: 2g
+    preflight:
+      python:
+        - python3 --version
+        - pytest --version
+      go:
+        - go version
+    forbidden_command_patterns:
+      - apt-get install
+      - pip install
     env:
       OPENCODE_CONFIG_CONTENT: |
         {"provider":{"utbench":{"options":{"baseURL":"{{.ModelEndpoint}}","apiKey":"{env:{{.ModelAPIKeyEnv}}}"}}}}
     env_from_host:
       - DEEPSEEK_API_KEY
     command: >
-      opencode run --print-logs --dangerously-skip-permissions --model utbench/{{.ModelID}} "$(cat {{.ContainerPrompt}})"
+      PROMPT="$(cat {{.ContainerPrompt}})" && opencode run --print-logs --dangerously-skip-permissions --model utbench/{{.ModelID}} "$PROMPT"
     compatible_models:
       - deepseek-v4-flash
     compatible_languages:
@@ -179,7 +235,10 @@ subjects:
 | `command` | 命令模板 |
 | `sandbox_mode` | `docker` 或 `local` |
 | `docker_image` | 内层 Agent 沙箱镜像 |
+| `docker_images` | 按语言选择的内层 Agent 沙箱镜像，优先级高于 `docker_image` |
 | `timeout_seconds` | 单样本 Agent 超时 |
+| `preflight` | 按语言定义的执行前环境检查命令 |
+| `forbidden_command_patterns` | 识别环境漂移的命令模式，如 `apt-get install` |
 | `output_globs` | 测试文件发现规则 |
 | `env` | 传给 Agent 的环境变量 |
 | `env_from_host` | 从宿主环境透传进 Agent 进程或容器的变量名 |
@@ -200,7 +259,7 @@ subjects:
 | `compatible_frameworks` | 兼容的 framework |
 | `compatible_languages` | 兼容的语言 |
 
-## 6. CLI Agent 的调用约定
+## 7. CLI Agent 的调用约定
 
 当前实现不是为某个 Agent 写死命令，而是统一模板渲染。
 
@@ -236,7 +295,40 @@ UT-Bench 会给 Agent 一个明确约束：
 
 如果 Agent 没在预期路径输出，UT-Bench 会按 `output_globs` 和工作区 diff 再查一次。
 
-## 7. Docker 与沙箱的边界
+### 评测环境约束
+
+UT-Bench 现在会在每个 `subject × sample` 的 Agent 执行前做 preflight。典型检查包括：
+
+- Python: `python3 --version`, `pytest --version`
+- Go: `go version`
+- Java: `java -version`, `mvn -version`
+- C++: `g++ --version`, `cmake --version`
+
+如果 preflight 失败，任务会直接以 `sandbox_preflight_error` 终止，而不是让 Agent 在运行中自己尝试 `apt-get install`。
+
+UT-Bench 也会检查环境漂移命令。默认会拦截这类操作：
+
+- `apt-get install`
+- `apt install`
+- `apk add`
+- `yum install`
+- `pip install`
+- `npm install`
+
+这条规则的目的很明确：评测平台负责提供完整、固定、可复现的环境；Agent 只负责在这个环境里生成测试。
+
+### 样本依赖准备
+
+除了语言基础镜像，UT-Bench 现在还会在 Agent 执行前按样本准备常见依赖：
+
+- Python `repo_level` 元数据里的 `requirements`
+- workspace 根目录的 `requirements.txt` / `requirements-dev.txt`
+- `go.mod` -> `go mod download`
+- `pom.xml` -> `mvn -q -DskipTests dependency:go-offline`
+
+这一步由平台执行，并记录到 trace 里的 `environment_setup`。如果依赖准备失败，任务会以 `sample_env_prepare_error` 结束，不会把“缺依赖”误算成 Agent 生成能力问题。
+
+## 8. Docker 与沙箱的边界
 
 很多人会把这两件事混在一起：
 
@@ -289,7 +381,7 @@ UT-Bench 会对每个 `subject × sample`：
 - 语言专用基础镜像
 - 更强的隔离层，例如 gVisor / Firecracker / E2B
 
-## 8. 报告新增内容
+## 9. 报告新增内容
 
 除了原有的编译、测试、覆盖率、变异得分，当前报告还会额外产出：
 
@@ -303,19 +395,19 @@ UT-Bench 会对每个 `subject × sample`：
 - `opencode__deepseek-v4-flash__no_skill` vs `model_api__deepseek-v4-flash__no_skill`
 - `opencode__deepseek-v4-flash__unit_test_skill` vs `opencode__deepseek-v4-flash__no_skill`
 
-## 9. 数据集与样本准备
+## 10. 数据集与样本准备
 
 ### `self_contained`
 
 直接使用单文件样本。对纯模型 API 和 Agent 都适用。
 
-### `module_level`
+### `repo_level`
 
-如果样本旁边存在 module-level metadata，runner 会复制整个 workspace，再把目标文件交给 Agent。
+如果样本旁边存在 repo-level metadata，runner 会复制整个 workspace，再把目标文件交给 Agent。
 
 这意味着 Agent 视角里拿到的是一个最小可操作 repo，而不是孤立源码片段。
 
-## 10. 现在优先接哪个真实 CLI Agent
+## 11. 现在优先接哪个真实 CLI Agent
 
 建议先接 `OpenCode`。
 
@@ -330,7 +422,7 @@ UT-Bench 会对每个 `subject × sample`：
 1. `OpenCode`
 2. `Claude Code`
 
-## 11. 常见问题
+## 12. 常见问题
 
 ### `--models` 和 `--subjects` 要不要同时传
 
@@ -349,3 +441,4 @@ UT-Bench 会对每个 `subject × sample`：
 ### `sandbox_mode: local` 有什么用
 
 主要用于本地调试和测试。正式跑 Agent 横评时，应该优先用 `sandbox_mode: docker`。
+

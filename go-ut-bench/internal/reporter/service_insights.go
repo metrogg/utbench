@@ -157,7 +157,7 @@ func findLanguageGaps(languages []contracts.LanguageDim) []langGapInsight {
 	}
 	if bestLang.Language != worstLang.Language && bestCov-worstCov > 0.15 {
 		result = append(result, langGapInsight{
-			title:  fmt.Sprintf("%s 与 %s 覆盖率差距较大", strings.ToUpper(bestLang.Language), strings.ToUpper(worstLang.Language)),
+			title: fmt.Sprintf("%s 与 %s 覆盖率差距较大", strings.ToUpper(bestLang.Language), strings.ToUpper(worstLang.Language)),
 			detail: fmt.Sprintf("%s 行覆盖率 %.1f%%，%s 行覆盖率 %.1f%%，差距 %.1f%%。可能原因：语言特性差异、测试框架复杂度不同。",
 				strings.ToUpper(bestLang.Language), bestCov*100, strings.ToUpper(worstLang.Language), worstCov*100, (bestCov-worstCov)*100),
 		})
@@ -213,32 +213,78 @@ func buildEfficiencyStats(topModels []contracts.ModelRank, rows []contracts.Eval
 
 	// 成本估算
 	totalTokens := 0
-	modelCostMap := map[string]int{}
+	totalCost := 0.0
+	pricingConfigured := false
+	pricedSamples := 0
+	actualTokenSamples := 0
+	estimatedTokenSamples := 0
+	missingTokenSamples := 0
+	type costAgg struct {
+		tokens           int
+		costUSD          float64
+		sampleCount      int
+		pricedSamples    int
+		actualSamples    int
+		estimatedSamples int
+		missingSamples   int
+	}
+	modelCostMap := map[string]*costAgg{}
 	for _, row := range rows {
 		if row.TotalTokens != nil {
 			totalTokens += *row.TotalTokens
-			modelCostMap[row.Model] += *row.TotalTokens
+		}
+		agg := modelCostMap[row.Model]
+		if agg == nil {
+			agg = &costAgg{}
+			modelCostMap[row.Model] = agg
+		}
+		agg.sampleCount++
+		if row.TotalTokens != nil {
+			agg.tokens += *row.TotalTokens
+		}
+		switch strings.ToLower(strings.TrimSpace(row.TokenSource)) {
+		case "actual":
+			actualTokenSamples++
+			agg.actualSamples++
+		case "estimated":
+			estimatedTokenSamples++
+			agg.estimatedSamples++
+		default:
+			if row.TotalTokens == nil && row.PromptTokens == nil && row.CompletionTokens == nil {
+				missingTokenSamples++
+				agg.missingSamples++
+			}
+		}
+		if row.EstimatedCostUSD != nil {
+			totalCost += *row.EstimatedCostUSD
+			agg.costUSD += *row.EstimatedCostUSD
+			pricedSamples++
+			agg.pricedSamples++
+			pricingConfigured = true
 		}
 	}
 	stats.CostEstimate = contracts.CostEstimate{
-		TotalTokens:      totalTokens,
-		EstimatedCostUSD: float64(totalTokens) * 0.001 / 1000,
+		TotalTokens:           totalTokens,
+		EstimatedCostUSD:      totalCost,
+		PricingConfigured:     pricingConfigured,
+		PricedSamples:         pricedSamples,
+		ActualTokenSamples:    actualTokenSamples,
+		EstimatedTokenSamples: estimatedTokenSamples,
+		MissingTokenSamples:   missingTokenSamples,
 	}
-	for model, tokens := range modelCostMap {
-		sampleCount := 0
-		for _, row := range rows {
-			if row.Model == model {
-				sampleCount++
-			}
-		}
+	for model, agg := range modelCostMap {
 		stats.CostEstimate.ModelCostBreakdown = append(stats.CostEstimate.ModelCostBreakdown, contracts.ModelCostRow{
-			Model:           model,
-			TotalTokens:     tokens,
-			AvgCostPerSample: float64(tokens) / float64(maxInt(1, sampleCount)) * 0.001 / 1000,
+			Model:                 model,
+			TotalTokens:           agg.tokens,
+			EstimatedCostUSD:      agg.costUSD,
+			AvgCostPerSample:      agg.costUSD / float64(maxInt(1, agg.pricedSamples)),
+			PricedSamples:         agg.pricedSamples,
+			ActualTokenSamples:    agg.actualSamples,
+			EstimatedTokenSamples: agg.estimatedSamples,
 		})
 	}
 	sort.Slice(stats.CostEstimate.ModelCostBreakdown, func(i, j int) bool {
-		return stats.CostEstimate.ModelCostBreakdown[i].TotalTokens > stats.CostEstimate.ModelCostBreakdown[j].TotalTokens
+		return stats.CostEstimate.ModelCostBreakdown[i].EstimatedCostUSD > stats.CostEstimate.ModelCostBreakdown[j].EstimatedCostUSD
 	})
 
 	return stats

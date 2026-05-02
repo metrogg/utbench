@@ -10,7 +10,6 @@ import (
 
 	"go-ut-bench/internal/agentconfig"
 	"go-ut-bench/internal/contracts"
-	"go-ut-bench/internal/obs"
 )
 
 func TestGenerateWithCLIAgentLocalFake(t *testing.T) {
@@ -33,51 +32,58 @@ func main() {
 	if err := os.WriteFile(fakeAgent, []byte(fakeAgentSrc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	target := subjectTarget{
-		subject: agentconfig.ResolvedSubject{
-			Spec: contracts.SubjectSpec{
-				ID:        "fake_agent__deepseek__no_skill",
-				Kind:      agentconfig.KindCLIAgent,
-				Framework: "fake_agent",
-				Model:     "deepseek",
-				Skill:     agentconfig.NoSkill,
-			},
-			Framework: agentconfig.FrameworkSpec{
-				Name:        "fake_agent",
-				Kind:        agentconfig.KindCLIAgent,
-				Enabled:     true,
-				SandboxMode: "local",
-				Command:     `go run "` + fakeAgent + `" "{{.OutputFile}}"`,
-			},
-			Skill: contracts.SkillSpec{Name: agentconfig.NoSkill, Enabled: true},
+	subject := agentconfig.ResolvedSubject{
+		Spec: contracts.SubjectSpec{
+			ID:        "fake_agent__deepseek__no_skill",
+			Kind:      agentconfig.KindCLIAgent,
+			Framework: "fake_agent",
+			Model:     "deepseek",
+			Skill:     agentconfig.NoSkill,
 		},
-		model: modelConfig{Name: "deepseek", Model: "deepseek-chat"},
+		Framework: agentconfig.FrameworkSpec{
+			Name:        "fake_agent",
+			Kind:        agentconfig.KindCLIAgent,
+			Enabled:     true,
+			SandboxMode: "local",
+			Command:     `go run "` + fakeAgent + `" "{{.OutputFile}}"`,
+			Preflight: map[string][]string{
+				"python": {"go version"},
+			},
+		},
+		Skill: contracts.SkillSpec{Name: agentconfig.NoSkill, Enabled: true},
 	}
-	spec := contracts.RunSpec{OutputRoot: tmp, RunID: "run_cli_agent"}
-	svc := NewService(obs.NewLogger(false, ""))
-	code, raw, trace, latency, _, _, _, truncated, errInfo := svc.generateWithCLIAgent(
-		context.Background(),
-		spec,
-		target,
-		contracts.SampleRef{ID: "sample_000", Language: "python", Path: samplePath},
-		"Generate tests",
-		filepath.Join(tmp, "out.py"),
-		filepath.Join(tmp, "metadata"),
-	)
-	if errInfo != nil {
-		t.Fatalf("generateWithCLIAgent returned error: %+v raw=%+v", errInfo, raw)
+	adapter := newCLIAgentAdapter(NewSandboxRunner())
+	result := adapter.Generate(context.Background(), AgentGenerateRequest{
+		Subject:    subject,
+		Model:      modelConfig{Name: "deepseek", Model: "deepseek-chat"},
+		Sample:     contracts.SampleRef{ID: "sample_000", Language: "python", Path: samplePath},
+		Prompt:     "Generate tests",
+		TestPath:   filepath.Join(tmp, "out.py"),
+		MetaRoot:   filepath.Join(tmp, "metadata"),
+		OutputRoot: tmp,
+		RunID:      "run_cli_agent",
+	})
+	if result.Error != nil {
+		t.Fatalf("adapter.Generate returned error: %+v raw=%+v", result.Error, result.RawResponse)
 	}
-	if truncated {
+	if result.Truncated {
 		t.Fatalf("did not expect truncation")
 	}
-	if latency <= 0 {
+	if result.LatencyMS <= 0 {
 		t.Fatalf("expected latency to be recorded")
 	}
-	if !strings.Contains(code, "def test_generated") {
-		t.Fatalf("unexpected generated code: %s", code)
+	if !strings.Contains(result.Code, "def test_generated") {
+		t.Fatalf("unexpected generated code: %s", result.Code)
 	}
-	if trace.TracePath == "" || trace.WorkspaceDiffPath == "" || trace.SandboxFingerprint == "" {
-		t.Fatalf("expected trace artifacts, got %+v", trace)
+	if result.Trace.TracePath == "" || result.Trace.WorkspaceDiffPath == "" || result.Trace.SandboxFingerprint == "" {
+		t.Fatalf("expected trace artifacts, got %+v", result.Trace)
+	}
+	// 验证新增的 trace 字段
+	if result.Trace.InteractionCount < 1 {
+		t.Fatalf("expected interaction_count >= 1, got %d", result.Trace.InteractionCount)
+	}
+	if result.Trace.StartedAt.IsZero() || result.Trace.FinishedAt.IsZero() {
+		t.Fatalf("expected started_at and finished_at to be set")
 	}
 }
 
@@ -112,49 +118,49 @@ func main() {
 		t.Fatal(err)
 	}
 	envCapture := filepath.Join(tmp, "env_capture.json")
-	target := subjectTarget{
-		subject: agentconfig.ResolvedSubject{
-			Spec: contracts.SubjectSpec{
-				ID:        "opencode__deepseek__unit_test_skill",
-				Kind:      agentconfig.KindCLIAgent,
-				Framework: "opencode",
-				Model:     "deepseek",
-				Skill:     "unit_test_skill",
-			},
-			Framework: agentconfig.FrameworkSpec{
-				Name:        "opencode",
-				Kind:        agentconfig.KindCLIAgent,
-				Enabled:     true,
-				SandboxMode: "local",
-				Command:     `go run "` + fakeAgent + `" "{{.OutputFile}}" "` + envCapture + `"`,
-				Env: map[string]string{
-					"OPENCODE_CONFIG_CONTENT": `{"endpoint":"{{.ModelEndpoint}}","api_key_env":"{{.ModelAPIKeyEnv}}","model":"{{.ModelID}}"}`,
-				},
-				EnvFromHost: []string{"TEST_AGENT_API_KEY"},
-			},
-			Skill: contracts.SkillSpec{Name: "unit_test_skill", Enabled: true},
+	subject := agentconfig.ResolvedSubject{
+		Spec: contracts.SubjectSpec{
+			ID:        "opencode__deepseek__unit_test_skill",
+			Kind:      agentconfig.KindCLIAgent,
+			Framework: "opencode",
+			Model:     "deepseek",
+			Skill:     "unit_test_skill",
 		},
-		model: modelConfig{
+		Framework: agentconfig.FrameworkSpec{
+			Name:        "opencode",
+			Kind:        agentconfig.KindCLIAgent,
+			Enabled:     true,
+			SandboxMode: "local",
+			Command:     `go run "` + fakeAgent + `" "{{.OutputFile}}" "` + envCapture + `"`,
+			Preflight: map[string][]string{
+				"python": {"go version"},
+			},
+			Env: map[string]string{
+				"OPENCODE_CONFIG_CONTENT": `{"endpoint":"{{.ModelEndpoint}}","api_key_env":"{{.ModelAPIKeyEnv}}","model":"{{.ModelID}}"}`,
+			},
+			EnvFromHost: []string{"TEST_AGENT_API_KEY"},
+		},
+		Skill: contracts.SkillSpec{Name: "unit_test_skill", Enabled: true},
+	}
+	adapter := newCLIAgentAdapter(NewSandboxRunner())
+	result := adapter.Generate(context.Background(), AgentGenerateRequest{
+		Subject: subject,
+		Model: modelConfig{
 			Name:      "deepseek",
 			Model:     "deepseek-v4-flash",
 			Provider:  "deepseek",
 			Endpoint:  "https://api.deepseek.com",
 			APIKeyEnv: "TEST_AGENT_API_KEY",
 		},
-	}
-	spec := contracts.RunSpec{OutputRoot: tmp, RunID: "run_cli_agent_env"}
-	svc := NewService(obs.NewLogger(false, ""))
-	_, raw, _, _, _, _, _, _, errInfo := svc.generateWithCLIAgent(
-		context.Background(),
-		spec,
-		target,
-		contracts.SampleRef{ID: "sample_001", Language: "python", Path: samplePath},
-		"Generate tests",
-		filepath.Join(tmp, "out_env.py"),
-		filepath.Join(tmp, "metadata"),
-	)
-	if errInfo != nil {
-		t.Fatalf("generateWithCLIAgent returned error: %+v raw=%+v", errInfo, raw)
+		Sample:     contracts.SampleRef{ID: "sample_001", Language: "python", Path: samplePath},
+		Prompt:     "Generate tests",
+		TestPath:   filepath.Join(tmp, "out_env.py"),
+		MetaRoot:   filepath.Join(tmp, "metadata"),
+		OutputRoot: tmp,
+		RunID:      "run_cli_agent_env",
+	})
+	if result.Error != nil {
+		t.Fatalf("adapter.Generate returned error: %+v raw=%+v", result.Error, result.RawResponse)
 	}
 	payloadRaw, err := os.ReadFile(envCapture)
 	if err != nil {
@@ -176,5 +182,140 @@ func main() {
 		if !strings.Contains(payload["config"], part) {
 			t.Fatalf("expected config to contain %s, got %s", part, payload["config"])
 		}
+	}
+}
+
+func TestFrameworkDockerImageAndPreflightCommands(t *testing.T) {
+	fw := agentconfig.FrameworkSpec{
+		DockerImage: "fallback:latest",
+		DockerImages: map[string]string{
+			"python":  "python:latest",
+			"default": "default:latest",
+		},
+		Preflight: map[string][]string{
+			"python": {"python3 --version", "pytest --version"},
+		},
+	}
+	if got := frameworkDockerImage(fw, "python"); got != "python:latest" {
+		t.Fatalf("unexpected python image: %q", got)
+	}
+	if got := frameworkDockerImage(fw, "go"); got != "default:latest" {
+		t.Fatalf("unexpected fallback image: %q", got)
+	}
+	commands := frameworkPreflightCommands(fw, "python")
+	if len(commands) != 2 || commands[0] != "pytest --version" || commands[1] != "python3 --version" {
+		t.Fatalf("unexpected preflight commands: %+v", commands)
+	}
+}
+
+func TestDetectSandboxPolicyViolation(t *testing.T) {
+	commands := []string{
+		"python3 --version",
+		"apt-get install -y python3 python3-pip",
+	}
+	violation := detectSandboxPolicyViolation(commands, []string{"apt-get install"})
+	if violation == "" {
+		t.Fatalf("expected sandbox policy violation")
+	}
+}
+
+func TestDetectSandboxPolicyViolationIgnoresOutputNoise(t *testing.T) {
+	commands := []string{
+		"g++ --version",
+		"ctest --output-on-failure",
+	}
+	violation := detectSandboxPolicyViolation(commands, []string{"npm install", "pip install"})
+	if violation != "" {
+		t.Fatalf("expected no sandbox policy violation from unrelated commands, got %q", violation)
+	}
+}
+
+func TestBuildSampleEnvironmentSetupCommandsPythonRepoLevel(t *testing.T) {
+	tmp := t.TempDir()
+	sampleDir := filepath.Join(tmp, "simple_function_000")
+	if err := os.MkdirAll(sampleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	samplePath := filepath.Join(sampleDir, "entry.py")
+	if err := os.WriteFile(samplePath, []byte("def f():\n    return 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	meta := `{"sample_id":"simple_function_000","module_import":"pkg.mod","workspace_root":"./workspace","requirements":["six","requests==2.31.0"]}`
+	if err := os.WriteFile(filepath.Join(sampleDir, "meta.json"), []byte(meta), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commands := buildSampleEnvironmentSetupCommands(contracts.SampleRef{
+		ID:       "simple_function_000",
+		Language: "python",
+		Path:     samplePath,
+	}, sampleDir)
+	if len(commands) != 1 {
+		t.Fatalf("expected one command, got %+v", commands)
+	}
+	if !strings.Contains(commands[0], "python3 -m pip install") || !strings.Contains(commands[0], "six") || !strings.Contains(commands[0], "requests==2.31.0") {
+		t.Fatalf("unexpected python dependency setup command: %q", commands[0])
+	}
+}
+
+func TestBuildSampleEnvironmentSetupCommandsWorkspaceFiles(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "pom.xml"), []byte("<project/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	goCommands := buildSampleEnvironmentSetupCommands(contracts.SampleRef{Language: "go"}, tmp)
+	if len(goCommands) != 1 || goCommands[0] != "go mod download" {
+		t.Fatalf("unexpected go commands: %+v", goCommands)
+	}
+	javaCommands := buildSampleEnvironmentSetupCommands(contracts.SampleRef{Language: "java"}, tmp)
+	if len(javaCommands) != 1 || javaCommands[0] != "mvn -q -DskipTests dependency:go-offline" {
+		t.Fatalf("unexpected java commands: %+v", javaCommands)
+	}
+}
+
+func TestGenerateWithCLIAgentFailsOnSandboxPreflight(t *testing.T) {
+	tmp := t.TempDir()
+	samplePath := filepath.Join(tmp, "sample.py")
+	if err := os.WriteFile(samplePath, []byte("def add(a, b):\n    return a + b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subject := agentconfig.ResolvedSubject{
+		Spec: contracts.SubjectSpec{
+			ID:        "fake_agent__deepseek__no_skill",
+			Kind:      agentconfig.KindCLIAgent,
+			Framework: "fake_agent",
+			Model:     "deepseek",
+			Skill:     agentconfig.NoSkill,
+		},
+		Framework: agentconfig.FrameworkSpec{
+			Name:        "fake_agent",
+			Kind:        agentconfig.KindCLIAgent,
+			Enabled:     true,
+			SandboxMode: "local",
+			Command:     `go version`,
+			Preflight: map[string][]string{
+				"python": {"definitely_missing_utbench_command"},
+			},
+		},
+		Skill: contracts.SkillSpec{Name: agentconfig.NoSkill, Enabled: true},
+	}
+	adapter := newCLIAgentAdapter(NewSandboxRunner())
+	result := adapter.Generate(context.Background(), AgentGenerateRequest{
+		Subject:    subject,
+		Model:      modelConfig{Name: "deepseek", Model: "deepseek-chat"},
+		Sample:     contracts.SampleRef{ID: "sample_000", Language: "python", Path: samplePath},
+		Prompt:     "Generate tests",
+		TestPath:   filepath.Join(tmp, "out.py"),
+		MetaRoot:   filepath.Join(tmp, "metadata"),
+		OutputRoot: tmp,
+		RunID:      "run_cli_agent_preflight_fail",
+	})
+	if result.Error == nil || result.Error.Kind != "sandbox_preflight_error" {
+		t.Fatalf("expected sandbox_preflight_error, got %+v", result.Error)
+	}
+	if len(result.Trace.PreflightChecks) != 1 || result.Trace.PreflightChecks[0].Passed {
+		t.Fatalf("expected failed preflight checks, got %+v", result.Trace.PreflightChecks)
 	}
 }

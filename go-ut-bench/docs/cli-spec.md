@@ -42,7 +42,7 @@ utbench run \
 | `--dataset-root` | `./datasets` | 数据集根目录 |
 | `--dataset-manifest` | `./configs/dataset_index.json` | 数据集清单路径 |
 | `--output-root` | `./artifacts` | 输出根目录 |
-| `--class` | `self_contained` | 数据集大类：`self_contained`/`module_level` |
+| `--class` | `self_contained` | 数据集大类：`self_contained`/`repo_level` |
 | `--scenario` | 全部 | 数据集场景：`boundary`/`simple_function`/`complex_dependency`/`interface_mock` |
 | `--level` | `l1` | 数据集级别 |
 | `--max-samples` | `0`（不限制） | 样本数量上限 |
@@ -300,7 +300,7 @@ utbench doctor \
 | 类别 | 说明 | 适用语言 |
 |------|------|---------|
 | `self_contained` | 自包含代码，无外部依赖 | Python, Go, Java, C++ |
-| `module_level` | 模块级别，有外部依赖 | 预留/旧数据 |
+| `repo_level` | 仓库级别，有外部依赖 | 预留/旧数据 |
 
 **注意**：当前仓库内置数据集实际为 `self_contained`，正式运行建议显式指定：
 ```bash
@@ -343,3 +343,4 @@ artifacts/runs/<run-id>/
   run.log                     # 运行日志
   api.log                     # API 调用日志
 ```
+

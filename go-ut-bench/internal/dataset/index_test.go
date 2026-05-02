@@ -12,7 +12,7 @@ func TestBuildIndexAndManifest(t *testing.T) {
 	datasetRoot := filepath.Join(root, "datasets")
 	paths := []string{
 		filepath.Join(datasetRoot, "python", "python_code_files_self_contained", "boundary"),
-		filepath.Join(datasetRoot, "python", "python_code_files_module_level", "boundary"),
+		filepath.Join(datasetRoot, "python", "python_code_files_repo_level", "boundary"),
 	}
 	for _, p := range paths {
 		if err := os.MkdirAll(p, 0o755); err != nil {

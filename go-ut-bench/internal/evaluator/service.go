@@ -4,6 +4,8 @@ package evaluator
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,6 +20,7 @@ import (
 
 	"go-ut-bench/internal/contracts"
 	"go-ut-bench/internal/obs"
+	"go-ut-bench/internal/store"
 )
 
 // Service 评测服务结构
@@ -29,6 +32,8 @@ type Service struct {
 // cleanupSemaphore 清理工作目录的并发限制信号量
 // 限制同时清理的目录数量为2，避免系统资源占用过高
 var cleanupSemaphore = make(chan struct{}, 2)
+
+const evaluatorVersion = "utbench-evaluator.v1"
 
 // Output 评测操作的输出结果
 // 包含评测结果集和结果文件路径
@@ -277,25 +282,32 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item contracts.GeneratedCase, setPhase func(string)) (result contracts.EvaluationResult) {
 	start := time.Now()
 	row := contracts.EvaluationResult{
-		Model:              item.Model,
-		SubjectID:          item.SubjectID,
-		SubjectKind:        item.SubjectKind,
-		AgentFramework:     item.AgentFramework,
-		AgentModel:         item.AgentModel,
-		SkillName:          item.SkillName,
-		SkillVersion:       item.SkillVersion,
-		Language:           item.Language,
-		SampleID:           item.SampleID,
-		GeneratedTestPath:  item.GeneratedTestPath,
-		SourcePath:         item.SamplePath,
-		PromptTokens:       item.PromptTokens,
-		CompletionTokens:   item.CompletionTokens,
-		TotalTokens:        item.TotalTokens,
-		Truncated:          item.Truncated,
-		TracePath:          item.TracePath,
-		WorkspaceDiffPath:  item.WorkspaceDiffPath,
-		SandboxFingerprint: item.SandboxFingerprint,
+		Model:                item.Model,
+		SubjectID:            item.SubjectID,
+		SubjectKind:          item.SubjectKind,
+		AgentFramework:       item.AgentFramework,
+		AgentModel:           item.AgentModel,
+		SkillName:            item.SkillName,
+		SkillVersion:         item.SkillVersion,
+		Language:             item.Language,
+		SampleID:             item.SampleID,
+		SampleUID:            item.SampleUID,
+		GeneratedTestPath:    item.GeneratedTestPath,
+		SourcePath:           item.SamplePath,
+		PromptTokens:         item.PromptTokens,
+		CompletionTokens:     item.CompletionTokens,
+		TotalTokens:          item.TotalTokens,
+		TokenSource:          item.TokenSource,
+		EstimatedCostUSD:     item.EstimatedCostUSD,
+		CostSource:           item.CostSource,
+		Truncated:            item.Truncated,
+		TracePath:            item.TracePath,
+		WorkspaceDiffPath:    item.WorkspaceDiffPath,
+		SandboxFingerprint:   item.SandboxFingerprint,
+		EvaluatorVersion:     evaluatorVersion,
+		MutationConfigSHA256: mutationConfigSHA256(spec),
 	}
+	row.EvaluationKey = evaluationKeyForItem(spec, item, row.MutationConfigSHA256)
 	if item.LatencyMS > 0 {
 		row.LatencyMS = &item.LatencyMS
 	}
@@ -314,15 +326,23 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		return row
 	}
 
+	if spec.ReuseEvaluation && strings.TrimSpace(spec.DBPath) != "" {
+		setPhase("evaluation.reuse_lookup")
+		if reused, ok := s.findReusableEvaluation(ctx, spec.DBPath, row.EvaluationKey); ok {
+			applyReusableEvaluation(&row, reused)
+			return row
+		}
+	}
+
 	s.logger.Debug("evaluating", "model", item.Model, "lang", item.Language, "sample", item.SampleID)
 
 	if strings.EqualFold(item.Language, "python") {
 		setPhase("python.prepare")
 		var workdir, testName, sourceBase, sourceStem, packageName, targetFile string
 		var prepErr string
-		isModuleLevel := isModuleLevelSample(item.SamplePath)
-		if isModuleLevel {
-			workdir, testName, packageName, targetFile, prepErr = preparePythonModuleLevelWorkspace(item.GeneratedTestPath, item.SamplePath)
+		isRepoLevel := isRepoLevelSample(item.SamplePath)
+		if isRepoLevel {
+			workdir, testName, packageName, targetFile, prepErr = preparePythonRepoLevelWorkspace(item.GeneratedTestPath, item.SamplePath)
 		} else {
 			workdir, testName, sourceBase, sourceStem, prepErr = preparePythonWorkspace(item.GeneratedTestPath, item.SamplePath)
 		}
@@ -333,7 +353,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			row.RuntimeMS = &rt
 			return row
 		}
-		if !isModuleLevel {
+		if !isRepoLevel {
 			defer cleanupWorkspaceAsync(workdir, item.Model, item.Language, item.SampleID, s.logger)
 		}
 
@@ -356,7 +376,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		var testErr string
 		var runtimeMs int
 		setPhase("python.test")
-		if isModuleLevel {
+		if isRepoLevel {
 			pass, testErr, runtimeMs = executePythonTestsInWorkspace(workdir, testName, packageName, testTimeout)
 		} else {
 			pass, testErr, runtimeMs = executePythonTests(workdir, testName, testTimeout)
@@ -387,7 +407,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		row.AssertionDensity = &density
 
 		var targets []string
-		if isModuleLevel {
+		if isRepoLevel {
 			if targetFile != "" {
 				targets = []string{targetFile}
 			}
@@ -395,7 +415,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			targets = inferMutationTargets(workdir, testName, sourceBase)
 		}
 
-		if isModuleLevel {
+		if isRepoLevel {
 			if packageName != "" {
 				setPhase("python.coverage")
 				lineCov, branchCov, covErr := collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile, testTimeout)
@@ -433,7 +453,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 			mutationSkipReason := ""
 			if !shouldRunMutationAfterSampleTests(row) {
 				mutationSkipReason = "mutmut: baseline tests failed, skipping mutation"
-			} else if !isModuleLevel && !pythonTestImportsAnyMutationTarget(workdir, testName, mutationTargets) {
+			} else if !isRepoLevel && !pythonTestImportsAnyMutationTarget(workdir, testName, mutationTargets) {
 				mutationSkipReason = "mutmut: generated tests do not import mutation target, skipping mutation"
 			}
 			if mutationSkipReason != "" {
@@ -884,6 +904,59 @@ func countSuccessfulResults(items []evalResultItem) int {
 	return count
 }
 
+func (s *Service) findReusableEvaluation(ctx context.Context, dbPath, evaluationKey string) (store.ReusableEvaluationResult, bool) {
+	sqliteStore, err := store.OpenSQLite(dbPath)
+	if err != nil {
+		s.logger.Warn("evaluation reuse disabled", "reason", err.Error())
+		return store.ReusableEvaluationResult{}, false
+	}
+	defer sqliteStore.Close()
+	if err := sqliteStore.Init(ctx); err != nil {
+		s.logger.Warn("evaluation reuse disabled", "reason", err.Error())
+		return store.ReusableEvaluationResult{}, false
+	}
+	reused, ok, err := sqliteStore.FindReusableEvaluationAsset(ctx, evaluationKey)
+	if err != nil {
+		s.logger.Warn("evaluation reuse lookup failed", "evaluation_key", evaluationKey, "error", err.Error())
+		return store.ReusableEvaluationResult{}, false
+	}
+	return reused, ok
+}
+
+func applyReusableEvaluation(row *contracts.EvaluationResult, reused store.ReusableEvaluationResult) {
+	current := *row
+	reusedRow := reused.Result
+	reusedRow.Model = current.Model
+	reusedRow.SubjectID = current.SubjectID
+	reusedRow.SubjectKind = current.SubjectKind
+	reusedRow.AgentFramework = current.AgentFramework
+	reusedRow.AgentModel = current.AgentModel
+	reusedRow.SkillName = current.SkillName
+	reusedRow.SkillVersion = current.SkillVersion
+	reusedRow.Language = current.Language
+	reusedRow.SampleID = current.SampleID
+	reusedRow.SampleUID = current.SampleUID
+	reusedRow.GeneratedTestPath = current.GeneratedTestPath
+	reusedRow.SourcePath = current.SourcePath
+	reusedRow.PromptTokens = current.PromptTokens
+	reusedRow.CompletionTokens = current.CompletionTokens
+	reusedRow.TotalTokens = current.TotalTokens
+	reusedRow.TokenSource = current.TokenSource
+	reusedRow.EstimatedCostUSD = current.EstimatedCostUSD
+	reusedRow.CostSource = current.CostSource
+	reusedRow.LatencyMS = current.LatencyMS
+	reusedRow.EvaluationKey = current.EvaluationKey
+	reusedRow.EvaluatorVersion = current.EvaluatorVersion
+	reusedRow.MutationConfigSHA256 = current.MutationConfigSHA256
+	reusedRow.Reused = true
+	reusedRow.ReuseStage = "evaluation"
+	reusedRow.ReuseKey = current.EvaluationKey
+	reusedRow.ReuseReason = "evaluation_key_match"
+	reusedRow.ReusedFromRunID = reused.RunID
+	reusedRow.ReusedFromResultID = reused.EvaluationResultID
+	*row = reusedRow
+}
+
 // finalizeEvaluationResult 完成评测结果的最终处理
 // 设置总耗时、失败来源分类、评分资格等
 //
@@ -891,8 +964,10 @@ func countSuccessfulResults(items []evalResultItem) int {
 //   - row: 评测结果指针
 //   - start: 开始时间
 func finalizeEvaluationResult(row *contracts.EvaluationResult, start time.Time) {
-	totalRuntimeMS := int(time.Since(start).Milliseconds())
-	row.RuntimeMS = &totalRuntimeMS
+	if !(row.Reused && row.RuntimeMS != nil) {
+		totalRuntimeMS := int(time.Since(start).Milliseconds())
+		row.RuntimeMS = &totalRuntimeMS
+	}
 	origin, reason := classifyFailureOrigin(*row)
 	if origin == "" {
 		origin = "none"
@@ -1043,9 +1118,9 @@ func isDatasetFailureMessage(msg string) bool {
 	return strings.Contains(msg, "dataset root") ||
 		strings.Contains(msg, "source file not found") ||
 		strings.Contains(msg, "target file not found") ||
-		strings.Contains(msg, "module_level sample missing metadata") ||
-		strings.Contains(msg, "module_level workspace not found") ||
-		strings.Contains(msg, "module_level workspace_root not set") ||
+		strings.Contains(msg, "repo_level sample missing metadata") ||
+		strings.Contains(msg, "repo_level workspace not found") ||
+		strings.Contains(msg, "repo_level workspace_root not set") ||
 		strings.Contains(msg, "failed to read source")
 }
 
@@ -1228,15 +1303,15 @@ func cleanupWorkspaceAsync(workdir, model, language, sampleID string, logger *ob
 	}()
 }
 
-// isModuleLevelSample 判断样本是否为模块级别样本
+// isRepoLevelSample 判断样本是否为仓库级别样本
 // 检查是否存在 meta.json 或 {name}.meta.json 文件
 //
 // 参数:
 //   - samplePath: 样本文件路径
 //
 // 返回值:
-//   - bool: 是否为模块级别样本
-func isModuleLevelSample(samplePath string) bool {
+//   - bool: 是否为仓库级别样本
+func isRepoLevelSample(samplePath string) bool {
 	dir := filepath.Dir(samplePath)
 	base := filepath.Base(samplePath)
 	ext := filepath.Ext(base)
@@ -1249,7 +1324,7 @@ func isModuleLevelSample(samplePath string) bool {
 	}
 	metaPath := filepath.Join(dir, name+".meta.json")
 	if _, err := os.Stat(metaPath); err == nil {
-		var meta contracts.ModuleLevelMeta
+		var meta contracts.RepoLevelMeta
 		if raw, err := os.ReadFile(metaPath); err == nil {
 			if err := json.Unmarshal(raw, &meta); err == nil && meta.ModuleImport != "" {
 				return true
@@ -1259,7 +1334,7 @@ func isModuleLevelSample(samplePath string) bool {
 	return false
 }
 
-func loadModuleLevelMeta(samplePath string) *contracts.ModuleLevelMeta {
+func loadRepoLevelMeta(samplePath string) *contracts.RepoLevelMeta {
 	sampleDir := filepath.Dir(samplePath)
 	entryBase := filepath.Base(samplePath)
 	entryExt := filepath.Ext(entryBase)
@@ -1267,7 +1342,7 @@ func loadModuleLevelMeta(samplePath string) *contracts.ModuleLevelMeta {
 	if entryName == "entry" {
 		metaPath := filepath.Join(sampleDir, "meta.json")
 		if raw, err := os.ReadFile(metaPath); err == nil {
-			var meta contracts.ModuleLevelMeta
+			var meta contracts.RepoLevelMeta
 			if err := json.Unmarshal(raw, &meta); err == nil {
 				if strings.HasPrefix(meta.WorkspaceRoot, ".") {
 					meta.WorkspaceRoot = filepath.Join(sampleDir, meta.WorkspaceRoot)
@@ -1282,7 +1357,7 @@ func loadModuleLevelMeta(samplePath string) *contracts.ModuleLevelMeta {
 	ext := filepath.Ext(base)
 	name := base[:len(base)-len(ext)]
 	metaPath := filepath.Join(dir, name+".meta.json")
-	var meta contracts.ModuleLevelMeta
+	var meta contracts.RepoLevelMeta
 	if raw, err := os.ReadFile(metaPath); err == nil {
 		if err := json.Unmarshal(raw, &meta); err == nil {
 			if strings.HasPrefix(meta.WorkspaceRoot, ".") {
@@ -1294,17 +1369,17 @@ func loadModuleLevelMeta(samplePath string) *contracts.ModuleLevelMeta {
 	return nil
 }
 
-func preparePythonModuleLevelWorkspace(testPath string, samplePath string) (string, string, string, string, string) {
-	meta := loadModuleLevelMeta(samplePath)
+func preparePythonRepoLevelWorkspace(testPath string, samplePath string) (string, string, string, string, string) {
+	meta := loadRepoLevelMeta(samplePath)
 	if meta == nil {
-		return "", "", "", "", "module_level sample missing metadata"
+		return "", "", "", "", "repo_level sample missing metadata"
 	}
 	workspaceRoot := meta.WorkspaceRoot
 	if workspaceRoot == "" {
-		return "", "", "", "", "module_level workspace_root not set in metadata"
+		return "", "", "", "", "repo_level workspace_root not set in metadata"
 	}
 	if _, err := os.Stat(workspaceRoot); err != nil {
-		return "", "", "", "", "module_level workspace not found: " + workspaceRoot
+		return "", "", "", "", "repo_level workspace not found: " + workspaceRoot
 	}
 	testFileName := normalizedPytestFilename(filepath.Base(testPath))
 	generatedSrc, err := os.ReadFile(testPath)
@@ -1343,7 +1418,7 @@ func executePythonTestsInWorkspace(workdir, testName, packageName string, timeou
 
 func collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile string, timeoutSeconds int) (float64, float64, string) {
 	if packageName == "" {
-		return 0, 0, "missing package name for module_level coverage"
+		return 0, 0, "missing package name for repo_level coverage"
 	}
 	py := pythonExecutable()
 	absWorkdir, err := filepath.Abs(workdir)
@@ -1996,4 +2071,44 @@ func getCoverageValue(v *float64) float64 {
 		return 0
 	}
 	return *v
+}
+
+func evaluationKeyForItem(spec contracts.RunSpec, item contracts.GeneratedCase, mutationConfigSHA string) string {
+	generatedTestSHA := hashExistingFile(item.GeneratedTestPath)
+	sampleUID := item.SampleUID
+	if sampleUID == "" {
+		sampleUID = strings.Join([]string{item.Language, item.SampleID, item.SamplePath}, "\x00")
+	}
+	payload := strings.Join([]string{
+		generatedTestSHA,
+		sampleUID,
+		evaluatorVersion,
+		mutationConfigSHA,
+		fmt.Sprintf("test-timeout=%d", spec.TestTimeout),
+		item.DependencyFingerprint,
+	}, "\x00")
+	return "evaluation_" + sha256String(payload)[:16]
+}
+
+func mutationConfigSHA256(spec contracts.RunSpec) string {
+	raw, _ := json.Marshal(map[string]any{
+		"mutation_enabled": spec.MutationEnabled,
+		"mutation_timeout": spec.MutationTimeout,
+		"mutation_policy":  spec.MutationPolicy,
+	})
+	return sha256String(string(raw))
+}
+
+func hashExistingFile(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func sha256String(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }

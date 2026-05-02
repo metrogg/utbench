@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -12,16 +11,29 @@ import (
 	"sort"
 	"strings"
 	"text/template"
-	"time"
 
 	"go-ut-bench/internal/agentconfig"
 	"go-ut-bench/internal/contracts"
 )
 
+// subjectTrace 保留用于向后兼容，内部逻辑已迁移到 AgentTrace。
+// 新代码应直接使用 AgentTrace。
 type subjectTrace struct {
 	TracePath          string
 	WorkspaceDiffPath  string
 	SandboxFingerprint string
+	TokenSource        string
+	EstimatedCostUSD   *float64
+	CostSource         string
+}
+
+// agentTraceSummary 封装从 AgentTrace 中提取的摘要信息，用于运行时显示。
+type agentTraceSummary struct {
+	InteractionCount int
+	ToolCallCount    int
+	FilesRead        int
+	FilesWritten     int
+	CommandsExecuted int
 }
 
 type commandTemplateData struct {
@@ -108,204 +120,93 @@ func (s *Service) generateWithSubject(
 	prompt string,
 	testPath string,
 	metaRoot string,
-) (string, map[string]any, subjectTrace, int, *int, *int, *int, bool, *contracts.ErrorInfo) {
+) (string, map[string]any, subjectTrace, int, *int, *int, *int, bool, *contracts.ErrorInfo, agentTraceSummary) {
 	prompt = appendSkillInstruction(prompt, target.subject.Skill)
+
+	// 选择 adapter
+	var adapter AgentAdapter
 	switch target.subject.Spec.Kind {
 	case agentconfig.KindModelAPI, "":
-		return s.generateWithModelAPI(ctx, target, sample, prompt)
+		adapter = newModelAPIAdapter()
 	case agentconfig.KindCLIAgent:
-		return s.generateWithCLIAgent(ctx, spec, target, sample, prompt, testPath, metaRoot)
+		adapter = newCLIAgentAdapter(s.sandboxRunner)
 	default:
 		return "", nil, subjectTrace{}, 0, nil, nil, nil, false, &contracts.ErrorInfo{
 			Kind:      "unsupported_subject_kind",
 			Message:   fmt.Sprintf("unsupported subject kind: %s", target.subject.Spec.Kind),
 			Retryable: false,
-		}
+		}, agentTraceSummary{}
 	}
-}
 
-func (s *Service) generateWithModelAPI(ctx context.Context, target subjectTarget, sample contracts.SampleRef, prompt string) (string, map[string]any, subjectTrace, int, *int, *int, *int, bool, *contracts.ErrorInfo) {
-	client := newAPIClient()
-	waitModelInterval(target.model.Name)
-	generated, response, latency, pTok, cTok, tTok, truncated, genErr := client.generateTest(
-		ctx,
-		target.model,
-		sample.Language,
-		prompt,
-	)
-	subjectID := target.subject.Spec.ID
-	s.logger.LogAPIRequest(subjectID, sample.Language, sample.ID, 0, latency)
-	s.logger.LogAPIResponse(subjectID, sample.Language, sample.ID, genErr == nil, truncated, errorMsgSafe(genErr))
+	// 记录 API 请求日志（model_api 场景）
+	if target.subject.Spec.Kind == agentconfig.KindModelAPI || target.subject.Spec.Kind == "" {
+		s.logger.LogAPIRequest(target.subject.Spec.ID, sample.Language, sample.ID, 0, 0)
+	}
+
+	// 调用 adapter
+	result := adapter.Generate(ctx, AgentGenerateRequest{
+		Subject:    target.subject,
+		Model:      target.model,
+		Sample:     sample,
+		Prompt:     prompt,
+		TestPath:   testPath,
+		MetaRoot:   metaRoot,
+		OutputRoot: spec.OutputRoot,
+		RunID:      spec.RunID,
+	})
+
+	// 记录 API 响应日志
+	s.logger.LogAPIResponse(target.subject.Spec.ID, sample.Language, sample.ID, result.Error == nil, result.Truncated, errorMsgSafe(result.Error))
 	s.logger.ToFile("runner").Trace("generate_response",
-		"subject_id", subjectID,
+		"subject_id", target.subject.Spec.ID,
+		"framework", target.subject.Spec.Framework,
 		"model", target.model.Name,
 		"language", sample.Language,
 		"sample_id", sample.ID,
-		"prompt_tokens", pTok,
-		"completion_tokens", cTok,
-		"total_tokens", tTok,
-		"latency_ms", latency,
-		"truncated", truncated,
-		"success", genErr == nil,
+		"prompt_tokens", result.PromptTokens,
+		"completion_tokens", result.CompletionTokens,
+		"total_tokens", result.TotalTokens,
+		"latency_ms", result.LatencyMS,
+		"truncated", result.Truncated,
+		"interaction_count", result.Trace.InteractionCount,
+		"tool_call_count", len(result.Trace.ToolCalls),
+		"files_read", len(result.Trace.FilesRead),
+		"files_written", len(result.Trace.FilesWritten),
+		"commands_executed", len(result.Trace.CommandsExecuted),
+		"success", result.Error == nil,
 	)
-	return generated, response, subjectTrace{}, latency, pTok, cTok, tTok, truncated, genErr
-}
 
-func (s *Service) generateWithCLIAgent(
-	ctx context.Context,
-	spec contracts.RunSpec,
-	target subjectTarget,
-	sample contracts.SampleRef,
-	prompt string,
-	testPath string,
-	metaRoot string,
-) (string, map[string]any, subjectTrace, int, *int, *int, *int, bool, *contracts.ErrorInfo) {
-	subjectID := target.subject.Spec.ID
-	workRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID, "agent_workspaces", subjectID, sample.Language, sample.ID)
-	if err := os.RemoveAll(workRoot); err != nil {
-		return "", nil, subjectTrace{}, 0, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "workspace_error", Message: err.Error(), Retryable: false}
-	}
-	if err := os.MkdirAll(workRoot, 0o755); err != nil {
-		return "", nil, subjectTrace{}, 0, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "workspace_error", Message: err.Error(), Retryable: false}
-	}
-	sourceFile, err := prepareAgentWorkspace(workRoot, sample)
-	if err != nil {
-		return "", nil, subjectTrace{}, 0, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "workspace_error", Message: err.Error(), Retryable: false}
-	}
-	outputFile := filepath.Join(workRoot, "generated_test"+languageExt(sample.Language))
-	skillDir, err := injectSkillWorkspace(workRoot, target.subject.Skill)
-	if err != nil {
-		return "", nil, subjectTrace{}, 0, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "skill_injection_error", Message: err.Error(), Retryable: false}
-	}
-	outputHint := outputFile
-	sourceHint := sourceFile
-	skillHint := skillDir
-	if !strings.EqualFold(target.subject.Framework.SandboxMode, "local") {
-		outputHint = "/workspace/generated_test" + languageExt(sample.Language)
-		sourceHint = "/workspace/" + filepath.ToSlash(mustRel(workRoot, sourceFile))
-		if skillDir != "" {
-			skillHint = "/workspace/" + filepath.ToSlash(mustRel(workRoot, skillDir))
-		}
-	}
-	agentPrompt := buildAgentPrompt(prompt, sample, sourceHint, outputHint, skillHint)
-	promptFile := filepath.Join(workRoot, "utbench_agent_prompt.md")
-	if err := os.WriteFile(promptFile, []byte(agentPrompt), 0o644); err != nil {
-		return "", nil, subjectTrace{}, 0, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "workspace_error", Message: err.Error(), Retryable: false}
-	}
-	before, _ := snapshotWorkspace(workRoot)
-	traceDir := filepath.Join(metaRoot, "agent_traces", subjectID, sample.Language)
-	tracePath := filepath.Join(traceDir, sample.ID+".trace.jsonl")
-	diffPath := filepath.Join(traceDir, sample.ID+".diff.json")
-	if err := os.MkdirAll(traceDir, 0o755); err != nil {
-		return "", nil, subjectTrace{}, 0, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "trace_error", Message: err.Error(), Retryable: false}
-	}
-
-	started := time.Now()
-	templateData := commandTemplateData{
-		Workspace:         workRoot,
-		PromptFile:        promptFile,
-		OutputFile:        outputFile,
-		SkillDir:          skillDir,
-		Model:             target.model.Name,
-		ModelID:           target.model.Model,
-		ModelProvider:     target.model.Provider,
-		ModelEndpoint:     target.model.Endpoint,
-		ModelAPIKeyEnv:    target.model.APIKeyEnv,
-		Framework:         target.subject.Spec.Framework,
-		SubjectID:         subjectID,
-		Skill:             target.subject.Spec.Skill,
-		Language:          sample.Language,
-		SampleID:          sample.ID,
-		SourceFile:        sourceFile,
-		ContainerWorkdir:  "/workspace",
-		ContainerPrompt:   "/workspace/utbench_agent_prompt.md",
-		ContainerOutput:   "/workspace/generated_test" + languageExt(sample.Language),
-		ContainerSkillDir: "/workspace/.utbench/skills/" + safePathName(target.subject.Skill.Name),
-	}
-	cmdText, err := renderTemplateText("agent-command", target.subject.Framework.Command, templateData)
-	if err != nil {
-		return "", nil, subjectTrace{}, 0, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "command_template_error", Message: err.Error(), Retryable: false}
-	}
-	if strings.TrimSpace(cmdText) == "" {
-		return "", nil, subjectTrace{}, 0, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "command_template_error", Message: "cli agent command is empty", Retryable: false}
-	}
-	envMap, envFromHost, err := buildAgentEnv(target.subject.Framework, target.model, templateData)
-	if err != nil {
-		return "", nil, subjectTrace{}, 0, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "agent_env_error", Message: err.Error(), Retryable: false}
-	}
-	req := buildSandboxRunRequest(spec.OutputRoot, target.subject.Framework, workRoot, cmdText, envMap, envFromHost)
-	runOutput, runErr := s.sandboxRunner.Run(ctx, req)
-	latency := int(time.Since(started).Milliseconds())
-	after, _ := snapshotWorkspace(workRoot)
-	changes := diffSnapshots(before, after)
-	_ = writeTrace(tracePath, map[string]any{
-		"ts_utc":      time.Now().UTC(),
-		"subject_id":  subjectID,
-		"framework":   target.subject.Spec.Framework,
-		"model":       target.subject.Spec.Model,
-		"skill":       target.subject.Spec.Skill,
-		"sample_id":   sample.ID,
-		"language":    sample.Language,
-		"command":     cmdText,
-		"exit_code":   runOutput.ExitCode,
-		"duration_ms": latency,
-		"stdout":      trimText(runOutput.Stdout, 4000),
-		"stderr":      trimText(runOutput.Stderr, 4000),
-	})
-	_ = contracts.WriteJSON(diffPath, map[string]any{
-		"workspace":  workRoot,
-		"subject_id": subjectID,
-		"changes":    changes,
-	})
+	// 转换为旧的 subjectTrace 格式（向后兼容）
 	trace := subjectTrace{
-		TracePath:          tracePath,
-		WorkspaceDiffPath:  diffPath,
-		SandboxFingerprint: sandboxFingerprintForRequest(req),
+		TracePath:          result.Trace.TracePath,
+		WorkspaceDiffPath:  result.Trace.WorkspaceDiffPath,
+		SandboxFingerprint: result.Trace.SandboxFingerprint,
+		TokenSource:        result.TokenSource,
+		EstimatedCostUSD:   result.EstimatedCostUSD,
+		CostSource:         result.CostSource,
 	}
-	rawResponse := map[string]any{
-		"adapter":             "cli_agent",
-		"subject_id":          subjectID,
-		"framework":           target.subject.Spec.Framework,
-		"model":               target.subject.Spec.Model,
-		"skill":               target.subject.Spec.Skill,
-		"command":             cmdText,
-		"exit_code":           runOutput.ExitCode,
-		"latency_ms":          latency,
-		"trace_path":          tracePath,
-		"workspace_diff_path": diffPath,
-		"stdout":              trimText(runOutput.Stdout, 4000),
-		"stderr":              trimText(runOutput.Stderr, 4000),
+
+	summary := agentTraceSummary{
+		InteractionCount: result.Trace.InteractionCount,
+		ToolCallCount:    len(result.Trace.ToolCalls),
+		FilesRead:        len(result.Trace.FilesRead),
+		FilesWritten:     len(result.Trace.FilesWritten),
+		CommandsExecuted: len(result.Trace.CommandsExecuted),
 	}
-	if runErr != nil {
-		return "", rawResponse, trace, latency, nil, nil, nil, false, &contracts.ErrorInfo{
-			Kind:      "agent_execution_error",
-			Message:   fmt.Sprintf("agent command failed: %s", trimText(runOutput.Stderr+"\n"+runErr.Error(), 1000)),
-			Retryable: false,
-		}
-	}
-	generatedPath := findGeneratedTest(workRoot, outputFile, target.subject.Framework.OutputGlobs, changes, sample.Language)
-	if generatedPath == "" {
-		return "", rawResponse, trace, latency, nil, nil, nil, false, &contracts.ErrorInfo{
-			Kind:      "agent_output_error",
-			Message:   "agent did not produce a test file",
-			Retryable: false,
-		}
-	}
-	raw, err := os.ReadFile(generatedPath)
-	if err != nil {
-		return "", rawResponse, trace, latency, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "agent_output_error", Message: err.Error(), Retryable: false}
-	}
-	code := strings.TrimSpace(string(raw))
-	if err := validateGeneratedTest(code, sample.Language); err != nil {
-		return code, rawResponse, trace, latency, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "quality_error", Message: err.Error(), Retryable: false}
-	}
-	rawResponse["generated_test_source_path"] = generatedPath
-	rawResponse["generated_test_path"] = testPath
-	return code, rawResponse, trace, latency, nil, nil, nil, false, nil
+
+	return result.Code, result.RawResponse, trace, result.LatencyMS,
+		result.PromptTokens, result.CompletionTokens, result.TotalTokens,
+		result.Truncated, result.Error, summary
 }
+
+// generateWithModelAPI 已迁移到 adapter_model.go 中的 modelAPIAdapter。
+// 保留此函数签名用于向后兼容测试。
+
+// generateWithCLIAgent 已迁移到 adapter_cli.go 中的 cliAgentAdapter。
+// 保留 helper 函数供 adapter 使用。
 
 func prepareAgentWorkspace(workRoot string, sample contracts.SampleRef) (string, error) {
-	if meta := loadModuleLevelMetaForRunner(sample.Path); meta != nil && meta.WorkspaceRoot != "" {
+	if meta := loadRepoLevelMetaForRunner(sample.Path); meta != nil && meta.WorkspaceRoot != "" {
 		sourceRoot := meta.WorkspaceRoot
 		if !filepath.IsAbs(sourceRoot) {
 			sourceRoot = filepath.Join(filepath.Dir(sample.Path), sourceRoot)
@@ -323,6 +224,33 @@ func prepareAgentWorkspace(workRoot string, sample contracts.SampleRef) (string,
 		return "", err
 	}
 	return dst, nil
+}
+
+func buildSampleEnvironmentSetupCommands(sample contracts.SampleRef, workRoot string) []string {
+	var commands []string
+	switch strings.ToLower(strings.TrimSpace(sample.Language)) {
+	case "python":
+		if meta := loadRepoLevelMetaForRunner(sample.Path); meta != nil && len(meta.Requirements) > 0 {
+			requirements := shellJoinArgs(meta.Requirements)
+			if requirements != "" {
+				commands = append(commands, "python3 -m pip install --disable-pip-version-check "+requirements)
+			}
+		}
+		for _, rel := range []string{"requirements.txt", "requirements-dev.txt"} {
+			if fileExists(filepath.Join(workRoot, rel)) {
+				commands = append(commands, "python3 -m pip install --disable-pip-version-check -r "+rel)
+			}
+		}
+	case "go":
+		if fileExists(filepath.Join(workRoot, "go.mod")) {
+			commands = append(commands, "go mod download")
+		}
+	case "java":
+		if fileExists(filepath.Join(workRoot, "pom.xml")) {
+			commands = append(commands, "mvn -q -DskipTests dependency:go-offline")
+		}
+	}
+	return uniqueSortedStrings(commands)
 }
 
 func injectSkillWorkspace(workRoot string, skill contracts.SkillSpec) (string, error) {
@@ -438,7 +366,7 @@ func buildAgentEnv(fw agentconfig.FrameworkSpec, model modelConfig, data command
 	return out, uniqueSortedStrings(envFromHost), nil
 }
 
-func buildSandboxRunRequest(outputRoot string, fw agentconfig.FrameworkSpec, workspace, command string, env map[string]string, envFromHost []string) SandboxRunRequest {
+func buildSandboxRunRequest(outputRoot string, fw agentconfig.FrameworkSpec, language, workspace, command string, env map[string]string, envFromHost []string) SandboxRunRequest {
 	return SandboxRunRequest{
 		Mode:                fw.SandboxMode,
 		Workspace:           workspace,
@@ -446,12 +374,110 @@ func buildSandboxRunRequest(outputRoot string, fw agentconfig.FrameworkSpec, wor
 		Command:             command,
 		Env:                 env,
 		EnvFromHost:         envFromHost,
-		DockerImage:         fw.DockerImage,
+		DockerImage:         frameworkDockerImage(fw, language),
 		NetworkDisabled:     fw.NetworkDisabled,
 		CPU:                 fw.CPU,
 		Memory:              fw.Memory,
 		TimeoutSeconds:      fw.TimeoutSeconds,
 	}
+}
+
+func frameworkDockerImage(fw agentconfig.FrameworkSpec, language string) string {
+	language = normalizeFrameworkLookupKey(language)
+	if fw.DockerImages != nil {
+		if image := strings.TrimSpace(fw.DockerImages[language]); image != "" {
+			return image
+		}
+		if image := strings.TrimSpace(fw.DockerImages["default"]); image != "" {
+			return image
+		}
+		if image := strings.TrimSpace(fw.DockerImages["*"]); image != "" {
+			return image
+		}
+	}
+	return strings.TrimSpace(fw.DockerImage)
+}
+
+func frameworkPreflightCommands(fw agentconfig.FrameworkSpec, language string) []string {
+	var out []string
+	language = normalizeFrameworkLookupKey(language)
+	if fw.Preflight != nil {
+		for _, key := range []string{"default", "*", language} {
+			for _, cmd := range fw.Preflight[key] {
+				cmd = strings.TrimSpace(cmd)
+				if cmd != "" {
+					out = append(out, cmd)
+				}
+			}
+		}
+	}
+	if len(out) > 0 {
+		return uniqueSortedStrings(out)
+	}
+	switch language {
+	case "python":
+		return []string{"python3 --version", "pytest --version"}
+	case "go":
+		return []string{"go version"}
+	case "java":
+		return []string{"java -version", "mvn -version"}
+	case "cpp", "c++", "cc":
+		return []string{"g++ --version", "cmake --version"}
+	default:
+		return nil
+	}
+}
+
+func frameworkForbiddenCommandPatterns(fw agentconfig.FrameworkSpec) []string {
+	patterns := uniqueSortedStrings(fw.ForbiddenCommandPatterns)
+	if len(patterns) > 0 {
+		return patterns
+	}
+	return []string{
+		"apt-get update",
+		"apt-get install",
+		"apt install",
+		"apk add",
+		"yum install",
+		"dnf install",
+		"zypper install",
+		"pacman -s",
+		"pip install",
+		"pip3 install",
+		"python -m pip install",
+		"python3 -m pip install",
+		"uv pip install",
+		"poetry add",
+		"npm install",
+		"pnpm add",
+		"yarn add",
+		"go install ",
+		"cargo install ",
+	}
+}
+
+func normalizeFrameworkLookupKey(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func shellJoinArgs(values []string) string {
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if strings.ContainsAny(value, " \t\"'") {
+			value = "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+		}
+		out = append(out, value)
+	}
+	return strings.Join(out, " ")
 }
 
 func snapshotWorkspace(root string) (map[string]string, error) {
@@ -524,25 +550,8 @@ func isTestFile(path, language string) bool {
 	}
 }
 
-func writeTrace(path string, row map[string]any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	raw, err := json.Marshal(row)
-	if err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if _, err := f.Write(raw); err != nil {
-		return err
-	}
-	_, err = f.WriteString("\n")
-	return err
-}
+// writeTrace 已迁移至 adapter_cli.go 中的 writeAgentTrace。
+// 保留此函数签名供测试使用。
 
 func copyDir(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {

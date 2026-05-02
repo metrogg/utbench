@@ -40,7 +40,7 @@ func NewService() *Service {
 // 验证项:
 //  1. DatasetRoot 必填
 //  2. 如果有模型，则 OutputRoot、RunID、ConfigPath 必填
-//  3. DatasetClasses 必须为 self_contained 或 module_level
+//  3. DatasetClasses 必须为 self_contained 或 repo_level
 //  4. Languages 必须为支持的语言
 //  5. MaxSamples 和 MutationTimeout 不能为负数
 func (s *Service) ValidateSpec(spec contracts.RunSpec) error {
@@ -61,11 +61,11 @@ func (s *Service) ValidateSpec(spec contracts.RunSpec) error {
 	if len(spec.DatasetClasses) > 0 {
 		validClasses := map[string]bool{
 			"self_contained": true,
-			"module_level":   true,
+			"repo_level":     true,
 		}
 		for _, c := range spec.DatasetClasses {
 			if !validClasses[c] {
-				return fmt.Errorf("unsupported dataset class: %s (valid: self_contained, module_level)", c)
+				return fmt.Errorf("unsupported dataset class: %s (valid: self_contained, repo_level)", c)
 			}
 		}
 	}
@@ -120,7 +120,7 @@ func (s *Service) ValidateSpec(spec contracts.RunSpec) error {
 //
 // 目录结构推断规则:
 //  - Language: 第一级目录名（python/go/java/cpp）
-//  - Category: 第二级目录名（self_contained/module_level）
+//  - Category: 第二级目录名（self_contained/repo_level）
 //  - Scenario: 第三级目录名（boundary/simple_function等）
 //  - SampleID: 文件名（去掉扩展名）
 func (s *Service) DiscoverSamples(spec contracts.RunSpec) ([]contracts.SampleRef, error) {
@@ -534,15 +534,15 @@ func ValidateLayout(datasetRoot string) error {
 }
 
 // classifySampleClass 从样本ID和相对路径推断数据集类别
-// 根据路径中的 self_contained/module_level 关键字判断
+// 根据路径中的 self_contained/repo_level 关键字判断
 func classifySampleClass(sampleID string, relPath string) contracts.DatasetClass {
 	lower := strings.ToLower(sampleID + "|" + relPath)
 	lower = strings.ReplaceAll(lower, "\\", "/")
 	if strings.Contains(lower, "self_contained") {
 		return contracts.DatasetClassSelfContained
 	}
-	if strings.Contains(lower, "module_level") {
-		return contracts.DatasetClassModuleLevel
+	if strings.Contains(lower, "repo_level") {
+		return contracts.DatasetClassRepoLevel
 	}
 	if strings.Contains(lower, "complex_dependency") || strings.Contains(lower, "interface_mock") || strings.Contains(lower, "boundary") || strings.Contains(lower, "simple_function") {
 		return contracts.DatasetClassSelfContained
@@ -688,9 +688,9 @@ func applyMaxSamplesPerLanguageScenario(samples []contracts.SampleRef, maxSample
 	return result
 }
 
-// loadModuleLevelMeta 加载 module_level 类型样本的元数据
-// 从样本同目录的 .meta.json 文件加载 ModuleLevelMeta 信息
-func loadModuleLevelMeta(samplePath string) (*contracts.ModuleLevelMeta, bool) {
+// loadRepoLevelMeta 加载 repo_level 类型样本的元数据
+// 从样本同目录的 .meta.json 文件加载 RepoLevelMeta 信息
+func loadRepoLevelMeta(samplePath string) (*contracts.RepoLevelMeta, bool) {
 	dir := filepath.Dir(samplePath)
 	base := filepath.Base(samplePath)
 	ext := filepath.Ext(base)
@@ -703,7 +703,7 @@ func loadModuleLevelMeta(samplePath string) (*contracts.ModuleLevelMeta, bool) {
 	if err != nil {
 		return nil, false
 	}
-	var meta contracts.ModuleLevelMeta
+	var meta contracts.RepoLevelMeta
 	if err := json.Unmarshal(raw, &meta); err != nil {
 		return nil, false
 	}

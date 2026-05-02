@@ -21,6 +21,12 @@ type modelConfig struct {
 	APIKeyEnv string         // API 密钥环境变量名
 	Enabled   bool           // 是否启用
 	Params    map[string]any // 额外参数（temperature、max_tokens 等）
+	Pricing   modelPricing   // 可选的成本配置
+}
+
+type modelPricing struct {
+	PromptPer1KUSD     float64
+	CompletionPer1KUSD float64
 }
 
 // modelsFile YAML 配置文件结构
@@ -34,6 +40,10 @@ type modelsFile struct {
 			Model       string         `yaml:"model"`        // 模型 ID
 			APIKeyEnv   string         `yaml:"api_key_env"`  // 密钥环境变量
 			Parameters  map[string]any `yaml:"parameters"`   // 额外参数
+			Pricing     struct {
+				PromptPer1KUSD     float64 `yaml:"prompt_per_1k_usd"`
+				CompletionPer1KUSD float64 `yaml:"completion_per_1k_usd"`
+			} `yaml:"pricing"`
 		} `yaml:"config"`
 	} `yaml:"models"`
 }
@@ -91,6 +101,10 @@ func loadModelConfigs(configPath string, selected []string) ([]modelConfig, erro
 			APIKeyEnv: strings.TrimSpace(item.Config.APIKeyEnv),
 			Enabled:   item.Enabled,
 			Params:    item.Config.Parameters,
+			Pricing: modelPricing{
+				PromptPer1KUSD:     item.Config.Pricing.PromptPer1KUSD,
+				CompletionPer1KUSD: item.Config.Pricing.CompletionPer1KUSD,
+			},
 		})
 	}
 

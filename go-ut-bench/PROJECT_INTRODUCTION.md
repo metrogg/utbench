@@ -103,7 +103,7 @@ type RunSpec struct {
     RunID           string    // 唯一运行ID
     Models          []string  // 要评测的模型列表
     Languages       []string  // 编程语言列表
-    DatasetClasses  []string  // 数据集类别（self_contained/module_level）
+    DatasetClasses  []string  // 数据集类别（self_contained/repo_level）
     DatasetScenario string    // 场景过滤
     DatasetLevel    string    // 数据集级别
     DatasetRoot     string    // 数据集根目录
@@ -129,7 +129,7 @@ type RunSpec struct {
 type SampleRef struct {
     ID        string       // 样本ID，格式：<场景>_<编号>
     Language  string       // 编程语言
-    Category  DatasetClass // 类别：self_contained 或 module_level
+    Category  DatasetClass // 类别：self_contained 或 repo_level
     Scenario  string       // 场景名
     Path      string       // 源文件绝对路径
     SourceMD5 string       // 源码 MD5 哈希
@@ -189,7 +189,7 @@ const SchemaVersion = "v0.1.0"  // 数据结构版本
 type DatasetClass string
 const (
     DatasetClassSelfContained DatasetClass = "self_contained"  // 单文件自包含
-    DatasetClassModuleLevel   DatasetClass = "module_level"    // 多文件模块级
+    DatasetClassRepoLevel   DatasetClass = "repo_level"    // 多文件仓库级
 )
 
 type RunMode string
@@ -223,7 +223,7 @@ datasets/
         boundary_002.py
       simple_function/
         simple_001.py
-    module_level/
+    repo_level/
       dateutil/
         meta.json
         parser.py
@@ -235,7 +235,7 @@ datasets/
 
 推断逻辑：
 - **Language**：从第一级目录名推断（python/go/java/cpp）
-- **Category**：从第二级目录名推断（self_contained/module_level）
+- **Category**：从第二级目录名推断（self_contained/repo_level）
 - **Scenario**：从第三级目录名推断（boundary/simple_function/complex_dependency/interface_mock）
 - **SampleID**：从文件名推断（去掉扩展名）
 
@@ -275,7 +275,7 @@ func (s *Service) ValidateReadiness(opts ValidateOptions) *ValidationReport
 | 模式 | 适用场景 | 特点 |
 |------|----------|------|
 | `full_file` | self_contained 类型样本 | 默认模式，提供完整源码 |
-| `module_level` | module_level 类型样本 | 包含 workspace、module_import 等上下文 |
+| `repo_level` | repo_level 类型样本 | 包含 workspace、module_import 等上下文 |
 | `completion` | 截断后续写 | 基于已生成内容继续补全 |
 
 系统消息（System Message）强调：
@@ -426,7 +426,7 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, case 
 }
 ```
 
-对于 module_level 类型样本，workspace 不会被清理，保留用于后续分析。
+对于 repo_level 类型样本，workspace 不会被清理，保留用于后续分析。
 
 #### 3.4.5 失败归因机制
 
@@ -920,7 +920,7 @@ artifacts/
         system.txt                  # 系统消息
         python_full_file.prompt.txt # Python完整文件模式模板
         python_completion.prompt.txt
-        python_module_level.prompt.txt
+        python_repo_level.prompt.txt
         go_full_file.prompt.txt
         ...
         prompt_catalog.json         # Prompt目录索引
@@ -1037,7 +1037,7 @@ docker run --rm --env-file .env `
 | 类别 | 特点 | 示例 |
 |------|------|------|
 | `self_contained` | 单文件自包含，无外部依赖 | 简单函数、边界值测试 |
-| `module_level` | 多文件模块级，需要 workspace 上下文 | python-dateutil、第三方库测试 |
+| `repo_level` | 多文件仓库级，需要 workspace 上下文 | python-dateutil、第三方库测试 |
 
 ### 10.2 数据集场景
 
@@ -1050,7 +1050,7 @@ docker run --rm --env-file .env `
 
 ### 10.3 Module Level 样本元数据
 
-module_level 类型样本需要 `meta.json` 提供额外上下文：
+repo_level 类型样本需要 `meta.json` 提供额外上下文：
 
 ```json
 {
@@ -1167,7 +1167,7 @@ go-ut-bench/
 
   internal/                      # 内部模块（不对外暴露）
     contracts/                   # 数据契约（跨模块数据结构）
-      spec.go                    # RunSpec, SampleRef, ModuleLevelMeta
+      spec.go                    # RunSpec, SampleRef, RepoLevelMeta
       results.go                 # GeneratedManifest, EvaluationResult, ReportPayload
       constants.go               # SchemaVersion, DatasetClass, RunMode
 
@@ -1211,7 +1211,7 @@ go-ut-bench/
       self_contained/
         boundary/
         simple_function/
-      module_level/
+      repo_level/
     go/
     java/
     cpp/

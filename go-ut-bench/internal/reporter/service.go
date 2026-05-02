@@ -195,6 +195,10 @@ func (s *Service) GenerateFromResultSet(spec contracts.RunSpec, set contracts.Ev
 		"mutation_breakdown":  breakdown,
 		"thresholds":          payload.Thresholds,
 		"prompts":             payload.Prompts,
+		"truncation_stats":    payload.TruncationStats,
+		"insights":            payload.Insights,
+		"efficiency_stats":    payload.EfficiencyStats,
+		"error_diagnosis":     payload.ErrorDiagnosis,
 		"agent_comparisons":   payload.AgentComparisons,
 		"skill_uplifts":       payload.SkillUplifts,
 	}
@@ -468,27 +472,31 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 			provider = detail.Provider
 		}
 		byModel = append(byModel, contracts.ModelDim{
-			Model:               agg.key,
-			SubjectID:           agg.subjectID,
-			SubjectKind:         agg.subjectKind,
-			AgentFramework:      agg.agentFramework,
-			AgentModel:          agg.agentModel,
-			SkillName:           agg.skillName,
-			SkillVersion:        agg.skillVersion,
-			ModelID:             modelID,
-			Provider:            provider,
-			TotalSamples:        agg.count,
-			CompilePassRate:     rate(agg.compilePass, agg.count),
-			AvgTestPassRate:     rate(agg.sampleTestPass, agg.count),
-			AvgTestCasePassRate: rate(agg.testPassTotal, agg.testTotal),
-			AvgLineCoverage:     avg(agg.lineSum, agg.lineCnt),
-			AvgBranchCoverage:   avg(agg.branchSum, agg.branchCnt),
-			AvgMutationScore:    avg(agg.mutationSum, agg.mutationCnt),
-			AvgLatencyMS:        avgFloat(agg.latencySum, agg.latencyCnt),
-			AvgPromptTokens:     avgFloat(agg.promptTokensSum, agg.promptTokenCnt),
-			AvgCompletionTokens: avgFloat(agg.completionTokensSum, agg.completionTokenCnt),
-			AvgTotalTokens:      avgFloat(agg.totalTokensSum, agg.totalTokenCnt),
-			AvgAssertionDensity: avgFloat(agg.assertionDensitySum, agg.assertionDensityCnt),
+			Model:                 agg.key,
+			SubjectID:             agg.subjectID,
+			SubjectKind:           agg.subjectKind,
+			AgentFramework:        agg.agentFramework,
+			AgentModel:            agg.agentModel,
+			SkillName:             agg.skillName,
+			SkillVersion:          agg.skillVersion,
+			ModelID:               modelID,
+			Provider:              provider,
+			TotalSamples:          agg.count,
+			CompilePassRate:       rate(agg.compilePass, agg.count),
+			AvgTestPassRate:       rate(agg.sampleTestPass, agg.count),
+			AvgTestCasePassRate:   rate(agg.testPassTotal, agg.testTotal),
+			AvgLineCoverage:       avg(agg.lineSum, agg.lineCnt),
+			AvgBranchCoverage:     avg(agg.branchSum, agg.branchCnt),
+			AvgMutationScore:      avg(agg.mutationSum, agg.mutationCnt),
+			AvgLatencyMS:          avgFloat(agg.latencySum, agg.latencyCnt),
+			AvgPromptTokens:       avgFloat(agg.promptTokensSum, agg.promptTokenCnt),
+			AvgCompletionTokens:   avgFloat(agg.completionTokensSum, agg.completionTokenCnt),
+			AvgTotalTokens:        avgFloat(agg.totalTokensSum, agg.totalTokenCnt),
+			AvgAssertionDensity:   avgFloat(agg.assertionDensitySum, agg.assertionDensityCnt),
+			ActualTokenSamples:    agg.actualTokenSamples,
+			EstimatedTokenSamples: agg.estimatedTokenSamples,
+			PartialTokenSamples:   agg.partialTokenSamples,
+			MissingTokenSamples:   agg.missingTokenSamples,
 		})
 	}
 	sort.Slice(byModel, func(i, j int) bool { return byModel[i].Model < byModel[j].Model })
@@ -570,34 +578,38 @@ func buildDimensions(rows []contracts.EvaluationResult, modelDetails map[string]
 
 // 聚合器类型定义
 type modelAgg struct {
-	key                 string
-	subjectID           string
-	subjectKind         string
-	agentFramework      string
-	agentModel          string
-	skillName           string
-	skillVersion        string
-	count               int
-	compilePass         int
-	sampleTestPass      int
-	testPassTotal       int
-	testTotal           int
-	lineSum             float64
-	lineCnt             int
-	branchSum           float64
-	branchCnt           int
-	mutationSum         float64
-	mutationCnt         int
-	latencySum          float64
-	latencyCnt          int
-	promptTokensSum     float64
-	promptTokenCnt      int
-	completionTokensSum float64
-	completionTokenCnt  int
-	totalTokensSum      float64
-	totalTokenCnt       int
-	assertionDensitySum float64
-	assertionDensityCnt int
+	key                   string
+	subjectID             string
+	subjectKind           string
+	agentFramework        string
+	agentModel            string
+	skillName             string
+	skillVersion          string
+	count                 int
+	compilePass           int
+	sampleTestPass        int
+	testPassTotal         int
+	testTotal             int
+	lineSum               float64
+	lineCnt               int
+	branchSum             float64
+	branchCnt             int
+	mutationSum           float64
+	mutationCnt           int
+	latencySum            float64
+	latencyCnt            int
+	promptTokensSum       float64
+	promptTokenCnt        int
+	completionTokensSum   float64
+	completionTokenCnt    int
+	totalTokensSum        float64
+	totalTokenCnt         int
+	assertionDensitySum   float64
+	assertionDensityCnt   int
+	actualTokenSamples    int
+	estimatedTokenSamples int
+	partialTokenSamples   int
+	missingTokenSamples   int
 }
 
 type scenarioAgg struct {
@@ -748,6 +760,16 @@ func mergeModelAgg(a *modelAgg, row contracts.EvaluationResult) {
 		a.assertionDensitySum += *row.AssertionDensity
 		a.assertionDensityCnt++
 	}
+	switch strings.TrimSpace(row.TokenSource) {
+	case "actual":
+		a.actualTokenSamples++
+	case "estimated":
+		a.estimatedTokenSamples++
+	case "partial":
+		a.partialTokenSamples++
+	default:
+		a.missingTokenSamples++
+	}
 }
 
 func mergeScenarioAgg(a *scenarioAgg, row contracts.EvaluationResult, scenario, language string) {
@@ -866,6 +888,22 @@ func buildTokenStats(rows []contracts.EvaluationResult) contracts.TokenStats {
 		if row.TotalTokens != nil {
 			stats.TotalTokens += *row.TotalTokens
 			totalCount++
+		}
+		switch strings.ToLower(strings.TrimSpace(row.TokenSource)) {
+		case "actual":
+			stats.ActualSampleCount++
+		case "estimated":
+			stats.EstimatedSampleCount++
+		case "partial":
+			stats.PartialSampleCount++
+		case "missing":
+			stats.MissingSampleCount++
+		default:
+			if row.TotalTokens != nil || row.PromptTokens != nil || row.CompletionTokens != nil {
+				stats.PartialSampleCount++
+			} else {
+				stats.MissingSampleCount++
+			}
 		}
 	}
 	stats.SampleCount = max(promptCount, max(completionCount, totalCount))
@@ -1077,28 +1115,32 @@ func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 	var out []contracts.ModelRank
 	for i, m := range sorted {
 		out = append(out, contracts.ModelRank{
-			Rank:                i + 1,
-			Model:               m.Model,
-			SubjectID:           m.SubjectID,
-			SubjectKind:         m.SubjectKind,
-			AgentFramework:      m.AgentFramework,
-			AgentModel:          m.AgentModel,
-			SkillName:           m.SkillName,
-			SkillVersion:        m.SkillVersion,
-			ModelID:             m.ModelID,
-			Provider:            m.Provider,
-			CompilePassRate:     m.CompilePassRate,
-			AvgTestPassRate:     m.AvgTestPassRate,
-			AvgTestCasePassRate: m.AvgTestCasePassRate,
-			AvgLineCoverage:     m.AvgLineCoverage,
-			AvgMutationScore:    m.AvgMutationScore,
-			CompositeScore:      m.CompositeScore,
-			AvgLatencyMS:        m.AvgLatencyMS,
-			AvgPromptTokens:     m.AvgPromptTokens,
-			AvgCompletionTokens: m.AvgCompletionTokens,
-			AvgTotalTokens:      m.AvgTotalTokens,
-			AvgAssertionDensity: m.AvgAssertionDensity,
-			TotalSamples:        m.TotalSamples,
+			Rank:                  i + 1,
+			Model:                 m.Model,
+			SubjectID:             m.SubjectID,
+			SubjectKind:           m.SubjectKind,
+			AgentFramework:        m.AgentFramework,
+			AgentModel:            m.AgentModel,
+			SkillName:             m.SkillName,
+			SkillVersion:          m.SkillVersion,
+			ModelID:               m.ModelID,
+			Provider:              m.Provider,
+			CompilePassRate:       m.CompilePassRate,
+			AvgTestPassRate:       m.AvgTestPassRate,
+			AvgTestCasePassRate:   m.AvgTestCasePassRate,
+			AvgLineCoverage:       m.AvgLineCoverage,
+			AvgMutationScore:      m.AvgMutationScore,
+			CompositeScore:        m.CompositeScore,
+			AvgLatencyMS:          m.AvgLatencyMS,
+			AvgPromptTokens:       m.AvgPromptTokens,
+			AvgCompletionTokens:   m.AvgCompletionTokens,
+			AvgTotalTokens:        m.AvgTotalTokens,
+			AvgAssertionDensity:   m.AvgAssertionDensity,
+			TotalSamples:          m.TotalSamples,
+			ActualTokenSamples:    m.ActualTokenSamples,
+			EstimatedTokenSamples: m.EstimatedTokenSamples,
+			PartialTokenSamples:   m.PartialTokenSamples,
+			MissingTokenSamples:   m.MissingTokenSamples,
 		})
 	}
 	return out
@@ -1957,6 +1999,9 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
       <span style="color:#94a3b8;">|</span>
       <span><strong>指标说明：</strong> 样测=样本级测试通过率；行覆盖=代码行覆盖率；变异=变异测试得分</span>
     </div>
+    <div style="margin-top:8px;color:#64748b;">
+      <strong>Token/成本口径：</strong> actual=直接解析到真实 usage；estimated=按 prompt 与生成代码长度估算；partial=只拿到部分 usage；missing=没有 token 数据。
+    </div>
   </div>
   <div class="leaderboard">`)
 
@@ -1987,6 +2032,8 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
 		// 效率指标格式化（标注平均值）
 		latencyStr := fmt.Sprintf("%.1fs", m.AvgLatencyMS/1000)
 		tokensStr := fmt.Sprintf("%.0f", m.AvgTotalTokens)
+		tokenSourceStr := fmt.Sprintf("actual=%d, estimated=%d, partial=%d, missing=%d",
+			m.ActualTokenSamples, m.EstimatedTokenSamples, m.PartialTokenSamples, m.MissingTokenSamples)
 
 		// 断言密度
 		assertionDensityStr := fmt.Sprintf("%.2f", m.AvgAssertionDensity)
@@ -2033,6 +2080,9 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
           <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;">
             <span style="color:#64748b;">📝</span>样本数: <strong>%d</strong>
           </span>
+          <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;">
+            <span style="color:#64748b;">🧾</span>Token口径: <strong>%s</strong>
+          </span>
         </div>
       </div>
       <div class="lb-score">
@@ -2048,7 +2098,7 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
 			mutWidth, m.AvgMutationScore*100,
 			min(100, int(m.AvgAssertionDensity*20)), // 断言密度进度条（假设理想值5）
 			assertionDensityStr,
-			latencyStr, tokensStr, m.TotalSamples,
+			latencyStr, tokensStr, m.TotalSamples, tokenSourceStr,
 			compositePct))
 	}
 
@@ -3303,9 +3353,9 @@ func promptField(prompt, field string) string {
 
 func promptChineseSummary(language, mode string) string {
 	modeText := map[string]string{
-		"full_file":    "完整文件模式：模型需要直接返回一个完整、可运行的测试文件。",
-		"module_level": "模块级模式：模型基于多文件模块上下文生成目标模块的完整测试文件。",
-		"completion":   "续写模式：模型只补充下一个有价值的测试函数或测试块。",
+		"full_file":  "完整文件模式：模型需要直接返回一个完整、可运行的测试文件。",
+		"repo_level": "仓库级模式：模型基于多文件模块上下文生成目标模块的完整测试文件。",
+		"completion": "续写模式：模型只补充下一个有价值的测试函数或测试块。",
 	}
 	if modeText[mode] == "" {
 		modeText[mode] = "当前模式由 prompt 原文中的 Mode 字段决定。"

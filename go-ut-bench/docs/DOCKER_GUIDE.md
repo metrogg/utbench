@@ -182,12 +182,32 @@ docker run --rm --env-file .env `
 
 如果你要跑 `OpenCode` 这种 `sandbox_mode: docker` 的 framework，外层容器必须挂 Docker socket。
 
-先构建外层 benchmark 镜像和内层 Agent 镜像：
+先构建外层 benchmark 镜像和按语言划分的内层 Agent 镜像：
 
 ```bash
 docker build -t utbench:latest .
-docker build -t utbench-agent-opencode:latest -f ./docker/agents/opencode/Dockerfile .
+docker build -t utbench-agent-opencode-python:latest -f ./docker/agents/opencode/python.Dockerfile .
+docker build -t utbench-agent-opencode-go:latest -f ./docker/agents/opencode/go.Dockerfile .
+docker build -t utbench-agent-opencode-java:latest -f ./docker/agents/opencode/java.Dockerfile .
+docker build -t utbench-agent-opencode-cpp:latest -f ./docker/agents/opencode/cpp.Dockerfile .
 ```
+
+如果你希望优先使用国内镜像源，可以给内层 Agent 镜像显式传构建参数：
+
+```bash
+docker build \
+  --build-arg DEBIAN_MIRROR=http://mirrors.ustc.edu.cn/debian \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+  -t utbench-agent-opencode-python:latest \
+  -f ./docker/agents/opencode/python.Dockerfile .
+```
+
+Go / Java / C++ 镜像也支持 `DEBIAN_MIRROR` 和 `NPM_REGISTRY`。  
+注意：
+
+- 这些参数只影响 Dockerfile 构建阶段里的 apt / npm / pip 下载；`FROM node:...`、`FROM python:...` 这类基础镜像本身是否走国内镜像，仍由你的 Docker daemon 配置决定。
+- 当前实现只替换 Debian 主仓 `deb.debian.org/debian`，默认保留官方 `security.debian.org`。这是刻意的：很多国内镜像在 `debian-security` 上同步延迟更明显，容易触发 `File has unexpected size`。
 
 Linux/macOS/WSL：
 
@@ -220,6 +240,30 @@ docker run --rm --env-file .env \
 `UTBENCH_SANDBOX_HOST_OUTPUT_ROOT` 的作用是把外层容器里的 `/app/artifacts/...` 映射回宿主机真实路径。没有它时，宿主机 Docker daemon 会把 `/app/artifacts/...` 当成宿主机路径解析，结果就是内层容器拿到空目录。
 
 也就是说，真正的 Agent 样本级沙箱是内层容器，不是外层 benchmark 容器
+
+### 5c. 为什么要按语言拆内层镜像
+
+现在的原则是：
+
+- benchmark 平台负责提供完整工具链
+- Agent 不能在运行中自行安装依赖
+
+所以内层镜像会按语言拆分：
+
+- `utbench-agent-opencode-python`
+- `utbench-agent-opencode-go`
+- `utbench-agent-opencode-java`
+- `utbench-agent-opencode-cpp`
+
+每个镜像都预装该语言做单元测试最基本的一套运行时和工具。UT-Bench 在执行前会运行 preflight，自检这些工具是否可用；如果缺工具，任务直接报 `sandbox_preflight_error`。
+
+如果 Agent 在执行过程中尝试：
+
+- `apt-get install`
+- `pip install`
+- `npm install`
+
+UT-Bench 会把它记成 `sandbox_policy_error`。这是刻意的：环境完整性是平台责任，不应该交给被测 Agent。
 
 ---
 
@@ -361,7 +405,7 @@ docker run --rm utbench:latest run --help
 当前仓库内置数据集实际为 `self_contained`：
 
 - Python/Go/Java/C++ 都使用 `--class self_contained`
-- `module_level` 属于预留/旧数据说明；除非你明确恢复 module-level 数据集，否则不要用于正式横评
+- `repo_level` 属于预留/旧数据说明；除非你明确恢复 repo-level 数据集，否则不要用于正式横评
 
 ### 路径问题
 
@@ -428,3 +472,4 @@ export DEEPSEEK_API_KEY="sk-xxx"
 # 运行
 ./utbench run --models deepseek --langs python --max-samples 5
 ```
+

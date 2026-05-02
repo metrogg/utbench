@@ -18,7 +18,7 @@ go-ut-bench 是 ut-bench 的 Go 版本评测工具工作区。
 - 子命令：`generate`、`evaluate`、`report`、`ingest`、`run`、`dataset`
 - 语言范围（当前约定）：`python`、`java`、`go`、`cpp`
 - 数据集分类（当前约定）：
-  - 大类：`self_contained` / `module_level`
+  - 大类：`self_contained` / `repo_level`
   - 子类：`boundary` / `simple_function` / `complex_dependency` / `interface_mock`
 - 入库：SQLite（本地文件）
 
@@ -172,3 +172,4 @@ go-ut-bench 是 ut-bench 的 Go 版本评测工具工作区。
   - 数据层（SQLite）
   - 结构化契约
   - 更清晰的模块边界
+

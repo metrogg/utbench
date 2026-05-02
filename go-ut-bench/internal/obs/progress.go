@@ -28,6 +28,17 @@ type TaskResult struct {
 	MutationTotal    int
 	MutationKilled   int
 	MutationSurvived int
+
+	// Agent 专属字段
+	SubjectID        string // 被测对象 ID，如 opencode__deepseek-v4-flash__unit_test_skill
+	SubjectKind      string // model_api / cli_agent / http_agent
+	AgentFramework   string // Agent 框架名，如 opencode、model_api
+	SkillName        string // skill 名称，如 unit_test_skill、no_skill
+	InteractionCount int    // Agent 交互轮次
+	ToolCallCount    int    // 工具调用次数
+	FilesRead        int    // 读取的文件数
+	FilesWritten     int    // 写入的文件数
+	CommandsExecuted int    // 执行的命令数
 }
 
 // StageStats 阶段统计
@@ -37,6 +48,15 @@ type StageStats struct {
 	Failed   int
 	Skipped  int
 	Duration time.Duration
+}
+
+// frameworkStats 单个 framework 的运行统计
+type frameworkStats struct {
+	success    int
+	fail       int
+	truncated  int
+	totalTok   int
+	totalDurMS int
 }
 
 // ProgressReporter 进度报告器
@@ -56,6 +76,7 @@ type ProgressReporter struct {
 	startTime        time.Time
 	stageStartTime   time.Time
 	stage            string
+	frameworks       map[string]*frameworkStats // framework -> stats
 	mu               sync.Mutex
 }
 
@@ -67,6 +88,7 @@ func NewProgressReporter(total int, stage string) *ProgressReporter {
 		startTime:      now,
 		stageStartTime: now,
 		stage:          stage,
+		frameworks:     make(map[string]*frameworkStats),
 	}
 }
 
@@ -110,6 +132,25 @@ func (pr *ProgressReporter) OnTaskDone(result TaskResult) {
 		pr.mutationSum += result.MutationScore
 		pr.mutationCount++
 	}
+
+	// 追踪 per-framework 统计
+	if result.AgentFramework != "" {
+		fw, ok := pr.frameworks[result.AgentFramework]
+		if !ok {
+			fw = &frameworkStats{}
+			pr.frameworks[result.AgentFramework] = fw
+		}
+		if result.Success {
+			fw.success++
+		} else {
+			fw.fail++
+		}
+		if result.Truncated {
+			fw.truncated++
+		}
+		fw.totalTok += result.Tokens
+		fw.totalDurMS += result.LatencyMS
+	}
 }
 
 // PrintStats 打印统计面板
@@ -132,6 +173,24 @@ func (pr *ProgressReporter) PrintStats() {
 	if pr.stage == "generate" {
 		fmt.Printf("   成功: %d | 失败: %d | 截断: %d\n",
 			pr.successCount, pr.failCount, pr.truncatedCount)
+
+		// per-framework 分组统计
+		if len(pr.frameworks) > 1 {
+			fmt.Println("   ---")
+			for fw, st := range pr.frameworks {
+				total := st.success + st.fail
+				avgDur := 0
+				if total > 0 {
+					avgDur = st.totalDurMS / total / 1000 // 秒
+				}
+				avgTok := 0
+				if total > 0 {
+					avgTok = st.totalTok / total
+				}
+				fmt.Printf("   [%s] %d/%d 成功 | 截断 %d | 平均 %ds | 平均 %d tok\n",
+					fw, st.success, total, st.truncated, avgDur, avgTok)
+			}
+		}
 	} else if pr.stage == "evaluate" {
 		fmt.Printf("   编译通过: %d/%d (%d%%)\n",
 			pr.compilePassCount, pr.completed, pr.compilePassCount*100/pr.completed)
@@ -181,13 +240,72 @@ func (pr *ProgressReporter) PrintStageDone(stageName string, stats StageStats) {
 	fmt.Println("========================================")
 }
 
-// PrintTaskLine 打印单行任务进度
+// PrintTaskLine 打印单行任务进度（旧版兼容签名）
 func (pr *ProgressReporter) PrintTaskLine(idx, total int, model, lang, sampleID, status string, extras ...string) {
 	extra := ""
 	if len(extras) > 0 {
 		extra = " | " + extras[0]
 	}
 	fmt.Printf("[%d/%d]  %s | %s | %s | %s%s\n", idx, total, model, lang, sampleID, status, extra)
+}
+
+// PrintAgentTaskLine 打印 Agent 感知的单行任务进度
+// 格式: [idx/total] framework | model | skill | lang | sampleID | status | duration | tokens | agent_info
+func (pr *ProgressReporter) PrintAgentTaskLine(idx, total int, result TaskResult, status string) {
+	duration := formatDuration(time.Duration(result.LatencyMS) * time.Millisecond)
+
+	// 基础信息行
+	fmt.Printf("[%d/%d]  %s | %s | %s | %s | %s | %s | %s",
+		idx, total,
+		result.AgentFramework,
+		result.Model,
+		result.SkillName,
+		result.Language,
+		result.SampleID,
+		status,
+		duration,
+	)
+
+	// token 信息
+	if result.Tokens > 0 {
+		fmt.Printf(" | %d tok", result.Tokens)
+	}
+
+	// Agent 追踪摘要（仅 cli_agent 类型）
+	if result.SubjectKind == "cli_agent" {
+		agentParts := []string{}
+		if result.InteractionCount > 0 {
+			agentParts = append(agentParts, fmt.Sprintf("%d轮", result.InteractionCount))
+		}
+		if result.ToolCallCount > 0 {
+			agentParts = append(agentParts, fmt.Sprintf("%d工具", result.ToolCallCount))
+		}
+		if result.FilesWritten > 0 {
+			agentParts = append(agentParts, fmt.Sprintf("%d写入", result.FilesWritten))
+		}
+		if result.FilesRead > 0 {
+			agentParts = append(agentParts, fmt.Sprintf("%d读取", result.FilesRead))
+		}
+		if result.CommandsExecuted > 0 {
+			agentParts = append(agentParts, fmt.Sprintf("%d命令", result.CommandsExecuted))
+		}
+		if len(agentParts) > 0 {
+			fmt.Printf(" | %s", joinParts(agentParts))
+		}
+	}
+
+	fmt.Println()
+}
+
+func joinParts(parts []string) string {
+	result := ""
+	for i, p := range parts {
+		if i > 0 {
+			result += ","
+		}
+		result += p
+	}
+	return result
 }
 
 // PrintMutationResult 打印变异测试结果

@@ -91,7 +91,7 @@ func runDockerSandbox(ctx context.Context, req SandboxRunRequest, timeout int) (
 	if image == "" {
 		image = "utbench-agent:latest"
 	}
-	args = append(args, "-v", mountSource+":/workspace", "-w", "/workspace", image, "/bin/sh", "-lc", req.Command)
+	args = append(args, "-v", mountSource+":/workspace", "-w", "/workspace", image, "/bin/sh", "-c", req.Command)
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Stdout = &stdout
@@ -148,7 +148,7 @@ func runLocalSandbox(ctx context.Context, req SandboxRunRequest) (SandboxRunResu
 		args = []string{"-NoProfile", "-Command", req.Command}
 	} else {
 		name = "/bin/sh"
-		args = []string{"-lc", req.Command}
+		args = []string{"-c", req.Command}
 	}
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, name, args...)

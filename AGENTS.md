@@ -4,7 +4,6 @@
 
 - `go-ut-bench/` — main Go CLI tool for multi-model unit-test generation (has its own AGENTS.md)
 - Root `README.md` — **obsolete** legacy Python docs; ignore and use `go-ut-bench/readme.md` instead
-- `docker-compose.yml`, `docker.sh` — Docker scripts at root; **broken** (Dockerfile is in `go-ut-bench/`)
 
 ## 2) Primary Usage (Docker)
 
@@ -65,8 +64,8 @@ go build -o utbench ./cmd/utbench/
 
 ## 7) Gotchas
 
-- **Docker context**: `docker-compose.yml` and `docker.sh` at repo root expect a `Dockerfile` at root, but the actual `Dockerfile` is in `go-ut-bench/`. Always run Docker commands from `go-ut-bench/`.
-- **Default `--class` is `self_contained`**: Python and Go datasets have ALL samples as `module_level`, not `self_contained`. Use `--class module_level` for those languages, or `--class self_contained` for Java/C++ only.
+- **Docker context**: run Docker commands from `go-ut-bench/`; the active Dockerfile is `go-ut-bench/Dockerfile`.
+- **Dataset classes**: current code and docs use `self_contained` and `repo_level`. Do not use the old `module_level` name.
 - **Model config path**: default in code is `../benchmark/config/models.yaml`. When running in Docker, always use `--config /app/configs/models.yaml`.
 - **Line endings on Windows**: files may have CRLF; normalize with `git add --renormalize .`
 - **mutmut on Windows**: mutation testing is primarily validated on Linux; Docker recommended

@@ -68,7 +68,7 @@ utbench web [flags]
 | 模式 | 下拉选择 | `full`（全量）/ `incremental`（增量） |
 | 模型 | 多选卡片 | 从 `configs/models.yaml` 读取，仅显示 `enabled: true` 的模型 |
 | 语言 | 多选卡片 | python / go / java / cpp |
-| 类型 | 下拉选择 | `self_contained` / `module_level` |
+| 类型 | 下拉选择 | `self_contained` / `repo_level` |
 | 场景 | 下拉选择 | `boundary` / `simple_function` / `complex_dependency` / `interface_mock` |
 | 等级 | 文本输入 | 可选，如 `l1`、`l2` |
 | 最大样本数 | 数字输入 | 每场景样本上限，0 = 不限 |
@@ -208,7 +208,7 @@ HTML 报告页采用可视化评测报告结构：
   ],
   "languages": ["python", "go", "java", "cpp"],
   "scenarios": ["boundary", "simple_function", "complex_dependency", "interface_mock"],
-  "classes": ["self_contained", "module_level"],
+  "classes": ["self_contained", "repo_level"],
   "dataset_root": "./datasets",
   "config_path": "./configs/models.yaml"
 }
@@ -425,3 +425,4 @@ internal/web/docker_runner.go         # Docker 容器执行后端
 internal/web/env_handlers.go          # /api/env 和 /api/env/build-image API
 internal/web/static/index.html        # 前端 SPA (Alpine.js + Tailwind + Chart.js)
 ```
+

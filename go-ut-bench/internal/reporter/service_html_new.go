@@ -119,6 +119,15 @@ func buildEfficiencySection(stats contracts.EfficiencyStats) string {
 		return ""
 	}
 	var b strings.Builder
+	costSummary := "未配置模型定价，当前仅统计 token，不展示成本。"
+	if stats.CostEstimate.PricingConfigured {
+		costSummary = fmt.Sprintf("估算总成本: $%.4f | 已定价样本: %d | 实际token样本: %d | 估算token样本: %d | 缺失token样本: %d",
+			stats.CostEstimate.EstimatedCostUSD,
+			stats.CostEstimate.PricedSamples,
+			stats.CostEstimate.ActualTokenSamples,
+			stats.CostEstimate.EstimatedTokenSamples,
+			stats.CostEstimate.MissingTokenSamples)
+	}
 	b.WriteString(`<div class="section" id="efficiency">
   <h2>效率分析 Efficiency Analysis</h2>
   <div class="grid-2">
@@ -152,16 +161,19 @@ func buildEfficiencySection(stats contracts.EfficiencyStats) string {
   </div>
   <div class="panel" style="margin-top:16px;">
     <h3>成本估算</h3>
+    <p class="muted" style="font-size:12px;margin-top:6px;">说明：CLI Agent 若未直接暴露 usage，本报告会将 token/cost 标记为 estimated，不能与 API 原生 usage 视为同等精度。</p>
     <div style="display:flex;gap:24px;margin-top:8px;font-size:14px;">
       <div><strong>总Token消耗:</strong> ` + fmt.Sprintf("%d", stats.CostEstimate.TotalTokens) + `</div>
-      <div><strong>估算成本:</strong> ~¥` + fmt.Sprintf("%.2f", stats.CostEstimate.EstimatedCostUSD*7.2) + ` (按 ¥0.0072/1K Token 估算)</div>
+      <div><strong>成本说明:</strong> ` + escapeHTML(costSummary) + `</div>
     </div>
     <table style="width:100%%;font-size:13px;border-collapse:collapse;margin-top:12px;">
-      <thead><tr style="background:#f1f5f9;"><th style="padding:6px;">模型</th><th style="padding:6px;">总Token</th><th style="padding:6px;">每样本成本(¥)</th></tr></thead>
+      <thead><tr style="background:#f1f5f9;"><th style="padding:6px;">模型</th><th style="padding:6px;">总Token</th><th style="padding:6px;">总成本(USD)</th><th style="padding:6px;">每样本成本(USD)</th><th style="padding:6px;">样本说明</th></tr></thead>
       <tbody>`)
 	for _, row := range stats.CostEstimate.ModelCostBreakdown {
-		b.WriteString(fmt.Sprintf(`<tr><td style="padding:6px;border-bottom:1px solid #e2e8f0;">%s</td><td style="padding:6px;border-bottom:1px solid #e2e8f0;">%d</td><td style="padding:6px;border-bottom:1px solid #e2e8f0;">¥%.4f</td></tr>`,
-			escapeHTML(row.Model), row.TotalTokens, row.AvgCostPerSample*7.2))
+		sampleNote := fmt.Sprintf("priced=%d, actual=%d, estimated=%d",
+			row.PricedSamples, row.ActualTokenSamples, row.EstimatedTokenSamples)
+		b.WriteString(fmt.Sprintf(`<tr><td style="padding:6px;border-bottom:1px solid #e2e8f0;">%s</td><td style="padding:6px;border-bottom:1px solid #e2e8f0;">%d</td><td style="padding:6px;border-bottom:1px solid #e2e8f0;">$%.4f</td><td style="padding:6px;border-bottom:1px solid #e2e8f0;">$%.4f</td><td style="padding:6px;border-bottom:1px solid #e2e8f0;">%s</td></tr>`,
+			escapeHTML(row.Model), row.TotalTokens, row.EstimatedCostUSD, row.AvgCostPerSample, escapeHTML(sampleNote)))
 	}
 	b.WriteString(`      </tbody>
     </table>

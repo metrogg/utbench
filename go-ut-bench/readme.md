@@ -148,8 +148,12 @@ model_api__deepseek-v4-flash__no_skill
 
 - 为每个 `subject × sample` 创建独立工作区
 - 启动一个独立容器
+- 按语言选择固定的内层 Agent 镜像
+- 平台托管样本依赖准备，如 `requirements.txt` / `go.mod` / `pom.xml`
+- 执行前先跑 preflight，自检语言工具链
 - 只挂载该工作区到 `/workspace`
 - 可选 `--network none`
+- 拦截环境漂移命令，如 `apt-get install`
 - 记录 trace、diff、sandbox fingerprint
 - 超时后结束该容器
 

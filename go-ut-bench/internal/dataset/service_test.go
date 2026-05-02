@@ -29,7 +29,7 @@ func TestDiscoverSamplesFromManifest(t *testing.T) {
   "level": "l1",
   "samples": [
     {"id":"boundary_000","language":"python","category":"self_contained","path":"python/boundary_000.py"},
-    {"id":"complex_dependency_go_complex_dependency_0","language":"go","category":"module_level","path":"go/complex_dependency_go_complex_dependency_0.go"}
+    {"id":"complex_dependency_go_complex_dependency_0","language":"go","category":"repo_level","path":"go/complex_dependency_go_complex_dependency_0.go"}
   ]
 }`
 	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
@@ -43,7 +43,7 @@ func TestDiscoverSamplesFromManifest(t *testing.T) {
 		OutputRoot:      root,
 		ConfigPath:      "dummy",
 		DatasetManifest: manifestPath,
-		DatasetClasses:  []string{"module_level"},
+		DatasetClasses:  []string{"repo_level"},
 		Languages:       []string{"go", "python"},
 	}
 
@@ -57,15 +57,15 @@ func TestDiscoverSamplesFromManifest(t *testing.T) {
 	if samples[0].Language != "go" {
 		t.Fatalf("expected go sample, got %s", samples[0].Language)
 	}
-	if samples[0].Category != contracts.DatasetClassModuleLevel {
+	if samples[0].Category != contracts.DatasetClassRepoLevel {
 		t.Fatalf("unexpected category: %s", samples[0].Category)
 	}
 }
 
-func TestDiscoverSamplesScenarioAndModuleLevelClass(t *testing.T) {
+func TestDiscoverSamplesScenarioAndRepoLevelClass(t *testing.T) {
 	root := t.TempDir()
 	datasetRoot := filepath.Join(root, "datasets")
-	path := filepath.Join(datasetRoot, "python", "python_code_files_module_level", "boundary")
+	path := filepath.Join(datasetRoot, "python", "python_code_files_repo_level", "boundary")
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestDiscoverSamplesScenarioAndModuleLevelClass(t *testing.T) {
 		OutputRoot:      root,
 		ConfigPath:      "dummy",
 		Languages:       []string{"python"},
-		DatasetClasses:  []string{"module_level"},
+		DatasetClasses:  []string{"repo_level"},
 		DatasetScenario: "boundary",
 		MaxSamples:      10,
 	}
@@ -92,8 +92,8 @@ func TestDiscoverSamplesScenarioAndModuleLevelClass(t *testing.T) {
 	if len(samples) != 1 {
 		t.Fatalf("expected 1 sample, got %d", len(samples))
 	}
-	if samples[0].Category != contracts.DatasetClassModuleLevel {
-		t.Fatalf("expected class module_level, got %s", samples[0].Category)
+	if samples[0].Category != contracts.DatasetClassRepoLevel {
+		t.Fatalf("expected class repo_level, got %s", samples[0].Category)
 	}
 	if samples[0].Scenario != "boundary" {
 		t.Fatalf("expected scenario boundary, got %s", samples[0].Scenario)

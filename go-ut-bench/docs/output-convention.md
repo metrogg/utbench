@@ -73,11 +73,41 @@ storage/
 - `agent_model`
 - `skill_name`
 - `skill_version`
+- `sample_uid`
+- `subject_version_id`
+- `generation_key`
+- `dependency_fingerprint`
+- `generation_env_fingerprint`
 - `trace_path`
 - `workspace_diff_path`
 - `sandbox_fingerprint`
+- `reused`
+- `reuse_stage`
+- `reuse_key`
+- `reuse_reason`
+- `reused_from_run_id`
+- `reused_from_case_id`
 
 注意：为兼容旧 evaluator / reporter，`model` 字段当前仍填 `subject_id`。
+
+复用命中时，当前 run 仍会写出完整 case 记录，并把 `reused=true`、`reuse_stage=generation` 写入 manifest。生成测试文件会进入当前 run 的 `generated/tests/...` 目录，DB 中同时保留来源 run/case，便于追溯历史。
+
+### `evaluation_result.json`
+
+每条 evaluation result 会额外带：
+
+- `sample_uid`
+- `evaluation_key`
+- `evaluator_version`
+- `mutation_config_sha256`
+- `reused`
+- `reuse_stage`
+- `reuse_key`
+- `reuse_reason`
+- `reused_from_run_id`
+- `reused_from_result_id`
+
+第一阶段 `--reuse-evaluation` 默认关闭，因此这些字段主要用于记录和解释，暂不默认跳过重评测。
 
 ### `tests/`
 

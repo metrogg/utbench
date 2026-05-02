@@ -139,8 +139,21 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		workerCount = min(16, max(2, runtime.NumCPU()))
 	}
 	progress := obs.NewProgressReporter(totalTasks, "generate")
-	progress.PrintStageStart("生成测试", fmt.Sprintf("%d 样本 × %d 被测对象 = %d 任务 | Workers: %d",
-		len(samples), len(subjects), totalTasks, workerCount))
+	// 构建 subject 列表详情
+	subjectLines := ""
+	for _, sub := range subjects {
+		kind := sub.subject.Spec.Kind
+		if kind == "" {
+			kind = "model_api"
+		}
+		skill := sub.subject.Spec.Skill
+		if skill == "" {
+			skill = "no_skill"
+		}
+		subjectLines += fmt.Sprintf("   [%s] %s | model=%s | skill=%s\n", kind, sub.subject.Spec.ID, sub.subject.Spec.Model, skill)
+	}
+	progress.PrintStageStart("生成测试", fmt.Sprintf("%d 样本 × %d 被测对象 = %d 任务 | Workers: %d\n%s",
+		len(samples), len(subjects), totalTasks, workerCount, subjectLines))
 
 	// 创建worker池
 	tasks := make(chan task)
@@ -246,13 +259,22 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 			tokens = *item.TotalTokens
 		}
 		taskResult := obs.TaskResult{
-			Model:     item.Model,
-			Language:  item.Language,
-			SampleID:  item.SampleID,
-			Success:   item.Success,
-			Truncated: item.Truncated,
-			LatencyMS: item.LatencyMS,
-			Tokens:    tokens,
+			Model:            item.Model,
+			Language:         item.Language,
+			SampleID:         item.SampleID,
+			Success:          item.Success,
+			Truncated:        item.Truncated,
+			LatencyMS:        item.LatencyMS,
+			Tokens:           tokens,
+			SubjectID:        item.SubjectID,
+			SubjectKind:      item.SubjectKind,
+			AgentFramework:   item.AgentFramework,
+			SkillName:        item.SkillName,
+			InteractionCount: item.InteractionCount,
+			ToolCallCount:    item.ToolCallCount,
+			FilesRead:        item.FilesReadCount,
+			FilesWritten:     item.FilesWriteCount,
+			CommandsExecuted: item.CommandCount,
 		}
 		if !item.Success && item.Error != nil {
 			taskResult.Error = item.Error.Message
@@ -273,11 +295,8 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 			}
 		}
 
-		extra := ""
-		if tokens > 0 {
-			extra = fmt.Sprintf("| %d tokens", tokens)
-		}
-		progress.PrintTaskLine(completedCount, totalTasks-skippedByCheckpoint, item.Model, item.Language, item.SampleID, status, extra)
+		// 使用 Agent 感知的任务行显示
+		progress.PrintAgentTaskLine(completedCount, totalTasks-skippedByCheckpoint, taskResult, status)
 
 		if completedCount%5 == 0 {
 			progress.PrintStats()
@@ -373,8 +392,8 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 	promptPath := ""
 	promptPathCandidate := filepath.Join(promptRoot, "rendered", model, sample.Language, fmt.Sprintf("%s.prompt.txt", sample.ID))
 	promptMode := string(PromptModeFullFile)
-	if loadModuleLevelMetaForRunner(sample.Path) != nil {
-		promptMode = string(PromptModeModuleLevel)
+	if loadRepoLevelMetaForRunner(sample.Path) != nil {
+		promptMode = string(PromptModeRepoLevel)
 	}
 
 	if spec.Mode == contracts.RunModeIncremental {
@@ -441,6 +460,8 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 	latencyMS := 0
 	renderedPrompt := ""
 	trace := subjectTrace{}
+	var agentSummary agentTraceSummary
+	identity := generationIdentity{}
 
 	if spec.DryRun {
 		content = buildPlaceholderTest(sample.Language, sample.ID)
@@ -477,91 +498,137 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 			}
 		}
 
-		if reuseStore != nil && subject.Kind == agentconfig.KindModelAPI {
-			sourceSHA := sha256Bytes(sourceCode)
-			if reused, ok, reuseErr := reuseStore.FindReusableGeneratedCase(ctx, model, sample.Language, sample.ID, sourceSHA, promptVersionID); reuseErr == nil && ok {
+		sourceSHA := sha256Bytes(sourceCode)
+		identity = buildGenerationIdentity(target, target.model, sample, sourceCode, renderedPrompt, promptVersionID)
+		if reuseStore != nil {
+			if reused, ok, reuseErr := reuseStore.FindReusableGeneratedAsset(ctx, identity.GenerationKey); reuseErr == nil && ok {
 				if copyErr := copyFile(reused.GeneratedTestPath, testPath); copyErr == nil {
 					metadataPath := filepath.Join(metaRoot, fmt.Sprintf("%s_%s_%s.metadata.json", model, sample.Language, sample.ID))
 					metadata := map[string]any{
-						"model":               model,
-						"language":            sample.Language,
-						"sample_id":           sample.ID,
-						"sample_path":         sample.Path,
-						"prompt_strategy":     PromptStrategy(),
-						"prompt_version_id":   promptVersionID,
-						"prompt_mode":         promptMode,
-						"prompt_path":         promptPath,
-						"scenario":            sample.Scenario,
-						"generated_test_path": testPath,
-						"dataset_class":       sample.Category,
-						"source_md5":          sample.SourceMD5,
-						"source_sha256":       sourceSHA,
-						"reused":              true,
-						"reused_from_run_id":  reused.RunID,
-						"reused_from_case_id": reused.GeneratedCaseID,
-						"created_at_utc":      time.Now().UTC(),
-						"success":             true,
+						"model":                        model,
+						"subject_id":                   subject.ID,
+						"subject_kind":                 subject.Kind,
+						"agent_framework":              subject.Framework,
+						"agent_model":                  subject.Model,
+						"skill_name":                   subject.Skill,
+						"skill_version":                skillVersion,
+						"language":                     sample.Language,
+						"sample_id":                    sample.ID,
+						"sample_uid":                   identity.SampleUID,
+						"sample_path":                  sample.Path,
+						"prompt_strategy":              PromptStrategy(),
+						"prompt_version_id":            promptVersionID,
+						"prompt_mode":                  promptMode,
+						"prompt_path":                  promptPath,
+						"scenario":                     sample.Scenario,
+						"generated_test_path":          testPath,
+						"dataset_class":                sample.Category,
+						"source_md5":                   sample.SourceMD5,
+						"source_sha256":                sourceSHA,
+						"subject_version_id":           identity.SubjectVersionID,
+						"generation_key":               identity.GenerationKey,
+						"dependency_fingerprint":       identity.DependencyFingerprint,
+						"generation_env_fingerprint":   identity.GenerationEnvFingerprint,
+						"reused":                       true,
+						"reuse_stage":                  "generation",
+						"reuse_key":                    identity.GenerationKey,
+						"reuse_reason":                 "generation_key_match",
+						"reused_from_run_id":           reused.RunID,
+						"reused_from_case_id":          reused.GeneratedCaseID,
+						"reused_generated_test_sha256": reused.GeneratedTestSHA256,
+						"created_at_utc":               time.Now().UTC(),
+						"success":                      true,
 					}
 					_ = contracts.WriteJSON(metadataPath, metadata)
-					s.logger.Info("reuse generated test", "model", model, "language", sample.Language, "sample_id", sample.ID, "from_run", reused.RunID)
+					s.logger.Info("reuse generated test", "subject", model, "language", sample.Language, "sample_id", sample.ID, "from_run", reused.RunID)
 					return contracts.GeneratedCase{
-						Model:             model,
-						SubjectID:         subject.ID,
-						SubjectKind:       subject.Kind,
-						AgentFramework:    subject.Framework,
-						AgentModel:        subject.Model,
-						SkillName:         subject.Skill,
-						SkillVersion:      skillVersion,
-						Language:          sample.Language,
-						SampleID:          sample.ID,
-						SamplePath:        sample.Path,
-						PromptVersionID:   promptVersionID,
-						PromptMode:        promptMode,
-						PromptPath:        promptPath,
-						GeneratedTestPath: testPath,
-						ResponsePath:      reused.ResponsePath,
-						MetadataPath:      metadataPath,
-						LatencyMS:         int(time.Since(started).Milliseconds()),
-						PromptTokens:      reused.PromptTokens,
-						CompletionTokens:  reused.CompletionTokens,
-						TotalTokens:       reused.TotalTokens,
-						GeneratedAtUTC:    time.Now().UTC(),
-						Success:           true,
+						Model:                    model,
+						SubjectID:                subject.ID,
+						SubjectKind:              subject.Kind,
+						AgentFramework:           subject.Framework,
+						AgentModel:               subject.Model,
+						SkillName:                subject.Skill,
+						SkillVersion:             skillVersion,
+						Language:                 sample.Language,
+						SampleID:                 sample.ID,
+						SampleUID:                identity.SampleUID,
+						SamplePath:               sample.Path,
+						PromptVersionID:          promptVersionID,
+						PromptMode:               promptMode,
+						PromptPath:               promptPath,
+						GeneratedTestPath:        testPath,
+						ResponsePath:             reused.ResponsePath,
+						MetadataPath:             metadataPath,
+						TracePath:                reused.TracePath,
+						WorkspaceDiffPath:        reused.WorkspaceDiffPath,
+						SandboxFingerprint:       reused.SandboxFingerprint,
+						SubjectVersionID:         identity.SubjectVersionID,
+						GenerationKey:            identity.GenerationKey,
+						DependencyFingerprint:    identity.DependencyFingerprint,
+						GenerationEnvFingerprint: identity.GenerationEnvFingerprint,
+						Reused:                   true,
+						ReuseStage:               "generation",
+						ReuseKey:                 identity.GenerationKey,
+						ReuseReason:              "generation_key_match",
+						ReusedFromRunID:          reused.RunID,
+						ReusedFromCaseID:         reused.GeneratedCaseID,
+						LatencyMS:                int(time.Since(started).Milliseconds()),
+						PromptTokens:             reused.PromptTokens,
+						CompletionTokens:         reused.CompletionTokens,
+						TotalTokens:              reused.TotalTokens,
+						TokenSource:              reused.TokenSource,
+						EstimatedCostUSD:         reused.EstimatedCostUSD,
+						CostSource:               reused.CostSource,
+						GeneratedAtUTC:           time.Now().UTC(),
+						Success:                  true,
 					}
 				}
 			} else if reuseErr != nil {
-				s.logger.Warn("reuse lookup failed", "model", model, "language", sample.Language, "sample_id", sample.ID, "error", reuseErr.Error())
+				s.logger.Warn("reuse lookup failed", "subject", model, "language", sample.Language, "sample_id", sample.ID, "generation_key", identity.GenerationKey, "error", reuseErr.Error())
 			}
 		}
 
-		generated, response, subjectTrace, latency, pTok, cTok, tTok, isTruncated, genErr := s.generateWithSubject(ctx, spec, target, sample, renderedPrompt, testPath, metaRoot)
+		generated, response, subjectTrace, latency, pTok, cTok, tTok, isTruncated, genErr, agentSmry := s.generateWithSubject(ctx, spec, target, sample, renderedPrompt, testPath, metaRoot)
 		trace = subjectTrace
+		agentSummary = agentSmry
 		truncated = isTruncated
 		if genErr != nil {
 			_ = contracts.WriteJSON(respPath, map[string]any{"error": genErr, "truncated": truncated, "trace_path": trace.TracePath, "workspace_diff_path": trace.WorkspaceDiffPath})
 			return contracts.GeneratedCase{
-				Model:              model,
-				SubjectID:          subject.ID,
-				SubjectKind:        subject.Kind,
-				AgentFramework:     subject.Framework,
-				AgentModel:         subject.Model,
-				SkillName:          subject.Skill,
-				SkillVersion:       skillVersion,
-				Language:           sample.Language,
-				SampleID:           sample.ID,
-				SamplePath:         sample.Path,
-				PromptVersionID:    promptVersionID,
-				PromptMode:         promptMode,
-				PromptPath:         promptPath,
-				GeneratedTestPath:  testPath,
-				ResponsePath:       respPath,
-				TracePath:          trace.TracePath,
-				WorkspaceDiffPath:  trace.WorkspaceDiffPath,
-				SandboxFingerprint: trace.SandboxFingerprint,
-				GeneratedAtUTC:     time.Now().UTC(),
-				Success:            false,
-				Truncated:          truncated,
-				Error:              genErr,
+				Model:                    model,
+				SubjectID:                subject.ID,
+				SubjectKind:              subject.Kind,
+				AgentFramework:           subject.Framework,
+				AgentModel:               subject.Model,
+				SkillName:                subject.Skill,
+				SkillVersion:             skillVersion,
+				Language:                 sample.Language,
+				SampleID:                 sample.ID,
+				SampleUID:                identity.SampleUID,
+				SamplePath:               sample.Path,
+				PromptVersionID:          promptVersionID,
+				PromptMode:               promptMode,
+				PromptPath:               promptPath,
+				GeneratedTestPath:        testPath,
+				ResponsePath:             respPath,
+				LatencyMS:                latency,
+				PromptTokens:             promptTokens,
+				CompletionTokens:         completionTokens,
+				TotalTokens:              totalTokens,
+				TokenSource:              trace.TokenSource,
+				EstimatedCostUSD:         trace.EstimatedCostUSD,
+				CostSource:               trace.CostSource,
+				TracePath:                trace.TracePath,
+				WorkspaceDiffPath:        trace.WorkspaceDiffPath,
+				SandboxFingerprint:       trace.SandboxFingerprint,
+				SubjectVersionID:         identity.SubjectVersionID,
+				GenerationKey:            identity.GenerationKey,
+				DependencyFingerprint:    identity.DependencyFingerprint,
+				GenerationEnvFingerprint: identity.GenerationEnvFingerprint,
+				GeneratedAtUTC:           time.Now().UTC(),
+				Success:                  false,
+				Truncated:                truncated,
+				Error:                    genErr,
 			}
 		}
 		content = generated
@@ -605,33 +672,41 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 
 	metadataPath := filepath.Join(metaRoot, fmt.Sprintf("%s_%s_%s.metadata.json", model, sample.Language, sample.ID))
 	metadata := map[string]any{
-		"model":               model,
-		"subject_id":          subject.ID,
-		"subject_kind":        subject.Kind,
-		"agent_framework":     subject.Framework,
-		"agent_model":         subject.Model,
-		"skill_name":          subject.Skill,
-		"skill_version":       skillVersion,
-		"language":            sample.Language,
-		"sample_id":           sample.ID,
-		"sample_path":         sample.Path,
-		"prompt_strategy":     PromptStrategy(),
-		"prompt_version_id":   promptVersionID,
-		"prompt_mode":         promptMode,
-		"prompt_path":         promptPath,
-		"scenario":            sample.Scenario,
-		"generated_test_path": testPath,
-		"response_path":       respPath,
-		"trace_path":          trace.TracePath,
-		"workspace_diff_path": trace.WorkspaceDiffPath,
-		"sandbox_fingerprint": trace.SandboxFingerprint,
-		"dataset_class":       sample.Category,
-		"source_md5":          sample.SourceMD5,
-		"latency_ms":          latencyForMeta,
+		"model":                      model,
+		"subject_id":                 subject.ID,
+		"subject_kind":               subject.Kind,
+		"agent_framework":            subject.Framework,
+		"agent_model":                subject.Model,
+		"skill_name":                 subject.Skill,
+		"skill_version":              skillVersion,
+		"language":                   sample.Language,
+		"sample_id":                  sample.ID,
+		"sample_uid":                 identity.SampleUID,
+		"sample_path":                sample.Path,
+		"prompt_strategy":            PromptStrategy(),
+		"prompt_version_id":          promptVersionID,
+		"prompt_mode":                promptMode,
+		"prompt_path":                promptPath,
+		"scenario":                   sample.Scenario,
+		"generated_test_path":        testPath,
+		"response_path":              respPath,
+		"trace_path":                 trace.TracePath,
+		"workspace_diff_path":        trace.WorkspaceDiffPath,
+		"sandbox_fingerprint":        trace.SandboxFingerprint,
+		"dataset_class":              sample.Category,
+		"source_md5":                 sample.SourceMD5,
+		"subject_version_id":         identity.SubjectVersionID,
+		"generation_key":             identity.GenerationKey,
+		"dependency_fingerprint":     identity.DependencyFingerprint,
+		"generation_env_fingerprint": identity.GenerationEnvFingerprint,
+		"latency_ms":                 latencyForMeta,
 		"tokens": map[string]any{
-			"prompt_tokens":     promptTokens,
-			"completion_tokens": completionTokens,
-			"total_tokens":      totalTokens,
+			"prompt_tokens":      promptTokens,
+			"completion_tokens":  completionTokens,
+			"total_tokens":       totalTokens,
+			"token_source":       trace.TokenSource,
+			"estimated_cost_usd": trace.EstimatedCostUSD,
+			"cost_source":        trace.CostSource,
 		},
 		"truncated":      truncated,
 		"created_at_utc": time.Now().UTC(),
@@ -644,32 +719,45 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		latency = int(time.Since(started).Milliseconds())
 	}
 	return contracts.GeneratedCase{
-		Model:              model,
-		SubjectID:          subject.ID,
-		SubjectKind:        subject.Kind,
-		AgentFramework:     subject.Framework,
-		AgentModel:         subject.Model,
-		SkillName:          subject.Skill,
-		SkillVersion:       skillVersion,
-		Language:           sample.Language,
-		SampleID:           sample.ID,
-		SamplePath:         sample.Path,
-		PromptVersionID:    promptVersionID,
-		PromptMode:         promptMode,
-		PromptPath:         promptPath,
-		GeneratedTestPath:  testPath,
-		ResponsePath:       respPath,
-		MetadataPath:       metadataPath,
-		LatencyMS:          latency,
-		PromptTokens:       promptTokens,
-		CompletionTokens:   completionTokens,
-		TotalTokens:        totalTokens,
-		TracePath:          trace.TracePath,
-		WorkspaceDiffPath:  trace.WorkspaceDiffPath,
-		SandboxFingerprint: trace.SandboxFingerprint,
-		GeneratedAtUTC:     time.Now().UTC(),
-		Success:            true,
-		Truncated:          truncated,
+		Model:                    model,
+		SubjectID:                subject.ID,
+		SubjectKind:              subject.Kind,
+		AgentFramework:           subject.Framework,
+		AgentModel:               subject.Model,
+		SkillName:                subject.Skill,
+		SkillVersion:             skillVersion,
+		Language:                 sample.Language,
+		SampleID:                 sample.ID,
+		SampleUID:                identity.SampleUID,
+		SamplePath:               sample.Path,
+		PromptVersionID:          promptVersionID,
+		PromptMode:               promptMode,
+		PromptPath:               promptPath,
+		GeneratedTestPath:        testPath,
+		ResponsePath:             respPath,
+		MetadataPath:             metadataPath,
+		LatencyMS:                latency,
+		PromptTokens:             promptTokens,
+		CompletionTokens:         completionTokens,
+		TotalTokens:              totalTokens,
+		TokenSource:              trace.TokenSource,
+		EstimatedCostUSD:         trace.EstimatedCostUSD,
+		CostSource:               trace.CostSource,
+		TracePath:                trace.TracePath,
+		WorkspaceDiffPath:        trace.WorkspaceDiffPath,
+		SandboxFingerprint:       trace.SandboxFingerprint,
+		SubjectVersionID:         identity.SubjectVersionID,
+		GenerationKey:            identity.GenerationKey,
+		DependencyFingerprint:    identity.DependencyFingerprint,
+		GenerationEnvFingerprint: identity.GenerationEnvFingerprint,
+		GeneratedAtUTC:           time.Now().UTC(),
+		Success:                  true,
+		Truncated:                truncated,
+		InteractionCount:         agentSummary.InteractionCount,
+		ToolCallCount:            agentSummary.ToolCallCount,
+		FilesReadCount:           agentSummary.FilesRead,
+		FilesWriteCount:          agentSummary.FilesWritten,
+		CommandCount:             agentSummary.CommandsExecuted,
 	}
 }
 

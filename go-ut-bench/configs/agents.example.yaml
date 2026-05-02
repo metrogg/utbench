@@ -13,12 +13,45 @@ frameworks:
     enabled: true
     kind: cli_agent
     sandbox_mode: docker
-    docker_image: utbench-agent-opencode:latest
+    docker_images:
+      python: utbench-agent-opencode-python:latest
+      go: utbench-agent-opencode-go:latest
+      java: utbench-agent-opencode-java:latest
+      cpp: utbench-agent-opencode-cpp:latest
     timeout_seconds: 600
     network_disabled: false
     memory: 2g
     cpu: "2"
+    preflight:
+      python:
+        - python3 --version
+        - pytest --version
+      go:
+        - go version
+      java:
+        - java -version
+        - mvn -version
+      cpp:
+        - g++ --version
+        - cmake --version
+    forbidden_command_patterns:
+      - apt-get update
+      - apt-get install
+      - apt install
+      - apk add
+      - yum install
+      - dnf install
+      - pip install
+      - pip3 install
+      - python -m pip install
+      - python3 -m pip install
+      - npm install
+      - yarn add
+      - pnpm add
     env:
+      PATH: "/go/bin:/usr/local/go/bin:/opt/java/openjdk/bin:/usr/share/maven/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      XDG_CONFIG_HOME: "{{.ContainerWorkdir}}/.utbench/xdg-config"
+      XDG_DATA_HOME: "{{.ContainerWorkdir}}/.utbench/xdg-data"
       OPENCODE_DISABLE_CLAUDE_CODE: "true"
       OPENCODE_DISABLE_DEFAULT_PLUGINS: "true"
       OPENCODE_CONFIG_CONTENT: |
@@ -48,8 +81,13 @@ frameworks:
       - VOLCENGINE_API_KEY
       - ARK_API_KEY
       - BIGMODEL_API_KEY
+    # OpenCode 当前 CLI 版本要求 message 作为 positional 参数传入。
+    # UT-Bench 依赖 Agent 在 workspace 内写测试文件，不依赖 stdout 返回最终代码。
     command: >
-      opencode run --print-logs --dangerously-skip-permissions --model utbench/{{.ModelID}} "$(cat {{.ContainerPrompt}})"
+      mkdir -p "$XDG_CONFIG_HOME/opencode" "$XDG_DATA_HOME" "{{.ContainerWorkdir}}/.utbench/opencode" &&
+      printf '%s' "$OPENCODE_CONFIG_CONTENT" > "$XDG_CONFIG_HOME/opencode/config.json" &&
+      PROMPT="$(cat {{.ContainerPrompt}})" &&
+      opencode run --print-logs --dangerously-skip-permissions --model utbench/{{.ModelID}} "$PROMPT"
     compatible_models:
       - deepseek-v4-flash
     compatible_languages:
@@ -67,13 +105,25 @@ frameworks:
 skills:
   unit_test_skill:
     enabled: true
-    version: "1"
-    description: Extra unit-test generation guidance and helper assets.
+    version: "2"
+    description: >
+      Professional unit-test generation skill. Injects a structured methodology:
+      analysis phase, test structure guidelines, naming conventions, assertion
+      quality rules, mocking patterns, language-specific templates, and a
+      pre-flight quality checklist.
     inject_mode: prompt_append
-    instruction_path: ./skills/unit_test_skill.md
+    instruction_path: ./skills/unit_test_skill/instructions.md
+    files:
+      - ./skills/unit_test_skill/checklist.md
+      - ./skills/unit_test_skill/examples/python_example.py
     compatible_frameworks:
       - opencode
       - claude_code
+    compatible_languages:
+      - python
+      - go
+      - java
+      - cpp
 
 # If omitted, UT-Bench expands all legal framework x model x skill combinations
 # and always includes model_api__<model>__no_skill as the pure model baseline.

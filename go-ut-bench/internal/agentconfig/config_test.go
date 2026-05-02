@@ -104,3 +104,54 @@ frameworks:
 		t.Fatalf("expected templated env to be preserved")
 	}
 }
+
+func TestLoadParsesLanguageAwareSandboxFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents.yaml")
+	raw := `
+models: [deepseek]
+frameworks:
+  opencode:
+    kind: cli_agent
+    command: "opencode run {{.ContainerPrompt}}"
+    sandbox_mode: docker
+    docker_images:
+      python: utbench-agent-opencode-python:latest
+      go: utbench-agent-opencode-go:latest
+    preflight:
+      python:
+        - python3 --version
+        - pytest --version
+      go:
+        - go version
+    forbidden_command_patterns:
+      - apt-get install
+      - pip install
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subjects, err := Load(path, []string{"deepseek"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var opencode ResolvedSubject
+	for _, subject := range subjects {
+		if subject.Spec.Framework == "opencode" {
+			opencode = subject
+			break
+		}
+	}
+	if opencode.Spec.ID == "" {
+		t.Fatalf("expected opencode subject in %+v", subjects)
+	}
+	if got := opencode.Framework.DockerImages["python"]; got != "utbench-agent-opencode-python:latest" {
+		t.Fatalf("unexpected python docker image: %q", got)
+	}
+	if got := opencode.Framework.Preflight["go"]; len(got) != 1 || got[0] != "go version" {
+		t.Fatalf("unexpected go preflight commands: %+v", got)
+	}
+	if got := opencode.Framework.ForbiddenCommandPatterns; len(got) != 2 || got[0] != "apt-get install" || got[1] != "pip install" {
+		t.Fatalf("unexpected forbidden command patterns: %+v", got)
+	}
+}

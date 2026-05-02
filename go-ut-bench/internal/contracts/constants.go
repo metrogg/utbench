@@ -11,9 +11,9 @@ const (
 	// DatasetClassSelfContained 表示自包含类型的数据集
 	// 这种类型的样本代码不依赖外部模块，可以独立编译和运行
 	DatasetClassSelfContained DatasetClass = "self_contained"
-	// DatasetClassModuleLevel 表示模块级别类型的数据集
+	// DatasetClassRepoLevel 表示仓库级别类型的数据集
 	// 这种类型的样本可能依赖项目内的其他模块，需要完整的项目结构
-	DatasetClassModuleLevel DatasetClass = "module_level"
+	DatasetClassRepoLevel DatasetClass = "repo_level"
 )
 
 // RunMode 定义评测工具的运行模式

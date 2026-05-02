@@ -30,7 +30,7 @@ type Service struct {
 // Options 编排运行选项
 // 控制流水线的执行阶段和数据入库行为
 type Options struct {
-	Ingest bool // 是否将结果入库 SQLite 数据库
+	Ingest bool   // 是否将结果入库 SQLite 数据库
 	DBPath string // SQLite 数据库路径
 	// Phase 控制执行的流水线阶段
 	// 支持值: "full"（默认，完整流水线）、"generate"（仅生成）、"evaluate"（仅评测）、"report"（仅报告）
@@ -175,8 +175,12 @@ func (s *Service) Run(ctx context.Context, spec contracts.RunSpec, opts Options)
 	// Ingest the run directory into the v2 SQLite store. The store indexes the
 	// manifest, evaluation result, report and linked artifacts when present.
 	ingested := false
-	if opts.Ingest {
-		sqliteStore, err := store.OpenSQLite(opts.DBPath)
+	dbPath := opts.DBPath
+	if dbPath == "" {
+		dbPath = spec.DBPath
+	}
+	if opts.Ingest || (spec.ReuseGenerated && dbPath != "") {
+		sqliteStore, err := store.OpenSQLite(dbPath)
 		if err != nil {
 			return Result{}, err
 		}
@@ -218,7 +222,7 @@ func (s *Service) Run(ctx context.Context, spec contracts.RunSpec, opts Options)
 		"spec":           spec,
 		"phase":          phase,
 		"ingested":       ingested,
-		"db_path":        opts.DBPath,
+		"db_path":        dbPath,
 	}
 	if result.ManifestPath != "" {
 		summaryData["manifest_path"] = result.ManifestPath
