@@ -275,8 +275,8 @@ function renderErrorCharts(items) {
   const stageData = buildPieData(items, 'stage');
   const typeLabels = typeData.labels.length ? typeData.labels.map(errorTypeLabel) : ['无错误 / No Errors'];
   const stageLabels = stageData.labels.length ? stageData.labels.map(stageLabel) : ['无错误 / No Errors'];
-  errorTypeChart = upsertChart(errorTypeChart, 'errorTypeChart', 'doughnut', typeLabels, typeData.values.length ? typeData.values : [1], ['#ef4444', '#f97316', '#eab308', '#3b82f6', '#8b5cf6', '#14b8a6']);
-  stageChart = upsertChart(stageChart, 'stageChart', 'pie', stageLabels, stageData.values.length ? stageData.values : [1], ['#ef4444', '#f97316', '#eab308', '#3b82f6', '#14b8a6']);
+  errorTypeChart = upsertChart(errorTypeChart, 'errorTypeChart', 'doughnut', typeLabels, typeData.values.length ? typeData.values : [1], ['#c43d2f', '#d5902f', '#2f7d72', '#315f9c', '#6b7280', '#111827']);
+  stageChart = upsertChart(stageChart, 'stageChart', 'pie', stageLabels, stageData.values.length ? stageData.values : [1], ['#c43d2f', '#d5902f', '#2f7d72', '#315f9c', '#6b7280']);
 }
 
 function renderScenarioCharts(items) {
@@ -291,8 +291,8 @@ function renderScenarioCharts(items) {
     data: {
       labels,
       datasets: [
-        { label: '编译通过率', data: compileRates, backgroundColor: '#1e40af' },
-        { label: '测试通过率', data: testRates, backgroundColor: '#10b981' }
+        { label: '编译通过率', data: compileRates, backgroundColor: '#315f9c' },
+        { label: '测试通过率', data: testRates, backgroundColor: '#2f7d72' }
       ]
     },
     options: {
@@ -309,8 +309,8 @@ function renderScenarioCharts(items) {
     data: {
       labels,
       datasets: [
-        { label: '行覆盖率', data: items.map(item => item.lineCoverage), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.5)' },
-        { label: '变异分数', data: mutationRates, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.5)' }
+        { label: '行覆盖率', data: items.map(item => item.lineCoverage), borderColor: '#315f9c', backgroundColor: 'rgba(49,95,156,.28)' },
+        { label: '变异分数', data: mutationRates, borderColor: '#d5902f', backgroundColor: 'rgba(213,144,47,.32)' }
       ]
     },
     options: {
@@ -366,7 +366,7 @@ function qualityScore(item) {
 }
 
 function modelColor(index) {
-  return ['#2f7df6', '#ff6b00', '#78909c', '#22c55e', '#8b5cf6', '#06b6d4', '#f43f5e', '#a3a3a3', '#84cc16', '#f59e0b', '#6366f1', '#14b8a6'][index % 12];
+  return ['#315f9c', '#2f7d72', '#c43d2f', '#d5902f', '#5b6472', '#0f766e', '#7c5f35', '#475569', '#4d7c0f', '#9f4f3b', '#111827', '#287f9c'][index % 12];
 }
 
 function shortModelName(value) {
@@ -432,16 +432,16 @@ function renderEfficiencyQualityChart(axis = 'latency') {
           beginAtZero: true,
           title: { display: true, text: axisIsTokens ? '平均 Token Avg Total Tokens（越低越省）' : '平均耗时 Avg Latency（秒，越低越快）' },
           ticks: { callback: value => axisIsTokens ? Math.round(value) : Number(value).toFixed(0) + 's' },
-          grid: { color: '#e8edf5', tickLength: 0 },
-          border: { color: '#94a3b8', width: 2 }
+          grid: { color: '#d8e0e7', tickLength: 0 },
+          border: { color: '#7d8793', width: 2 }
         },
         y: {
           beginAtZero: true,
           suggestedMax: 100,
           title: { display: true, text: '质量分 Quality Score（越高越好）' },
           ticks: { callback: value => value + '' },
-          grid: { color: '#e8edf5', tickLength: 0 },
-          border: { color: '#94a3b8', width: 2 }
+          grid: { color: '#d8e0e7', tickLength: 0 },
+          border: { color: '#7d8793', width: 2 }
         }
       }
     }
@@ -487,10 +487,10 @@ function renderModelCharts() {
   modelBarChart = new Chart(document.getElementById('modelBarChart'), {
     type: 'bar',
     data: { labels: modelNames, datasets: [
-      { label: '编译', data: compileRates, backgroundColor: '#3b82f6' },
-      { label: '测试', data: testRates, backgroundColor: '#10b981' },
-      { label: '覆盖', data: lineRates, backgroundColor: '#f59e0b' },
-      { label: '变异', data: mutationRates, backgroundColor: '#8b5cf6' }
+      { label: '编译', data: compileRates, backgroundColor: '#315f9c' },
+      { label: '测试', data: testRates, backgroundColor: '#2f7d72' },
+      { label: '覆盖', data: lineRates, backgroundColor: '#d5902f' },
+      { label: '变异', data: mutationRates, backgroundColor: '#c43d2f' }
     ]},
     options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%' } } } }
   });
@@ -503,9 +503,9 @@ function renderModelCharts() {
         label: item.model,
         data: [item.compile_pass_rate, item.avg_test_pass_rate, item.avg_line_coverage, item.avg_mutation_score],
         fill: true,
-        backgroundColor: ['rgba(59,130,246,0.18)', 'rgba(16,185,129,0.18)', 'rgba(245,158,11,0.18)', 'rgba(139,92,246,0.18)'][index % 4],
-        borderColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][index % 4],
-        pointBackgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][index % 4]
+        backgroundColor: ['rgba(49,95,156,0.16)', 'rgba(47,125,114,0.16)', 'rgba(213,144,47,0.18)', 'rgba(196,61,47,0.16)'][index % 4],
+        borderColor: ['#315f9c', '#2f7d72', '#d5902f', '#c43d2f'][index % 4],
+        pointBackgroundColor: ['#315f9c', '#2f7d72', '#d5902f', '#c43d2f'][index % 4]
       }))
     },
     options: { responsive: true, maintainAspectRatio: false, scales: { r: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%' } } } }
@@ -581,6 +581,33 @@ function renderFilteredSections() {
   if (exportBtn) exportBtn.onclick = () => exportScenarioCSV(aggregated.scenarios);
 }
 
+function initReportSidebar() {
+  const links = Array.from(document.querySelectorAll('.report-sidebar a[href^="#"]'));
+  if (!links.length) return;
+  const sections = links
+    .map(link => ({ link, section: document.querySelector(link.getAttribute('href')) }))
+    .filter(item => item.section);
+  if (!sections.length) return;
+
+  function setActive() {
+    const currentY = window.scrollY + 120;
+    let active = sections[0];
+    sections.forEach(item => {
+      if (item.section.offsetTop <= currentY) active = item;
+    });
+    links.forEach(link => link.classList.toggle('active', link === active.link));
+  }
+
+  links.forEach(link => {
+    link.addEventListener('click', () => {
+      links.forEach(item => item.classList.remove('active'));
+      link.classList.add('active');
+    });
+  });
+  setActive();
+  window.addEventListener('scroll', setActive, { passive: true });
+}
+
 (async function init() {
   try {
     if (window.__utBenchEnsureChartJS) {
@@ -597,6 +624,7 @@ function renderFilteredSections() {
   }
 
   initRawColumnToggles();
+  initReportSidebar();
 
   const backToTop = document.getElementById('back-to-top');
   window.addEventListener('scroll', () => {

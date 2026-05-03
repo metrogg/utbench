@@ -1396,7 +1396,7 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 <div id="runtime-banner" class="runtime-banner" role="alert"></div>
 `)
 
-	// Hero Section - 现代美观版本
+	// Hero Section
 	b.WriteString(fmt.Sprintf(`
 <div class="hero">
   <div class="hero-header">
@@ -1408,21 +1408,21 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
   </div>
   <div class="hero-cards">
     <div class="hero-card">
-      <div class="hero-card-icon">🤖</div>
+      <div class="hero-card-icon">MODEL</div>
       <div class="hero-card-content">
         <div class="hero-card-label">评测模型</div>
         <div class="hero-card-value">%s</div>
       </div>
     </div>
     <div class="hero-card">
-      <div class="hero-card-icon">💻</div>
+      <div class="hero-card-icon">LANG</div>
       <div class="hero-card-content">
         <div class="hero-card-label">编程语言</div>
         <div class="hero-card-value">%s</div>
       </div>
     </div>
     <div class="hero-card">
-      <div class="hero-card-icon">📦</div>
+      <div class="hero-card-icon">SET</div>
       <div class="hero-card-content">
         <div class="hero-card-label">样本类型</div>
         <div class="hero-card-value">%s</div>
@@ -1438,29 +1438,33 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 
 	// Navigation
 	b.WriteString(`
-<div class="jump-nav">
+<div class="report-shell">
+  <aside class="report-sidebar" aria-label="报告目录">
+    <div class="sidebar-label">报告目录</div>
+    <a href="#leaderboard">模型排名</a>
+    <a href="#overview">评测总览</a>
     <a href="#details">图表分析</a>
-  <a href="#analysis-controls">筛选与导出</a>
-  <a href="#dimension-analysis">维度分析</a>
-  <a href="#score-exclusions">计分剔除</a>
-  <a href="#error-analysis">错误分析</a>
-  <a href="#dataset-browser">评测集</a>
-  <a href="#raw-data">原始数据</a>
-</div>
+    <a href="#analysis-controls">筛选导出</a>
+    <a href="#dimension-analysis">维度分析</a>
+    <a href="#score-exclusions">计分剔除</a>
+    <a href="#error-analysis">错误分析</a>
+    <a href="#dataset-browser">评测集</a>
+    <a href="#raw-data">原始数据</a>
+  </aside>
+  <main class="report-main">
 `)
 
 	// Leaderboard Section - 模型排名（重点）
 	b.WriteString(buildLeaderboardHTMLNew(payload.TopModels))
-		b.WriteString(buildChartsSection(payload.TopModels))
+	b.WriteString(buildOverviewSection(payload, rows))
+	b.WriteString(buildChartsSection(payload.TopModels))
 	b.WriteString(buildAnalysisControlsSection(heroModels, heroLangs, heroTypes))
 	b.WriteString(buildDimensionAnalysisSection())
 
 	// Truncation Analysis Section - 截断分析（新增）
 
-	// Error Analysis Section - 错误分析（新增）
-	if len(payload.Failures) > 0 {
-		b.WriteString(buildErrorAnalysisSection())
-	}
+	// Error Analysis Section
+	b.WriteString(buildErrorAnalysisSection())
 
 	// Score Exclusions Section
 	b.WriteString(buildScoreExclusionsSection(payload.ScoreExclusions))
@@ -1475,6 +1479,11 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 	if len(payload.Prompts) > 0 {
 		b.WriteString(buildPromptHTMLNew(payload.PromptStrategy, payload.PromptVersionID, payload.Prompts))
 	}
+
+	b.WriteString(`
+  </main>
+</div>
+`)
 
 	// Chart Scripts
 	b.WriteString(buildInteractiveScripts(payload, rows))
@@ -1517,8 +1526,14 @@ func buildOverviewSection(payload contracts.ReportPayload, rows []contracts.Eval
 			tokenCount++
 		}
 	}
-	avgLatency := totalLatency / float64(latencyCount) / 1000 // 转换为秒
-	avgTokens := totalTokens / float64(tokenCount)
+	avgLatency := 0.0
+	if latencyCount > 0 {
+		avgLatency = totalLatency / float64(latencyCount) / 1000
+	}
+	avgTokens := 0.0
+	if tokenCount > 0 {
+		avgTokens = totalTokens / float64(tokenCount)
+	}
 
 	return fmt.Sprintf(`<div class="section" id="overview">
   <h2>概览 Overview</h2>
@@ -1723,7 +1738,7 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
           </div>
           <div class="metric">
             <span class="name">变异分数</span>
-            <div class="bar"><span style="width:%d%%;background:#8b5cf6;"></span></div>
+            <div class="bar"><span style="width:%d%%;background:#0f766e;"></span></div>
             <span class="val">%.1f%%</span>
           </div>
           <div class="metric">
@@ -1733,14 +1748,14 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
           </div>
         </div>
         <div class="lb-meta" style="border-top:1px dashed rgba(148,163,184,0.3);padding-top:8px;margin-top:6px;font-size:12px;">
-          <span style="display:inline-flex;align-items:center;gap:4px;">
-            <span style="color:#64748b;">⏱</span>平均耗时: <strong>%s</strong>
+          <span style="display:inline-flex;align-items:center;gap:6px;">
+            <span class="meta-label">耗时</span>平均耗时: <strong>%s</strong>
           </span>
-          <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;">
-            <span style="color:#64748b;">📊</span>平均Token: <strong>%s</strong>
+          <span style="display:inline-flex;align-items:center;gap:6px;margin-left:12px;">
+            <span class="meta-label">Token</span>平均Token: <strong>%s</strong>
           </span>
-          <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;">
-            <span style="color:#64748b;">📝</span>样本数: <strong>%d</strong>
+          <span style="display:inline-flex;align-items:center;gap:6px;margin-left:12px;">
+            <span class="meta-label">样本</span>样本数: <strong>%d</strong>
           </span>
         </div>
       </div>
@@ -3090,7 +3105,7 @@ new Chart(document.getElementById('modelBarChart'), {
       { label: '编译', data: compileRates, backgroundColor: '#3b82f6' },
       { label: '测试通过', data: testPassRates, backgroundColor: '#10b981' },
       { label: '行覆盖', data: lineCoverages, backgroundColor: '#f59e0b' },
-      { label: '变异', data: mutationScores, backgroundColor: '#8b5cf6' }
+      { label: '变异', data: mutationScores, backgroundColor: '#0f766e' }
     ]
   },
   options: {
@@ -3129,8 +3144,8 @@ new Chart(document.getElementById('radarChart'), {
       data: [compileRates[i], testPassRates[i], lineCoverages[i], mutationScores[i]],
       fill: true,
       backgroundColor: ['rgba(59, 130, 246, 0.2)', 'rgba(16, 185, 129, 0.2)', 'rgba(245, 158, 11, 0.2)', 'rgba(139, 92, 246, 0.2)'][i %% 4],
-      borderColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][i %% 4],
-      pointBackgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][i %% 4],
+      borderColor: ['#2563eb', '#059669', '#d97706', '#0f766e'][i %% 4],
+      pointBackgroundColor: ['#2563eb', '#059669', '#d97706', '#0f766e'][i %% 4],
     }))
   },
   options: {

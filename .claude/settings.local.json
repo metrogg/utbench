@@ -8,7 +8,13 @@
       "Bash(go build *)",
       "Bash(go clean *)",
       "Bash(xxd)",
-      "Bash(gofmt *)"
+      "Bash(gofmt *)",
+      "Bash(cp service_html_new.go service_html_new_backup.go)",
+      "Bash(rm service_html_new_backup.go)",
+      "Bash(sed -n '3460,$p' service_html_new.go)",
+      "Bash(mv service_html_new_temp.go service_html_new.go)",
+      "Bash(cd:*)",
+      "Bash(go test:*)"
     ]
   }
 }

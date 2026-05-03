@@ -27,7 +27,7 @@ func buildInsightsSection(insights contracts.Insights) string {
 	// 最佳模型
 	if insights.BestModel.Title != "" {
 		b.WriteString(fmt.Sprintf(`
-    <div class="insight-card insight-best" style="background:linear-gradient(135deg,#1e40af,#3b82f6);color:#fff;padding:16px;border-radius:12px;">
+    <div class="insight-card insight-best" style="background:#0f766e;color:#fff;padding:16px;border-radius:12px;">
       <div style="margin-bottom:8px;">%s</div>
       <div style="font-size:18px;font-weight:700;margin-bottom:6px;">%s</div>
       <div style="font-size:14px;line-height:1.5;">%s</div>
@@ -57,10 +57,10 @@ func buildInsightsSection(insights contracts.Insights) string {
 	// 语言差异
 	for _, lg := range insights.LanguageGaps {
 		b.WriteString(fmt.Sprintf(`
-    <div class="insight-card" style="background:#e0e7ff;border:1px solid #6366f1;padding:16px;border-radius:12px;">
-      <div style="color:#4f46e5;margin-bottom:6px;">%s</div>
-      <div style="font-size:16px;font-weight:600;color:#3730a3;">%s</div>
-      <div style="font-size:13px;color:#4338ca;margin-top:4px;">%s</div>
+    <div class="insight-card" style="background:#e6f4f1;border:1px solid #0f766e;padding:16px;border-radius:12px;">
+      <div style="color:#0f766e;margin-bottom:6px;">%s</div>
+      <div style="font-size:16px;font-weight:600;color:#115e59;">%s</div>
+      <div style="font-size:13px;color:#0f766e;margin-top:4px;">%s</div>
     </div>`, chartSVG, escapeHTML(lg.Title), escapeHTML(lg.Detail)))
 	}
 
