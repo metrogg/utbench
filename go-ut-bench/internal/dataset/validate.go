@@ -1,3 +1,5 @@
+// dataset/validate.go 提供数据集验证功能
+// 检查数据集完整性、样本结构、潜在风险模式
 package dataset
 
 import (
@@ -9,39 +11,55 @@ import (
 	"go-ut-bench/internal/contracts"
 )
 
+// ValidateOptions 验证选项
+// 定义验证范围和严格程度
 type ValidateOptions struct {
-	DatasetRoot string
-	Languages   []string
-	Classes     []string
-	Scenario    string
-	Strict      bool
+	DatasetRoot string   // 数据集根目录
+	Languages   []string // 要验证的语言列表
+	Classes     []string // 数据集类别过滤
+	Scenario    string   // 场景过滤
+	Strict      bool     // 是否严格模式
 }
 
+// ValidationReport 验证报告
+// 包含验证结果统计和问题列表
 type ValidationReport struct {
-	DatasetRoot string            `json:"dataset_root"`
-	Total       int               `json:"total_samples"`
-	Counts      []ValidationCount `json:"counts"`
-	Errors      []ValidationIssue `json:"errors,omitempty"`
-	Warnings    []ValidationIssue `json:"warnings,omitempty"`
-	OK          bool              `json:"ok"`
+	DatasetRoot string            `json:"dataset_root"` // 数据集根目录
+	Total       int               `json:"total_samples"` // 总样本数
+	Counts      []ValidationCount `json:"counts"`       // 分类统计
+	Errors      []ValidationIssue `json:"errors,omitempty"` // 错误列表
+	Warnings    []ValidationIssue `json:"warnings,omitempty"` // 警告列表
+	OK          bool              `json:"ok"`           // 是否通过验证
 }
 
+// ValidationCount 分类统计
+// 按语言、类别、场景统计样本数
 type ValidationCount struct {
-	Language string `json:"language"`
-	Class    string `json:"class"`
-	Scenario string `json:"scenario"`
-	Count    int    `json:"count"`
+	Language string `json:"language"` // 编程语言
+	Class    string `json:"class"`    // 数据集类别
+	Scenario string `json:"scenario"` // 场景名称
+	Count    int    `json:"count"`    // 样本数量
 }
 
+// ValidationIssue 验证问题
+// 描述单个错误或警告
 type ValidationIssue struct {
-	Severity string `json:"severity"`
-	Code     string `json:"code"`
-	Message  string `json:"message"`
-	Language string `json:"language,omitempty"`
-	SampleID string `json:"sample_id,omitempty"`
-	Path     string `json:"path,omitempty"`
+	Severity string `json:"severity"`          // 严重程度（error/warning）
+	Code     string `json:"code"`              // 问题代码
+	Message  string `json:"message"`           // 问题消息
+	Language string `json:"language,omitempty"` // 相关语言
+	SampleID string `json:"sample_id,omitempty"` // 相关样本ID
+	Path     string `json:"path,omitempty"`     // 相关路径
 }
 
+// ValidateReadiness 验证数据集是否就绪
+// 检查目录结构、样本完整性、潜在风险
+//
+// 参数:
+//   - opts: 验证选项
+//
+// 返回值:
+//   - ValidationReport: 验证报告
 func (s *Service) ValidateReadiness(opts ValidateOptions) ValidationReport {
 	root := strings.TrimSpace(opts.DatasetRoot)
 	report := ValidationReport{DatasetRoot: root}
@@ -147,6 +165,14 @@ func (s *Service) ValidateReadiness(opts ValidateOptions) ValidationReport {
 	return report
 }
 
+// normalizeLangs 规范化语言列表
+// 空列表返回所有支持的语言
+//
+// 参数:
+//   - langs: 输入语言列表
+//
+// 返回值:
+//   - []string: 规范化后的语言列表
 func normalizeLangs(langs []string) []string {
 	if len(langs) == 0 {
 		return append([]string{}, contracts.SupportedLanguages...)
@@ -197,6 +223,17 @@ func matchScenarioFilter(filters map[string]struct{}, scenario string) bool {
 	return ok
 }
 
+// scanRiskWarnings 扫描源代码中的潜在风险模式
+// 检测网络IO、进程调用、随机性、文件IO等
+//
+// 参数:
+//   - lang: 编程语言
+//   - id: 样本ID
+//   - path: 文件路径
+//   - source: 源代码内容
+//
+// 返回值:
+//   - []ValidationIssue: 风险警告列表
 func scanRiskWarnings(lang, id, path, source string) []ValidationIssue {
 	lower := strings.ToLower(source)
 	checks := []struct {
@@ -222,6 +259,18 @@ func scanRiskWarnings(lang, id, path, source string) []ValidationIssue {
 	return out
 }
 
+// validationIssue 创建验证问题结构
+//
+// 参数:
+//   - severity: 严重程度
+//   - code: 问题代码
+//   - message: 问题消息
+//   - lang: 编程语言
+//   - sampleID: 样本ID
+//   - path: 文件路径
+//
+// 返回值:
+//   - ValidationIssue: 问题结构
 func validationIssue(severity, code, message, lang, sampleID, path string) ValidationIssue {
 	return ValidationIssue{
 		Severity: severity,

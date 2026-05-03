@@ -47,6 +47,8 @@ func main() {
 		err = runReport(args)
 	case "db":
 		err = runDB(args)
+	case "assets":
+		err = runAssets(args)
 	case "ingest":
 		err = fmt.Errorf("utbench ingest has been replaced by `utbench db ingest-evaluation --evaluation <path>`")
 	case "dataset":
@@ -78,6 +80,7 @@ Usage:
   utbench evaluate     Evaluate existing generated tests
   utbench report       Generate reports from evaluation results
   utbench db           Manage SQLite benchmark database
+  utbench assets       Query reusable subject/sample assets
   utbench dataset      Dataset management (index, manifest, stats)
   utbench doctor       Check evaluator toolchains with canary tests
   utbench web          Launch Web management UI
@@ -85,6 +88,271 @@ Usage:
   utbench help         Show this help
 
 Run "utbench <command> --help" for more details on a command.`)
+}
+
+func runAssets(args []string) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		printAssetsUsage()
+		return nil
+	}
+	switch args[0] {
+	case "subjects":
+		return runAssetsSubjects(args[1:])
+	case "generations":
+		return runAssetsGenerations(args[1:])
+	case "evaluations":
+		return runAssetsEvaluations(args[1:])
+	case "explain-reuse":
+		return runAssetsExplainReuse(args[1:])
+	case "help", "-h", "--help":
+		printAssetsUsage()
+		return nil
+	default:
+		return fmt.Errorf("unknown assets subcommand: %s", args[0])
+	}
+}
+
+func printAssetsUsage() {
+	fmt.Println(`Usage: utbench assets <subcommand> [flags]
+
+Subcommands:
+  subjects           List subject-level assets
+  generations        List generated test assets
+  evaluations        List evaluation result assets
+  explain-reuse      Show the latest reusable generation candidate for a subject/sample
+
+Common flags:
+  --db-path ./storage/utbench.db
+  --json
+  --limit 50`)
+}
+
+func runAssetsSubjects(args []string) error {
+	fs := flag.NewFlagSet("utbench assets subjects", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Println("Usage: utbench assets subjects [flags]")
+		fmt.Println("Flags:")
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	limit := fs.Int("limit", 100, "Limit")
+	jsonOut := fs.Bool("json", false, "Print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	rows, err := sqliteStore.ListAssetSubjects(ctx, *limit)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return printJSON(rows)
+	}
+	for _, r := range rows {
+		fmt.Printf("%s\tkind=%s\tframework=%s\tmodel=%s\tskill=%s\tgenerated=%d\tevaluated=%d\tlatest=%s\n",
+			r.SubjectID, r.SubjectKind, r.Framework, r.Model, r.Skill, r.GeneratedCases, r.EvaluationResults, r.LatestGeneratedAt)
+	}
+	return nil
+}
+
+func runAssetsGenerations(args []string) error {
+	fs := flag.NewFlagSet("utbench assets generations", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Println("Usage: utbench assets generations [flags]")
+		fmt.Println("Flags:")
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	subjectID := fs.String("subject", "", "Subject ID filter")
+	lang := fs.String("lang", "", "Language filter")
+	sample := fs.String("sample", "", "Sample ID filter")
+	limit := fs.Int("limit", 50, "Limit")
+	jsonOut := fs.Bool("json", false, "Print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	rows, err := sqliteStore.ListAssetGenerations(ctx, *subjectID, *lang, *sample, *limit)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return printJSON(rows)
+	}
+	for _, r := range rows {
+		fmt.Printf("%s\t%s\t%s\t%s\tsuccess=%v\treused=%v\tgenerated=%s\tkey=%s\tpath=%s\n",
+			r.RunID, r.SubjectID, r.Language, r.SampleID, r.Success, r.Reused, r.GeneratedAtUTC, r.GenerationKey, r.GeneratedTestPath)
+	}
+	return nil
+}
+
+func runAssetsEvaluations(args []string) error {
+	fs := flag.NewFlagSet("utbench assets evaluations", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Println("Usage: utbench assets evaluations [flags]")
+		fmt.Println("Flags:")
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	subjectID := fs.String("subject", "", "Subject ID filter")
+	lang := fs.String("lang", "", "Language filter")
+	sample := fs.String("sample", "", "Sample ID filter")
+	limit := fs.Int("limit", 50, "Limit")
+	jsonOut := fs.Bool("json", false, "Print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	rows, err := sqliteStore.ListAssetEvaluations(ctx, *subjectID, *lang, *sample, *limit)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return printJSON(rows)
+	}
+	for _, r := range rows {
+		fmt.Printf("%s\t%s\t%s\t%s\tcompile=%v\treused=%v\tupdated=%s\tkey=%s\n",
+			r.RunID, r.SubjectID, r.Language, r.SampleID, r.CompilePass, r.Reused, r.CreatedAtUTC, r.EvaluationKey)
+	}
+	return nil
+}
+
+func runAssetsExplainReuse(args []string) error {
+	fs := flag.NewFlagSet("utbench assets explain-reuse", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Println("Usage: utbench assets explain-reuse --subject <id> --lang <lang> --sample <sample-id> [flags]")
+		fmt.Println("Flags:")
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	subjectID := fs.String("subject", "", "Subject ID")
+	lang := fs.String("lang", "", "Language")
+	sample := fs.String("sample", "", "Sample ID")
+	generationKey := fs.String("generation-key", "", "Optional current generation key to compare")
+	dependencyFingerprint := fs.String("dependency-fingerprint", "", "Optional current dependency fingerprint to compare")
+	generationEnvFingerprint := fs.String("generation-env-fingerprint", "", "Optional current generation environment fingerprint to compare")
+	limit := fs.Int("limit", 20, "Candidate scan limit")
+	jsonOut := fs.Bool("json", false, "Print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *subjectID == "" {
+		return fmt.Errorf("--subject is required")
+	}
+	if *lang == "" {
+		return fmt.Errorf("--lang is required")
+	}
+	if *sample == "" {
+		return fmt.Errorf("--sample is required")
+	}
+
+	ctx := context.Background()
+	sqliteStore, err := openInitializedStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer sqliteStore.Close()
+	rows, err := sqliteStore.ListAssetGenerations(ctx, *subjectID, *lang, *sample, *limit)
+	if err != nil {
+		return err
+	}
+	type reuseExplanation struct {
+		SubjectID      string                        `json:"subject_id"`
+		Language       string                        `json:"language"`
+		SampleID       string                        `json:"sample_id"`
+		Matched        bool                          `json:"matched"`
+		MissReason     string                        `json:"miss_reason,omitempty"`
+		GenerationKey  string                        `json:"generation_key,omitempty"`
+		Comparisons    map[string]string             `json:"environment_fingerprint_comparison,omitempty"`
+		LatestReusable *store.DBGenerationAssetItem  `json:"latest_reusable,omitempty"`
+		Candidates     []store.DBGenerationAssetItem `json:"candidates,omitempty"`
+	}
+	explained := reuseExplanation{
+		SubjectID:  *subjectID,
+		Language:   *lang,
+		SampleID:   *sample,
+		Candidates: rows,
+		MissReason: "no_successful_generation_asset",
+	}
+	for _, row := range rows {
+		if row.Success && row.GeneratedTestPath != "" && row.GenerationKey != "" {
+			reusable := row
+			explained.Matched = true
+			explained.MissReason = ""
+			explained.GenerationKey = row.GenerationKey
+			explained.LatestReusable = &reusable
+			explained.Comparisons = map[string]string{
+				"generation_key":             compareOptionalFingerprint(*generationKey, row.GenerationKey),
+				"dependency_fingerprint":     compareOptionalFingerprint(*dependencyFingerprint, row.DependencyFingerprint),
+				"generation_env_fingerprint": compareOptionalFingerprint(*generationEnvFingerprint, row.GenerationEnvFingerprint),
+				"stored_subject_version_id":  row.SubjectVersionID,
+				"stored_sandbox_fingerprint": row.SandboxFingerprint,
+				"stored_sample_uid":          row.SampleUID,
+			}
+			break
+		}
+	}
+	if *jsonOut {
+		return printJSON(explained)
+	}
+	fmt.Printf("subject: %s\n", explained.SubjectID)
+	fmt.Printf("language: %s\n", explained.Language)
+	fmt.Printf("sample: %s\n", explained.SampleID)
+	if explained.Matched && explained.LatestReusable != nil {
+		fmt.Printf("matched: true\n")
+		fmt.Printf("generation_key: %s\n", explained.GenerationKey)
+		fmt.Printf("latest_reusable_run: %s\n", explained.LatestReusable.RunID)
+		fmt.Printf("generated_case_id: %s\n", explained.LatestReusable.GeneratedCaseID)
+		fmt.Printf("generated_test_path: %s\n", explained.LatestReusable.GeneratedTestPath)
+		fmt.Println("environment_fingerprint_comparison:")
+		for _, key := range []string{"generation_key", "dependency_fingerprint", "generation_env_fingerprint", "stored_subject_version_id", "stored_sandbox_fingerprint", "stored_sample_uid"} {
+			fmt.Printf("  %s: %s\n", key, explained.Comparisons[key])
+		}
+		return nil
+	}
+	fmt.Printf("matched: false\n")
+	fmt.Printf("miss_reason: %s\n", explained.MissReason)
+	if len(rows) > 0 {
+		fmt.Println("candidates:")
+		for _, row := range rows {
+			fmt.Printf("  %s\tcase=%s\tsuccess=%v\treused=%v\tkey=%s\tpath=%s\n",
+				row.RunID, row.GeneratedCaseID, row.Success, row.Reused, row.GenerationKey, row.GeneratedTestPath)
+		}
+	}
+	return nil
+}
+
+func compareOptionalFingerprint(current, stored string) string {
+	current = strings.TrimSpace(current)
+	stored = strings.TrimSpace(stored)
+	if current == "" {
+		if stored == "" {
+			return "not_recorded"
+		}
+		return "current_not_provided; stored=" + stored
+	}
+	if stored == "" {
+		return "stored_not_recorded; current=" + current
+	}
+	if current == stored {
+		return "match"
+	}
+	return "mismatch; current=" + current + "; stored=" + stored
 }
 
 func parseCommaList(s string) []string {
@@ -201,6 +469,7 @@ func runRun(args []string) error {
 	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
 	verbose := fs.Bool("v", false, "Verbose output")
 	config := fs.String("config", "../benchmark/config/models.yaml", "Model config path")
+	agentsConfig := fs.String("agents-config", "", "Agent/skill config path")
 	outputRoot := fs.String("output-root", "./artifacts", "Output root directory")
 	datasetRoot := fs.String("dataset-root", "./datasets", "Dataset root directory")
 	datasetManifest := fs.String("dataset-manifest", "", "Dataset manifest path")
@@ -211,13 +480,15 @@ func runRun(args []string) error {
 	mode := fs.String("mode", "full", "Run mode (full, incremental)")
 	resetCheckpoint := fs.Bool("reset-checkpoint", false, "Reset checkpoint")
 	dryRun := fs.Bool("dry-run", false, "Dry run (skip API calls)")
-	reuseGenerated := fs.Bool("reuse-generated", false, "Reuse matching generated tests from SQLite before calling models")
+	reuseGenerated := fs.Bool("reuse-generated", true, "Reuse matching generated tests from SQLite before calling models")
+	reuseEvaluation := fs.Bool("reuse-evaluation", false, "Reuse matching evaluation results from SQLite when environment keys match")
 	mutationEnabled := fs.Bool("mutation-enabled", true, "Enable mutation testing")
 	mutationTimeout := fs.Int("mutation-timeout", 600, "Mutation timeout (seconds)")
 	mutationPolicy := fs.String("mutation-policy", "warn", "Mutation policy (warn, fail)")
 	testTimeout := fs.Int("test-timeout", 180, "Test execution timeout (seconds)")
 	workers := fs.Int("workers", 16, "Number of concurrent workers (default 16)")
 	models := fs.String("models", "", "Comma-separated models")
+	subjects := fs.String("subjects", "", "Comma-separated subjects (framework__model__skill)")
 	langs := fs.String("langs", "", "Comma-separated languages")
 	runID := fs.String("run-id", "", "Run ID")
 
@@ -230,28 +501,31 @@ func runRun(args []string) error {
 	}
 
 	spec := contracts.RunSpec{
-		ConfigPath:      *config,
-		OutputRoot:      *outputRoot,
-		DatasetRoot:     *datasetRoot,
-		DatasetManifest: *datasetManifest,
-		DatasetLevel:    *datasetLevel,
-		DatasetClasses:  parseCommaList(*datasetClass),
-		DatasetScenario: *datasetScenario,
-		MaxSamples:      *maxSamples,
-		Workers:         *workers,
-		Mode:            contracts.RunMode(*mode),
-		ResetCheckpoint: *resetCheckpoint,
-		DryRun:          *dryRun,
-		ReuseGenerated:  *reuseGenerated,
-		DBPath:          *dbPath,
-		MutationEnabled: *mutationEnabled,
-		MutationTimeout: *mutationTimeout,
-		MutationPolicy:  policy,
-		TestTimeout:     *testTimeout,
-		Models:          parseCommaList(*models),
-		Languages:       parseCommaList(*langs),
-		RunID:           *runID,
-		CreatedAtUTC:    time.Now().UTC(),
+		ConfigPath:       *config,
+		AgentsConfigPath: *agentsConfig,
+		OutputRoot:       *outputRoot,
+		DatasetRoot:      *datasetRoot,
+		DatasetManifest:  *datasetManifest,
+		DatasetLevel:     *datasetLevel,
+		DatasetClasses:   parseCommaList(*datasetClass),
+		DatasetScenario:  *datasetScenario,
+		MaxSamples:       *maxSamples,
+		Workers:          *workers,
+		Mode:             contracts.RunMode(*mode),
+		ResetCheckpoint:  *resetCheckpoint,
+		DryRun:           *dryRun,
+		ReuseGenerated:   *reuseGenerated,
+		ReuseEvaluation:  *reuseEvaluation,
+		DBPath:           *dbPath,
+		MutationEnabled:  *mutationEnabled,
+		MutationTimeout:  *mutationTimeout,
+		MutationPolicy:   policy,
+		TestTimeout:      *testTimeout,
+		Models:           parseCommaList(*models),
+		Subjects:         parseCommaList(*subjects),
+		Languages:        parseCommaList(*langs),
+		RunID:            *runID,
+		CreatedAtUTC:     time.Now().UTC(),
 	}
 	ensureRunID(&spec)
 
@@ -294,6 +568,7 @@ func runGenerate(args []string) error {
 
 	verbose := fs.Bool("v", false, "Verbose output")
 	config := fs.String("config", "../benchmark/config/models.yaml", "Model config path")
+	agentsConfig := fs.String("agents-config", "", "Agent/skill config path")
 	outputRoot := fs.String("output-root", "./artifacts", "Output root directory")
 	datasetRoot := fs.String("dataset-root", "./datasets", "Dataset root directory")
 	datasetManifest := fs.String("dataset-manifest", "", "Dataset manifest path")
@@ -304,7 +579,10 @@ func runGenerate(args []string) error {
 	mode := fs.String("mode", "full", "Run mode")
 	resetCheckpoint := fs.Bool("reset-checkpoint", false, "Reset checkpoint")
 	dryRun := fs.Bool("dry-run", false, "Dry run")
+	reuseGenerated := fs.Bool("reuse-generated", true, "Reuse matching generated tests from SQLite before calling models")
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
 	models := fs.String("models", "", "Comma-separated models")
+	subjects := fs.String("subjects", "", "Comma-separated subjects (framework__model__skill)")
 	langs := fs.String("langs", "", "Comma-separated languages")
 	runID := fs.String("run-id", "", "Run ID")
 
@@ -313,21 +591,25 @@ func runGenerate(args []string) error {
 	}
 
 	spec := contracts.RunSpec{
-		ConfigPath:      *config,
-		OutputRoot:      *outputRoot,
-		DatasetRoot:     *datasetRoot,
-		DatasetManifest: *datasetManifest,
-		DatasetLevel:    *datasetLevel,
-		DatasetClasses:  parseCommaList(*datasetClass),
-		DatasetScenario: *datasetScenario,
-		MaxSamples:      *maxSamples,
-		Mode:            contracts.RunMode(*mode),
-		ResetCheckpoint: *resetCheckpoint,
-		DryRun:          *dryRun,
-		Models:          parseCommaList(*models),
-		Languages:       parseCommaList(*langs),
-		RunID:           *runID,
-		CreatedAtUTC:    time.Now().UTC(),
+		ConfigPath:       *config,
+		AgentsConfigPath: *agentsConfig,
+		OutputRoot:       *outputRoot,
+		DatasetRoot:      *datasetRoot,
+		DatasetManifest:  *datasetManifest,
+		DatasetLevel:     *datasetLevel,
+		DatasetClasses:   parseCommaList(*datasetClass),
+		DatasetScenario:  *datasetScenario,
+		MaxSamples:       *maxSamples,
+		Mode:             contracts.RunMode(*mode),
+		ResetCheckpoint:  *resetCheckpoint,
+		DryRun:           *dryRun,
+		ReuseGenerated:   *reuseGenerated,
+		DBPath:           *dbPath,
+		Models:           parseCommaList(*models),
+		Subjects:         parseCommaList(*subjects),
+		Languages:        parseCommaList(*langs),
+		RunID:            *runID,
+		CreatedAtUTC:     time.Now().UTC(),
 	}
 	ensureRunID(&spec)
 

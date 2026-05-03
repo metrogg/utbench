@@ -14,18 +14,18 @@
 **严重程度**: 高
 
 **问题描述**:
-Python workspace 使用 `defer cleanupWorkspace(workdir)` 清理，但只在非 module_level 时执行。module_level 样本的 workspace 不清理，可能导致磁盘空间累积。
+Python workspace 使用 `defer cleanupWorkspace(workdir)` 清理，但只在非 repo_level 时执行。repo_level 样本的 workspace 不清理，可能导致磁盘空间累积。
 
 **代码片段**:
 ```go
-if !isModuleLevel {
+if !isRepoLevel {
     defer cleanupWorkspace(workdir)
 }
 ```
 
 **改进建议**:
 - 所有路径都应在评测完成后清理临时文件
-- 或显式记录 module_level workspace 生命周期管理策略
+- 或显式记录 repo_level workspace 生命周期管理策略
 - 建议添加 `--keep-workspace` 参数用于调试场景
 
 ---
@@ -592,15 +592,15 @@ func getDefaultConfigPath() string {
 
 ## 七、文档问题 (P2)
 
-### 26. module_level 样本元数据格式未说明
+### 26. repo_level 样本元数据格式未说明
 
 **严重程度**: 低
 
 **问题描述**:
-`readme.md` 未说明 module_level 样本的 `meta.json` 格式要求。
+`readme.md` 未说明 repo_level 样本的 `meta.json` 格式要求。
 
 **改进建议**:
-- 补充 module_level 样本元数据规范文档
+- 补充 repo_level 样本元数据规范文档
 - 示例 `meta.json` 结构:
 
 ```json

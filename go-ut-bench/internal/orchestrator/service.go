@@ -1,3 +1,6 @@
+// orchestrator 包提供评测流程的编排功能
+// 负责协调数据集发现、测试生成、评测执行、报告生成等阶段的执行
+// 支持分阶段执行（generate/evaluate/report）和完整流水线运行
 package orchestrator
 
 import (
@@ -15,37 +18,52 @@ import (
 	"go-ut-bench/internal/store"
 )
 
+// Service 编排服务
+// 持有各子服务的引用，负责协调流水线各阶段的执行
 type Service struct {
-	dataset   *dataset.Service
-	runner    *runner.Service
-	evaluator *evaluator.Service
-	reporter  *reporter.Service
+	dataset   *dataset.Service   // 数据集发现服务
+	runner    *runner.Service    // 测试生成服务
+	evaluator *evaluator.Service // 评测执行服务
+	reporter  *reporter.Service  // 报告生成服务
 }
 
+// Options 编排运行选项
+// 控制流水线的执行阶段和数据入库行为
 type Options struct {
-	Ingest bool
-	DBPath string
-	// Phase controls which pipeline stage(s) to execute.
-	// Supported: "full" (default), "generate", "evaluate", "report".
+	Ingest bool   // 是否将结果入库 SQLite 数据库
+	DBPath string // SQLite 数据库路径
+	// Phase 控制执行的流水线阶段
+	// 支持值: "full"（默认，完整流水线）、"generate"（仅生成）、"evaluate"（仅评测）、"report"（仅报告）
 	Phase string
-	// SourceRunID specifies the run ID to use as data source for evaluate/report phases.
-	// If empty, uses the current RunID (which must have existing artifacts).
+	// SourceRunID 指定作为数据源的运行ID，用于 evaluate/report 阶段
+	// 如果为空，使用当前 RunID（必须已有 artifacts）
 	SourceRunID string
-	// ManifestPath overrides the default manifest path for evaluate phase.
+	// ManifestPath 覆盖 evaluate 阶段的默认 manifest 路径
 	ManifestPath string
-	// EvaluationPath overrides the default evaluation path for report phase.
+	// EvaluationPath 覆盖 report 阶段的默认 evaluation 结果路径
 	EvaluationPath string
 }
 
+// Result 编排运行结果
+// 包含各阶段输出的文件路径和入库状态
 type Result struct {
-	RunID          string
-	ManifestPath   string
-	EvaluationPath string
-	ReportJSONPath string
-	ReportHTMLPath string
-	Ingested       bool
+	RunID          string // 运行唯一标识符
+	ManifestPath   string // 生成清单文件路径
+	EvaluationPath string // 评测结果文件路径
+	ReportJSONPath string // 报告 JSON 文件路径
+	ReportHTMLPath string // 报告 HTML 文件路径
+	Ingested       bool   // 是否已入库数据库
 }
 
+// New 创建编排服务实例
+// 参数:
+//   - datasetSvc: 数据集发现服务
+//   - runnerSvc: 测试生成服务
+//   - evaluatorSvc: 评测执行服务
+//   - reporterSvc: 报告生成服务
+//
+// 返回值:
+//   - *Service: 编排服务实例
 func New(
 	datasetSvc *dataset.Service,
 	runnerSvc *runner.Service,
@@ -60,6 +78,23 @@ func New(
 	}
 }
 
+// Run 执行评测流水线
+// 根据 opts.Phase 参数执行对应阶段，支持分阶段执行或完整流水线
+//
+// 参数:
+//   - ctx: 上下文，用于取消操作
+//   - spec: 运行规格说明，包含模型、语言、数据集等配置
+//   - opts: 编排选项，控制执行阶段和入库行为
+//
+// 返回值:
+//   - Result: 运行结果，包含各阶段输出文件路径
+//   - error: 执行过程中的错误
+//
+// 执行阶段（由 opts.Phase 控制）:
+//  1. "generate" 或 "full": 数据集发现 → 测试生成
+//  2. "evaluate" 或 "full": 编译 → 测试执行 → 覆盖率 → 变异测试
+//  3. "report" 或 "full": 多维度聚合 → HTML报告生成
+//  4. 如果 opts.Ingest=true: 将结果入库 SQLite
 func (s *Service) Run(ctx context.Context, spec contracts.RunSpec, opts Options) (Result, error) {
 	phase := opts.Phase
 	if phase == "" {
@@ -140,8 +175,12 @@ func (s *Service) Run(ctx context.Context, spec contracts.RunSpec, opts Options)
 	// Ingest the run directory into the v2 SQLite store. The store indexes the
 	// manifest, evaluation result, report and linked artifacts when present.
 	ingested := false
-	if opts.Ingest {
-		sqliteStore, err := store.OpenSQLite(opts.DBPath)
+	dbPath := opts.DBPath
+	if dbPath == "" {
+		dbPath = spec.DBPath
+	}
+	if opts.Ingest || (spec.ReuseGenerated && dbPath != "") {
+		sqliteStore, err := store.OpenSQLite(dbPath)
 		if err != nil {
 			return Result{}, err
 		}
@@ -183,7 +222,7 @@ func (s *Service) Run(ctx context.Context, spec contracts.RunSpec, opts Options)
 		"spec":           spec,
 		"phase":          phase,
 		"ingested":       ingested,
-		"db_path":        opts.DBPath,
+		"db_path":        dbPath,
 	}
 	if result.ManifestPath != "" {
 		summaryData["manifest_path"] = result.ManifestPath

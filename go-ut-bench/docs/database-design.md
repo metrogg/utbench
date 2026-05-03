@@ -19,6 +19,8 @@
 - ingest 时做基础脱敏，至少移除 API key、Authorization、Cookie、Set-Cookie 等敏感字段。
 - P0 不做多用户，但 schema 不绑定本机绝对路径，主键和外键设计保留未来迁移服务端的空间。
 - 删除策略先采用软删除，不物理删除 artifact；未来再加引用计数和垃圾回收。
+- 资产复用以 `subject_version_id + sample_uid + generation_key/evaluation_key` 为准，不只按 `subject_id` 或 `run_id` 判断。
+- 第一阶段默认开启生成复用，评测复用先保守关闭，等 evaluator 环境指纹稳定后再默认启用。
 
 ## 当前产物与入库覆盖
 
@@ -64,6 +66,85 @@
    原始事实记录优先入库，报告中的排名和聚合数据可以重算。数据库中可以保存报告快照，但不能只保存报告快照。
 
 ## 核心实体
+
+### subjects
+
+保存用户视角的被测对象身份。
+
+```sql
+CREATE TABLE subjects (
+  subject_id TEXT PRIMARY KEY,
+  subject_kind TEXT,
+  framework TEXT,
+  model TEXT,
+  skill TEXT,
+  display_name TEXT,
+  enabled INTEGER DEFAULT 1,
+  tags_json TEXT,
+  created_at_utc TEXT NOT NULL
+);
+```
+
+### subject_versions
+
+保存复用判断所需的精确配置版本。`subject_id` 用于展示，`subject_version_id` 用于 key 计算和复用隔离。
+
+```sql
+CREATE TABLE subject_versions (
+  subject_version_id TEXT PRIMARY KEY,
+  subject_id TEXT NOT NULL,
+  model_config_id TEXT,
+  framework_config_sha256 TEXT,
+  skill_sha256 TEXT,
+  agent_command_sha256 TEXT,
+  docker_image TEXT,
+  sandbox_fingerprint TEXT,
+  env_contract_sha256 TEXT,
+  created_at_utc TEXT NOT NULL
+);
+```
+
+### generation/evaluation asset keys
+
+`generated_cases` 额外保存：
+
+```text
+sample_uid
+subject_version_id
+generation_key
+dependency_fingerprint
+generation_env_fingerprint
+reused
+reuse_stage
+reuse_key
+reuse_reason
+reused_from_run_id
+reused_from_case_id
+```
+
+`evaluation_results` 额外保存：
+
+```text
+sample_uid
+evaluation_key
+evaluator_version
+mutation_config_sha256
+reused
+reuse_stage
+reuse_key
+reuse_reason
+reused_from_run_id
+reused_from_result_id
+```
+
+关键索引：
+
+```text
+idx_generated_cases_generation_key_success_time
+idx_evaluation_results_evaluation_key_time
+idx_generated_cases_subject_language_sample
+idx_evaluation_results_subject_language_sample
+```
 
 ### schema_migrations
 

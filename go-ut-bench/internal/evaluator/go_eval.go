@@ -1,3 +1,6 @@
+// go_eval.go 提供 Go 语言单元测试评测功能
+// 使用 go test 进行编译检查、测试执行、覆盖率收集
+// 使用 go-mutesting 进行变异测试
 package evaluator
 
 import (
@@ -13,6 +16,16 @@ import (
 	"time"
 )
 
+// goCompileCheck 检查 Go 测试代码是否能编译通过
+// 使用 go test -c 命令（go build 会拒绝 *_test.go 文件）
+//
+// 参数:
+//   - workdir: 工作目录
+//   - testFile: 测试文件名（相对路径）
+//
+// 返回值:
+//   - bool: 编译是否通过
+//   - string: 编译错误信息（成功时为空）
 func goCompileCheck(workdir, testFile string) (bool, string) {
 	_ = testFile
 	// Compile check for Go tests must use `go test -c`; `go build` rejects *_test.go files.
@@ -34,6 +47,18 @@ func goCompileCheck(workdir, testFile string) (bool, string) {
 	return false, trimErr(string(output), 2000)
 }
 
+// prepareGoWorkspace 准备 Go 评测工作区
+// 创建临时目录，复制源码和测试文件，生成 go.mod
+//
+// 参数:
+//   - testPath: 生成的测试文件路径
+//   - samplePath: 源码文件路径
+//
+// 返回值:
+//   - string: 工作目录路径（失败时为空）
+//   - string: 测试文件名（失败时为错误信息）
+//   - string: 源码文件名
+//   - string: 源码文件名（去掉扩展名）
 func prepareGoWorkspace(testPath, samplePath string) (string, string, string, string) {
 	testSource, err := os.ReadFile(testPath)
 	if err != nil {
@@ -74,6 +99,18 @@ func prepareGoWorkspace(testPath, samplePath string) (string, string, string, st
 	return workdir, testFileName, sourceBase, sourceStem
 }
 
+// executeGoTests 执行 Go 测试
+// 使用 go test -v 运行测试并收集输出
+//
+// 参数:
+//   - workdir: 工作目录
+//   - testFile: 测试文件名
+//   - sourceFile: 源码文件名
+//
+// 返回值:
+//   - bool: 测试是否通过
+//   - string: 测试输出或错误信息
+//   - int: 执行耗时（毫秒）
 func executeGoTests(workdir, testFile, sourceFile string) (bool, string, int) {
 	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
 	defer cancel()
@@ -90,6 +127,15 @@ func executeGoTests(workdir, testFile, sourceFile string) (bool, string, int) {
 	return false, trimErr(string(output), 4000), latency
 }
 
+// parseGoTestCounts 解析 go test 输出中的测试结果计数
+// 从 "--- PASS:" 和 "--- FAIL:" 行统计通过和失败数
+//
+// 参数:
+//   - output: go test 输出内容
+//
+// 返回值:
+//   - *int: 通过的测试数
+//   - *int: 总测试数（通过+失败）
 func parseGoTestCounts(output string) (*int, *int) {
 	passed := 0
 	failed := 0
@@ -114,6 +160,18 @@ func parseGoTestCounts(output string) (*int, *int) {
 	return nil, nil
 }
 
+// collectGoCoverage 收集 Go 测试覆盖率数据
+// 使用 go test -coverprofile 生成覆盖率文件并解析
+//
+// 参数:
+//   - workdir: 工作目录
+//   - testFile: 测试文件名
+//   - sourceBase: 源码文件名
+//
+// 返回值:
+//   - float64: 行覆盖率（0-1）
+//   - float64: 分支覆盖率（0-1）
+//   - string: 错误信息（成功时为空）
 func collectGoCoverage(workdir, testFile, sourceBase string) (float64, float64, string) {
 	coverFile := filepath.Join(workdir, "cover.out")
 	runCtx, cancel := context.WithTimeout(context.Background(), defaultTestTimeoutSeconds*time.Second)
@@ -135,6 +193,17 @@ func collectGoCoverage(workdir, testFile, sourceBase string) (float64, float64, 
 	return parseGoCoverageOutput(string(raw), sourceBase)
 }
 
+// parseGoCoverageOutput 解析 Go 覆盖率输出文件
+// 从 cover.out 格式解析行覆盖率数据
+//
+// 参数:
+//   - content: 覆盖率文件内容
+//   - sourceBase: 目标源码文件名（用于过滤）
+//
+// 返回值:
+//   - float64: 行覆盖率（0-1）
+//   - float64: 分支覆盖率（0-1）
+//   - string: 错误信息（成功时为空）
 func parseGoCoverageOutput(content, sourceBase string) (float64, float64, string) {
 	lines := strings.Split(content, "\n")
 	if len(lines) < 2 {
@@ -202,6 +271,8 @@ func parseGoCoverageOutput(content, sourceBase string) (float64, float64, string
 	return lineCov, branchCov, ""
 }
 
+// estimateGoStmtCount 从覆盖率范围字符串估算语句数
+// 用于将覆盖率范围转换为语句计数
 func estimateGoStmtCount(rangeStr string) int {
 	count := 1
 	for _, ch := range rangeStr {
@@ -218,6 +289,23 @@ func estimateGoStmtCount(rangeStr string) int {
 	return count
 }
 
+// collectGoMutation 执行 Go 变异测试
+// 使用 go-mutesting 工具对源码进行变异并计算变异得分
+//
+// 参数:
+//   - ctx: 上下文
+//   - workdir: 工作目录
+//   - testFile: 测试文件名
+//   - sourceBase: 源码文件名
+//   - timeoutSeconds: 超时时间（秒）
+//   - testPassRate: 测试通过率（用于判断是否运行变异测试）
+//   - testPassed: 通过的测试数
+//   - testTotal: 总测试数
+//
+// 返回值:
+//   - float64: 变异得分（0-1）
+//   - mutationStats: 变异统计数据
+//   - string: 错误信息（成功时为空）
 func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string, timeoutSeconds int, testPassRate *float64, testPassed, testTotal int) (float64, mutationStats, string) {
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 120
@@ -302,6 +390,8 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 	return score, stats, ""
 }
 
+// findGoMutesting 查找 go-mutesting 工具路径
+// 从多个候选路径查找安装位置
 func findGoMutesting() string {
 	candidates := []string{
 		"go-mutesting",

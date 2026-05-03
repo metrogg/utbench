@@ -163,9 +163,9 @@ RUN_ID=local_step_001
   --index ./configs/dataset_index.json \
   --langs python,go \
   --class self_contained \
-  --level l1 \
+  --level curated \
   --limit-per-scenario 20 \
-  --output ./configs/dataset_l1.json
+  --output ./configs/dataset_manifest_curated.json
 ```
 
 校验布局并做依赖扫描：
@@ -177,6 +177,7 @@ RUN_ID=local_step_001
 说明：
 
 - 当前没有 `dataset validate` 子命令
+- `--level` 现在只是 manifest 标签，不代表官方难度分层
 - `dataset stats` 在 Windows 下会调用 `python3`；如果系统只有 `python`，建议使用 WSL / Docker 或自行建立别名
 
 ## 7. 结果目录

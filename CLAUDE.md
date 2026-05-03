@@ -35,7 +35,17 @@ go test ./internal/runner/... -run TestCheckpoint
 go test -v ./internal/evaluator/... -run TestPythonEval
 ```
 
-### 快速演练（不调用 API）
+### Environment self-check
+
+```bash
+# Check that all evaluation toolchains are working
+./utbench doctor --langs python,go,java,cpp --mutation-enabled
+
+# Validate dataset readiness
+./utbench dataset validate --dataset-root ./datasets --langs python,go,java,cpp --class self_contained --strict
+```
+
+### Quick dry-run (no API calls)
 
 ```bash
 ./utbench run --models deepseek --langs python --max-samples 2 --dry-run
@@ -59,8 +69,8 @@ go test -v ./internal/evaluator/... -run TestPythonEval
 # 生成报告
 ./utbench report --evaluation ./artifacts/runs/<run-id>/evaluation/evaluation_result.json
 
-# 导入 SQLite
-./utbench ingest --evaluation ./artifacts/runs/<run-id>/evaluation/evaluation_result.json --db-path ./storage/utbench.db
+# Ingest into SQLite (replaces old `utbench ingest`)
+./utbench db ingest-evaluation --evaluation ./artifacts/runs/<run-id>/evaluation/evaluation_result.json --db-path ./storage/utbench.db
 ```
 
 ### Docker（推荐用于运行评估工具链）
@@ -100,7 +110,27 @@ docker run --rm --env-file .env `
 .\run_bench.ps1 [models] [langs] [max-samples] [mutation]
 ```
 
-### 数据集管理
+### Web management UI
+
+```bash
+# Launch on localhost:8080 (supports Docker and local runs)
+./utbench web --addr :8080 --config ./configs/models.yaml
+
+# Custom database and Docker image
+./utbench web --addr :8080 --db-path ./storage/utbench.db --docker-image utbench:latest
+```
+
+### Database management
+
+```bash
+./utbench db init --db-path ./storage/utbench.db
+./utbench db ingest-run --run-id <run-id> --output-root ./artifacts --db-path ./storage/utbench.db
+./utbench db overview --db-path ./storage/utbench.db
+./utbench db list-results --run-id <run-id> --db-path ./storage/utbench.db
+./utbench db report --run-ids <run-a>,<run-b> --models deepseek,qwen --langs python,go --db-path ./storage/utbench.db
+```
+
+### Dataset management
 
 ```bash
 # 索引所有样本
@@ -114,77 +144,22 @@ docker run --rm --env-file .env `
   --level l1 \
   --limit-per-scenario 20 \
   --output ./configs/dataset_l1.json
-
-# 验证数据集就绪状态
-./utbench dataset validate --dataset-root ./datasets
 ```
 
-### 工具链诊断
+## Architecture
 
-```bash
-# 检查所有工具链（Go、Python、Java、C++、变异测试工具）
-./utbench doctor
-```
+Five-stage pipeline orchestrated by `internal/orchestrator/service.go`:
 
-### 数据库查询
+1. **dataset** (`internal/dataset/`) — discovers samples; infers language/class/scenario from directory structure; computes MD5 hashes; applies filters
+2. **runner** (`internal/runner/`) — worker pool calling LLM APIs concurrently; checkpoint-based incremental execution; retry with exponential backoff; truncation detection and auto-continuation (max 3 retries when `finish_reason: "length"` or incomplete code blocks)
+3. **evaluator** (`internal/evaluator/`) — language-specific compile → test → coverage → mutation in isolated temp dirs; Python `self_contained` and `module_level` both supported; environment fingerprinting for cross-run comparison
+4. **reporter** (`internal/reporter/`) — multi-dimensional aggregation (by model, language, scenario); composite score = 0.3×compile + 0.3×pass_rate + 0.2×coverage + 0.2×mutation; HTML report via Chart.js CDN; mutation breakdown (total/killed/survived/no_tests/timeouts/skipped/suspicious); truncation statistics with tuning recommendations; auto-generated insights and efficiency stats
+5. **store** (`internal/store/`) — SQLite v2 schema; upsert on `(run_id, model, language, sample_id)`; artifact indexing; supports `--reuse-generated` for skipping API calls when same prompt+source+model already exists
+6. **web** (`internal/web/`) — HTTP management UI (`utbench web`); supports Docker and local runs; model config display; database browsing; embedded static assets
+7. **obs** (`internal/obs/`) — structured logging (slog wrapper); progress reporting with per-task status lines
+8. **ctrl** (`internal/ctrl/`) — pause/resume gate for web-triggered pause during generation
 
-```bash
-# 所有已导入数据概览
-./utbench db overview --db-path ./storage/utbench.db
-
-# 列出运行记录和结果
-./utbench db list-runs --db-path ./storage/utbench.db
-./utbench db list-results --run-id <run-id> --db-path ./storage/utbench.db
-```
-
-### Web UI
-
-```bash
-./utbench web --db-path ./storage/utbench.db
-```
-
-## 架构
-
-五阶段流水线，由 `internal/orchestrator/service.go` 编排：
-
-1. **数据集**（`internal/dataset/`）— 发现样本；从目录结构推断语言/类别/场景；计算 MD5 哈希；应用过滤器
-2. **运行器**（`internal/runner/`）— 工作池并发调用 LLM API；基于检查点的增量执行；指数退避重试；截断检测和自动续写（当 `finish_reason: "length"` 或代码块不完整时最多重试 3 次）
-3. **评估器**（`internal/evaluator/`）— 针对特定语言的编译→测试→覆盖率→变异测试，在隔离临时目录中执行；Python 的 `self_contained` 和 `module_level` 均支持
-4. **报告器**（`internal/reporter/`）— 多维度聚合（按模型、语言、场景）；通过 Chart.js CDN 生成 HTML 报告；变异测试分解（总数/已杀死/存活/无测试/超时/跳过/可疑）；截断统计及调优建议
-5. **存储**（`internal/store/`）— 基于 `(run_id, model, language, sample_id)` 的 SQLite 更新插入；所有表基于 SHA256 去重
-
-### 并发模型
-
-- 可配置 `--workers` 的工作池（默认 4）
-- 任务以**轮询方式分配到各模型**，防止单个模型独占工作线程
-- 每模型速率限制：API 调用间隔最低 200ms + 100ms 抖动
-- 评估器中的看门狗在任务停滞 5 分钟后终止
-
-### 综合评分
-
-`0.3×编译 + 0.3×测试通过率 + 0.2×覆盖率 + 0.2×变异测试` — 按模型对所有合格样本计算。
-
-### 失败来源分类
-
-评估器对每个失败来源进行分类以确定评分资格：
-- `model` — 生成的代码有缺陷（有评分资格，计入模型扣分）
-- `environment` — 缺少工具链或系统依赖（排除评分）
-- `dataset` — 样本本身存在问题（排除评分）
-- `tool` — 评估器基础设施故障（排除评分）
-- `none` — 无失败
-
-只有 `model` 类型的失败影响综合评分。其他来源被排除并单独报告。
-
-### 各语言评估工具链
-
-| 语言 | 编译 | 测试 | 覆盖率 | 变异测试 |
-|------|------|------|--------|----------|
-| Python | `py_compile` | `pytest` | `coverage json` | `mutmut` |
-| Go | `go build ./...` | `go test -v -coverprofile` | coverprofile 解析 | `go-mutesting` |
-| Java | `mvn compile` | `mvn test`（JUnit5） | JaCoCo | PITest |
-| C++ | `cmake --build` | `ctest` | `gcov` | Mull（基于 LLVM） |
-
-### 数据契约
+### Data contracts
 
 `internal/contracts/` 是所有跨阶段类型的唯一真相来源。关键文件：
 - `spec.go` — `RunSpec`、`SampleRef`、`ModuleLevelMeta`
@@ -199,21 +174,17 @@ JSON 读写辅助函数位于 `internal/contracts/`。
 
 ### 模型配置
 
-`configs/models.yaml` — 每个模型的 provider/endpoint/api_key_env。默认代码路径为 `../benchmark/config/models.yaml`（相对于工作目录）；本地运行时始终传递 `--config ./configs/models.yaml`，Docker 中传递 `--config /app/configs/models.yaml`。
+`configs/models.yaml` — provider/endpoint/api_key_env per model. Default code path is `../benchmark/config/models.yaml` (relative to working dir); always pass `--config ./configs/models.yaml` locally or `--config /app/configs/models.yaml` in Docker.
 
-### 扩展系统
+## Common Pitfalls
 
-**添加新语言**：在 `internal/contracts/constants.go` 的 `SupportedLanguages` 中添加语言常量，然后在 `internal/evaluator/service.go` 中按照现有的每语言模式实现评估流程（编译/测试/覆盖率/变异测试）。
-
-**添加新模型**：在 `configs/models.yaml` 中添加条目。如果提供商使用非标准 API 格式（非 OpenAI 兼容），需在 `internal/runner/api.go` 中添加特定提供商的响应解析。
-
-## 常见陷阱
-
-- **默认 `--class` 为 `self_contained`**：当前 Python 和 Go 数据集也是 `self_contained`，因此默认值正确。仅当使用需要工作区上下文的实际模块级样本时才使用 `--class module_level`。
-- **模块级样本**需要包含 `workspace_root` 和 `module_import` 的 `meta.json`；评估器不会清理其工作区（原地重用）。
-- **检查点失效**：更改 models、langs、class、level、manifest、max-samples 或 dataset-root 中的任何一个都会改变哈希值并开始新的运行。
-- **变异测试工具**：Python 使用 `mutmut`，Go 使用 `go-mutesting`，Java 使用 PITest，C++ 使用 Mull。变异测试需要 Linux；Windows 上请使用 Docker。
-- **Windows 上的行尾**：使用 `git add --renormalize .` 进行规范化。
+- **Default `--class` is `self_contained`**: current Python and Go datasets are also `self_contained`, so the default works correctly. Use `--class module_level` only when using actual module-level samples that require workspace context.
+- **Module-level samples** require `meta.json` with `workspace_root` and `module_import`; the evaluator does not clean up their workspaces (reused in-place).
+- **Checkpoint invalidation**: changing any of models, langs, class, level, manifest, max-samples, or dataset-root changes the hash and starts a fresh run.
+- **Mutation testing tools**: Python uses `mutmut`, Go uses `go-mutesting` (`go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest`), Java uses `pitest` (Maven plugin), C++ uses `mull`. Windows mutation testing for Python is validated on Linux only; use Docker on Windows.
+- **Line endings on Windows**: normalize with `git add --renormalize .`
+- **`utbench ingest` is deprecated**: replaced by `utbench db ingest-evaluation`, `utbench db ingest-manifest`, `utbench db ingest-report`, and `utbench db ingest-run`.
+- **Run with `--ingest`**: `./utbench run --ingest --db-path ./storage/utbench.db` auto-ingests the run directory into SQLite after completion.
 
 ## 代码风格
 
@@ -231,27 +202,41 @@ JSON 读写辅助函数位于 `internal/contracts/`。
 | 变量 | 提供商 |
 |------|--------|
 | `DEEPSEEK_API_KEY` | DeepSeek |
-| `DASHSCOPE_API_KEY` | Qwen、GLM（Dashscope） |
-| `MINIMAX_API_KEY` | MiniMax M2.7 |
-| `MINIMAX2.5_API_KEY` | MiniMax M2.5 |
-| `VOLCENGINE_API_KEY` | doubao-seed |
-| `MIMO_V2.5_API_KEY` | MiMo V2.5 |
-| `MIMO_V2.5_PRO_API_KEY` | MiMo V2.5 Pro |
+| `DASHSCOPE_API_KEY` | Qwen (Dashscope) |
+| `MINIMAX_API_KEY` | MiniMax |
+| `VOLCENGINE_API_KEY` | doubao-seed (original) |
+| `ARK_API_KEY` | doubao-seed-2.0-lite/1.6/2.0-pro-v2, glm-4.7, deepseek-v3.2 |
 
-## 提示词系统
+# Supported Languages and Tools
 
-运行器使用三种提示词模式（`internal/runner/prompt.go`）：
-- `full_file` — 自包含样本的默认模式；完整源码 + 指令
-- `completion` — 截断后续写模式
-- `module_level` — 需要工作区上下文和模块导入的样本
+| Language | Test Framework | Coverage | Mutation Tool |
+|----------|---------------|----------|--------------|
+| Python   | pytest        | coverage | mutmut       |
+| Go       | go test       | go test -cover | go-mutesting |
+| Java     | JUnit 5 (Maven) | JaCoCo | pitest      |
+| C++      | GoogleTest    | gcov     | mull         |
 
-提示词策略：`structured-v1`。系统消息强调仅生成可运行的测试，无解释或占位符。使用 `BuildPromptCatalog()` 检查模板。
+# Prompt System
 
-## 首先阅读的关键文件
+The runner uses three prompt modes (`internal/runner/prompt.go`):
+- `full_file` — default for self-contained samples; full source + instructions
+- `completion` — for continuation after truncation
+- `module_level` — for samples with workspace context and module imports
 
-- `go-ut-bench/cmd/utbench/main.go` — CLI 入口点、命令路由
-- `go-ut-bench/internal/orchestrator/service.go` — 流水线编排逻辑
-- `go-ut-bench/internal/contracts/spec.go` — 核心数据结构（RunSpec、SampleRef）
-- `go-ut-bench/internal/contracts/constants.go` — SchemaVersion、DatasetClass、RunMode
-- `go-ut-bench/internal/runner/prompt.go` — 提示词构造
-- `go-ut-bench/internal/evaluator/service.go` — 各语言评估流水线
+Prompt strategy: `structured-v1`. System message emphasizes runnable tests only, no explanations or placeholders. Use `BuildPromptCatalog()` to inspect templates. Version ID is a SHA1 hash of the entire catalog content for traceability.
+
+# Key Files to Read First
+
+- `go-ut-bench/cmd/utbench/main.go` — CLI entry point, command routing
+- `go-ut-bench/internal/orchestrator/service.go` — pipeline orchestration logic
+- `go-ut-bench/internal/contracts/spec.go` — core data structures (RunSpec, SampleRef)
+- `go-ut-bench/internal/contracts/constants.go` — SchemaVersion, DatasetClass, RunMode
+- `go-ut-bench/internal/contracts/results.go` — all result/report data structures
+- `go-ut-bench/internal/runner/prompt.go` — prompt construction (3 modes)
+- `go-ut-bench/internal/runner/api.go` — LLM API client with auto-continuation
+- `go-ut-bench/internal/runner/models.go` — model config loading from YAML
+- `go-ut-bench/internal/evaluator/service.go` — evaluation pipeline per language
+- `go-ut-bench/internal/reporter/service.go` — report aggregation and generation
+- `go-ut-bench/internal/store/sqlite.go` — SQLite v2 schema and queries
+- `go-ut-bench/internal/web/server.go` — Web management UI server
+- `go-ut-bench/configs/models.yaml` — model provider/endpoints/API key env vars

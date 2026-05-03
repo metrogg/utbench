@@ -34,7 +34,7 @@ type PromptMode string
 const (
     PromptModeFullFile    PromptMode = "fullfile"
     PromptModeCompletion  PromptMode = "completion"
-    PromptModeModuleLevel PromptMode = "modulelevel"
+    PromptModeRepoLevel PromptMode = "modulelevel"
 )
 
 type PromptRequest struct {
@@ -43,7 +43,7 @@ type PromptRequest struct {
     SamplePath      string
     SourceCode      string
     ExistingTestSrc string                    // 仅 completion 模式
-    ModuleMeta      *moduleLevelMetaForRunner // 仅 modulelevel 模式
+    ModuleMeta      *repoLevelMetaForRunner // 仅 modulelevel 模式
 }
 
 func BuildPrompt(req PromptRequest) string  // 公共入口
@@ -113,7 +113,7 @@ You are an expert unit testing engineer.
 
 **用途**：被测代码位于一个多文件 package 中，配套 `meta.json` 描述 `module_import / package_name / target_file`。
 
-**触发条件**：与样本同目录存在 `meta.json` 或 `<name>.meta.json`，并包含 `module_import` 字段。`loadModuleLevelMetaForRunner()` 自动识别。
+**触发条件**：与样本同目录存在 `meta.json` 或 `<name>.meta.json`，并包含 `module_import` 字段。`loadRepoLevelMetaForRunner()` 自动识别。
 
 **关键差异**：
 - 显式告知完整模块导入路径（`from pkg.submod import ...`）
@@ -168,7 +168,7 @@ You are an expert unit testing engineer.
 |------|------|------|
 | `extractDependencies` | import / include 列表 | 提示模型可用依赖 |
 | `extractCriticalConditions` | 含比较符的关键分支行 | 引导覆盖 |
-| `extractModuleLevelSymbols` | 顶层 func / type / const / var 符号 | 告知真实存在的 API |
+| `extractRepoLevelSymbols` | 顶层 func / type / const / var 符号 | 告知真实存在的 API |
 | `mockRequirement` | 是否需要 mock | 根据源码关键词启发式判断（http/file/db/...） |
 | `parseSampleMeta` | scenario / complexity | 从 sampleID 推断元信息 |
 
@@ -235,12 +235,12 @@ prompt := BuildPrompt(PromptRequest{
 })
 ```
 
-### 7.3 显式 module-level
+### 7.3 显式 repo-level
 
 ```go
-meta := loadModuleLevelMetaForRunner(samplePath)
+meta := loadRepoLevelMetaForRunner(samplePath)
 prompt := BuildPrompt(PromptRequest{
-    Mode:       PromptModeModuleLevel,
+    Mode:       PromptModeRepoLevel,
     Language:   "python",
     SamplePath: samplePath,
     SourceCode: entrySrc,
@@ -278,3 +278,4 @@ prompt := BuildPrompt(PromptRequest{
 - `@/f:/Code/ut-bench/ut-bench-feat_go/ut-bench/go-ut-bench/internal/runner/prompt.go`
 - `@/f:/Code/ut-bench/ut-bench-feat_go/ut-bench/go-ut-bench/internal/runner/api.go`
 - `@/f:/Code/ut-bench/ut-bench-feat_go/ut-bench/go-ut-bench/internal/runner/api_test.go`
+

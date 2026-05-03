@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"go-ut-bench/internal/agentconfig"
 	"go-ut-bench/internal/contracts"
 )
 
@@ -20,9 +21,9 @@ func TestCheckpointPathIncludesScopeFields(t *testing.T) {
 	spec2 := spec1
 	spec2.DatasetLevel = "l2"
 
-	models := []modelConfig{{Name: "deepseek"}}
-	p1 := buildCheckpointPath(spec1, models)
-	p2 := buildCheckpointPath(spec2, models)
+	subjects := []subjectTarget{{subject: agentconfig.ResolvedSubject{Spec: contracts.SubjectSpec{ID: "model_api__deepseek__no_skill"}}}}
+	p1 := buildCheckpointPath(spec1, subjects)
+	p2 := buildCheckpointPath(spec2, subjects)
 	if p1 == p2 {
 		t.Fatalf("expected different checkpoint paths for different levels")
 	}

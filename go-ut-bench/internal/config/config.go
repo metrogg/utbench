@@ -55,12 +55,12 @@ func Default() AppConfig {
 //
 // 支持的数据集类别：
 //   - self_contained: 自包含模式，代码文件不依赖外部模块
-//   - module_level: 模块级别模式，代码文件可能依赖项目内的其他模块
+//   - repo_level: 仓库级别模式，代码文件可能依赖项目内的其他模块
 //
 // 示例：
 //   - "self_contained" - 有效
-//   - "module_level" - 有效
-//   - "self_contained,module_level" - 有效
+//   - "repo_level" - 有效
+//   - "self_contained,repo_level" - 有效
 //   - "invalid" - 无效，返回错误
 func ValidateClass(v string) error {
 	v = strings.TrimSpace(v)
@@ -69,12 +69,12 @@ func ValidateClass(v string) error {
 	}
 	validClasses := map[string]bool{
 		"self_contained": true,
-		"module_level":   true,
+		"repo_level":     true,
 	}
 	for _, c := range strings.Split(v, ",") {
 		c = strings.TrimSpace(c)
 		if !validClasses[c] {
-			return errors.New("dataset class must be self_contained or module_level (comma-separated allowed)")
+			return errors.New("dataset class must be self_contained or repo_level (comma-separated allowed)")
 		}
 	}
 	return nil

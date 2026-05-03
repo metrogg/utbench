@@ -1,3 +1,8 @@
+// cpp_eval.go 提供 C++ 语言单元测试评测功能
+// 使用 CMake/Make 进行编译
+// 使用 GoogleTest 进行测试执行
+// 使用 gcov 进行覆盖率收集
+// 使用 Mull 进行变异测试
 package evaluator
 
 import (
@@ -14,6 +19,8 @@ import (
 	"time"
 )
 
+// cppCMakeTemplate CMake 构建模板
+// 配置 GTest 和覆盖率选项
 const cppCMakeTemplate = `cmake_minimum_required(VERSION 3.10)
 project(utbench_eval)
 
@@ -80,6 +87,19 @@ set_target_properties(test_runner_mull PROPERTIES
 add_test(NAME AllTests COMMAND test_runner_mull)
 `
 
+// prepareCppWorkspace 准备 C++ 评测工作区
+// 创建 CMake 项目结构，复制源码和测试文件
+//
+// 参数:
+//   - testPath: 生成的测试文件路径
+//   - samplePath: 源码文件路径
+//
+// 返回值:
+//   - string: 工作目录路径（失败时为空）
+//   - string: 测试文件名（失败时为错误信息）
+//   - string: 源码文件名
+//   - string: 源码文件名（去掉扩展名）
+//   - string: 错误信息（成功时为空）
 func prepareCppWorkspace(testPath, samplePath string) (string, string, string, string, string) {
 	testSource, err := os.ReadFile(testPath)
 	if err != nil {
@@ -171,6 +191,15 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 	return workdir, testFileName, sourceBase, sourceStem, ""
 }
 
+// cppCompileCheck 检查 C++ 测试代码是否能编译通过
+// 使用 CMake 和 Make 进行编译检查
+//
+// 参数:
+//   - workdir: 工作目录（包含 CMakeLists.txt）
+//
+// 返回值:
+//   - bool: 编译是否通过
+//   - string: 编译错误信息（成功时为空）
 func cppCompileCheck(workdir string) (bool, string) {
 	buildDir := filepath.Join(workdir, "build")
 
@@ -197,6 +226,16 @@ func cppCompileCheck(workdir string) (bool, string) {
 	return true, ""
 }
 
+// executeCppTests 执行 C++ 测试
+// 运行 build 目录中的 test_runner 可执行文件
+//
+// 参数:
+//   - workdir: 工作目录
+//
+// 返回值:
+//   - bool: 测试是否通过
+//   - string: 测试输出或错误信息
+//   - int: 执行耗时（毫秒）
 func executeCppTests(workdir string) (bool, string, int) {
 	buildDir := filepath.Join(workdir, "build")
 
@@ -260,6 +299,17 @@ func parseCppTestCounts(output string) (*int, *int) {
 	return nil, nil
 }
 
+// collectCppCoverage 收集 C++ 测试覆盖率数据
+// 使用 gcov 工具从 .gcno/.gcda 文件解析覆盖率
+//
+// 参数:
+//   - workdir: 工作目录
+//   - testFileName: 测试文件名
+//
+// 返回值:
+//   - float64: 行覆盖率（0-1）
+//   - float64: 分支覆盖率（0-1）
+//   - string: 错误信息（成功时为空）
 func collectCppCoverage(workdir, testFileName string) (float64, float64, string) {
 	buildDir := filepath.Join(workdir, "build")
 	gcovDir := filepath.Join(buildDir, "CMakeFiles", "test_runner.dir")
@@ -418,6 +468,22 @@ func parseBranchPercent(line string) (float64, bool) {
 	return pct, true
 }
 
+// collectCppMutation 执行 C++ 变异测试
+// 使用 Mull 工具对源码进行变异并计算变异得分
+//
+// 参数:
+//   - ctx: 上下文
+//   - workdir: 工作目录
+//   - sourceBase: 源码文件名
+//   - timeoutSeconds: 超时时间（秒），最大限制300秒
+//   - testPassRate: 测试通过率（用于判断是否运行变异测试）
+//   - testPassed: 通过的测试数
+//   - testTotal: 总测试数
+//
+// 返回值:
+//   - float64: 变异得分（0-1）
+//   - mutationStats: 变异统计数据
+//   - string: 错误信息（成功时为空）
 func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeoutSeconds int, testPassRate *float64, testPassed, testTotal int) (float64, mutationStats, string) {
 	// 限制最大超时时间为300秒（与 Python 版本一致），防止Mull无限卡住
 	if timeoutSeconds <= 0 || timeoutSeconds > 300 {

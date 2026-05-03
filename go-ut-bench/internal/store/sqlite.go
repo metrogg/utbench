@@ -1,3 +1,6 @@
+// store 包提供 SQLite 数据库存储功能
+// 负责持久化评测运行数据、索引 artifacts、提供查询接口
+// 支持生成结果复用、历史查询、跨运行对比报告
 package store
 
 import (
@@ -20,64 +23,75 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// schemaVersion 数据库 Schema 版本
 const schemaVersion = "store.v2"
 
+// SQLiteStore SQLite 存储实例
+// 持有数据库连接和路径信息
 type SQLiteStore struct {
-	db   *sql.DB
-	path string
+	db   *sql.DB // 数据库连接
+	path string  // 数据库文件路径
 }
 
+// DBOverview 数据库概览统计
+// 包含各表记录数和最新运行列表
 type DBOverview struct {
-	DBPath            string      `json:"db_path"`
-	SchemaVersion     string      `json:"schema_version"`
-	GenerationRuns    int         `json:"generation_runs"`
-	EvaluationRuns    int         `json:"evaluation_runs"`
-	GeneratedCases    int         `json:"generated_cases"`
-	EvaluationResults int         `json:"evaluation_results"`
-	Artifacts         int         `json:"artifacts"`
-	Reports           int         `json:"reports"`
-	LatestRuns        []DBRunItem `json:"latest_runs"`
+	DBPath            string      `json:"db_path"`            // 数据库文件路径
+	SchemaVersion     string      `json:"schema_version"`     // Schema 版本
+	GenerationRuns    int         `json:"generation_runs"`    // 生成运行数
+	EvaluationRuns    int         `json:"evaluation_runs"`    // 评测运行数
+	GeneratedCases    int         `json:"generated_cases"`    // 生成案例数
+	EvaluationResults int         `json:"evaluation_results"` // 评测结果数
+	Artifacts         int         `json:"artifacts"`          // artifacts 数
+	Reports           int         `json:"reports"`            // 报告数
+	LatestRuns        []DBRunItem `json:"latest_runs"`        // 最新运行列表
 }
 
+// DBRunItem 运行记录摘要
+// 用于概览中展示运行基本信息
 type DBRunItem struct {
-	RunID             string `json:"run_id"`
-	ExperimentID      string `json:"experiment_id,omitempty"`
-	ExperimentName    string `json:"experiment_name,omitempty"`
-	CreatedAtUTC      string `json:"created_at_utc,omitempty"`
-	EvaluatedAtUTC    string `json:"evaluated_at_utc,omitempty"`
-	Models            int    `json:"models"`
-	Languages         int    `json:"languages"`
-	GeneratedCases    int    `json:"generated_cases"`
-	EvaluationResults int    `json:"evaluation_results"`
-	Reports           int    `json:"reports"`
+	RunID             string `json:"run_id"`                     // 运行ID
+	ExperimentID      string `json:"experiment_id,omitempty"`    // 实验ID
+	ExperimentName    string `json:"experiment_name,omitempty"`  // 实验名称
+	CreatedAtUTC      string `json:"created_at_utc,omitempty"`   // 创建时间
+	EvaluatedAtUTC    string `json:"evaluated_at_utc,omitempty"` // 评测时间
+	Models            int    `json:"models"`                     // 模型数
+	Languages         int    `json:"languages"`                  // 语言数
+	GeneratedCases    int    `json:"generated_cases"`            // 生成案例数
+	EvaluationResults int    `json:"evaluation_results"`         // 评测结果数
+	Reports           int    `json:"reports"`                    // 报告数
 }
 
+// DBResultItem 评测结果记录
+// 用于查询结果列表展示
 type DBResultItem struct {
-	EvaluationResultID   string   `json:"evaluation_result_id"`
-	EvaluationRunID      string   `json:"evaluation_run_id"`
-	RunID                string   `json:"run_id"`
-	Model                string   `json:"model"`
-	Language             string   `json:"language"`
-	SampleID             string   `json:"sample_id"`
-	CompilePass          bool     `json:"compile_pass"`
-	TestPass             *bool    `json:"test_pass,omitempty"`
-	LineCoverage         *float64 `json:"line_coverage,omitempty"`
-	MutationScore        *float64 `json:"mutation_score,omitempty"`
-	MutationTotal        *int     `json:"mutation_total,omitempty"`
-	FailureOrigin        string   `json:"failure_origin,omitempty"`
-	ScoreEligible        bool     `json:"score_eligible"`
-	ScoreExclusionReason string   `json:"score_exclusion_reason,omitempty"`
-	RuntimeMS            *int     `json:"runtime_ms,omitempty"`
+	EvaluationResultID   string   `json:"evaluation_result_id"`             // 评测结果ID
+	EvaluationRunID      string   `json:"evaluation_run_id"`                // 评测运行ID
+	RunID                string   `json:"run_id"`                           // 运行ID
+	Model                string   `json:"model"`                            // 模型名
+	Language             string   `json:"language"`                         // 语言
+	SampleID             string   `json:"sample_id"`                        // 样本ID
+	CompilePass          bool     `json:"compile_pass"`                     // 编译是否通过
+	TestPass             *bool    `json:"test_pass,omitempty"`              // 测试是否通过
+	LineCoverage         *float64 `json:"line_coverage,omitempty"`          // 行覆盖率
+	MutationScore        *float64 `json:"mutation_score,omitempty"`         // 变异得分
+	MutationTotal        *int     `json:"mutation_total,omitempty"`         // 变异体总数
+	FailureOrigin        string   `json:"failure_origin,omitempty"`         // 失败归因
+	ScoreEligible        bool     `json:"score_eligible"`                   // 是否计入排名
+	ScoreExclusionReason string   `json:"score_exclusion_reason,omitempty"` // 排名剔除原因
+	RuntimeMS            *int     `json:"runtime_ms,omitempty"`             // 运行耗时（毫秒）
 }
 
+// DBArtifactItem artifact 记录
+// 用于索引文件产物信息
 type DBArtifactItem struct {
-	ArtifactID   string `json:"artifact_id"`
-	Kind         string `json:"kind"`
-	Path         string `json:"path"`
-	SizeBytes    int64  `json:"size_bytes"`
-	SHA256       string `json:"sha256"`
-	Redacted     bool   `json:"redacted"`
-	CreatedAtUTC string `json:"created_at_utc"`
+	ArtifactID   string `json:"artifact_id"`    // artifact ID
+	Kind         string `json:"kind"`           // 类型（manifest/evaluation/report等）
+	Path         string `json:"path"`           // 文件路径
+	SizeBytes    int64  `json:"size_bytes"`     // 文件大小
+	SHA256       string `json:"sha256"`         // SHA256 哈希
+	Redacted     bool   `json:"redacted"`       // 是否已脱敏
+	CreatedAtUTC string `json:"created_at_utc"` // 创建时间
 	DeletedAtUTC string `json:"deleted_at_utc,omitempty"`
 }
 
@@ -237,23 +251,78 @@ type DBExperimentItem struct {
 	UpdatedAtUTC string `json:"updated_at_utc"`
 }
 
+type DBSubjectAssetItem struct {
+	SubjectID         string `json:"subject_id"`
+	SubjectKind       string `json:"subject_kind,omitempty"`
+	Framework         string `json:"framework,omitempty"`
+	Model             string `json:"model,omitempty"`
+	Skill             string `json:"skill,omitempty"`
+	GeneratedCases    int    `json:"generated_cases"`
+	EvaluationResults int    `json:"evaluation_results"`
+	LatestGeneratedAt string `json:"latest_generated_at,omitempty"`
+}
+
+type DBGenerationAssetItem struct {
+	GeneratedCaseID          string `json:"generated_case_id"`
+	RunID                    string `json:"run_id"`
+	SubjectID                string `json:"subject_id,omitempty"`
+	SubjectVersionID         string `json:"subject_version_id,omitempty"`
+	Language                 string `json:"language"`
+	SampleID                 string `json:"sample_id"`
+	SampleUID                string `json:"sample_uid,omitempty"`
+	GenerationKey            string `json:"generation_key,omitempty"`
+	DependencyFingerprint    string `json:"dependency_fingerprint,omitempty"`
+	GenerationEnvFingerprint string `json:"generation_env_fingerprint,omitempty"`
+	SandboxFingerprint       string `json:"sandbox_fingerprint,omitempty"`
+	Success                  bool   `json:"success"`
+	Reused                   bool   `json:"reused"`
+	GeneratedAtUTC           string `json:"generated_at_utc,omitempty"`
+	GeneratedTestPath        string `json:"generated_test_path,omitempty"`
+}
+
+type DBEvaluationAssetItem struct {
+	EvaluationResultID string `json:"evaluation_result_id"`
+	RunID              string `json:"run_id"`
+	SubjectID          string `json:"subject_id,omitempty"`
+	Language           string `json:"language"`
+	SampleID           string `json:"sample_id"`
+	EvaluationKey      string `json:"evaluation_key,omitempty"`
+	CompilePass        bool   `json:"compile_pass"`
+	Reused             bool   `json:"reused"`
+	CreatedAtUTC       string `json:"created_at_utc,omitempty"`
+}
+
 type ReusableGeneratedCase struct {
-	GeneratedCaseID       string `json:"generated_case_id"`
-	RunID                 string `json:"run_id"`
-	Model                 string `json:"model"`
-	Language              string `json:"language"`
-	SampleID              string `json:"sample_id"`
-	GeneratedTestPath     string `json:"generated_test_path"`
-	ResponsePath          string `json:"response_path,omitempty"`
-	MetadataPath          string `json:"metadata_path,omitempty"`
-	PromptVersionID       string `json:"prompt_version_id,omitempty"`
-	PromptMode            string `json:"prompt_mode,omitempty"`
-	LatencyMS             int    `json:"latency_ms,omitempty"`
-	PromptTokens          *int   `json:"prompt_tokens,omitempty"`
-	CompletionTokens      *int   `json:"completion_tokens,omitempty"`
-	TotalTokens           *int   `json:"total_tokens,omitempty"`
-	GeneratedAtUTC        string `json:"generated_at_utc,omitempty"`
-	GeneratedTestArtifact string `json:"generated_test_artifact_id,omitempty"`
+	GeneratedCaseID       string   `json:"generated_case_id"`
+	RunID                 string   `json:"run_id"`
+	Model                 string   `json:"model"`
+	Language              string   `json:"language"`
+	SampleID              string   `json:"sample_id"`
+	GeneratedTestPath     string   `json:"generated_test_path"`
+	GeneratedTestSHA256   string   `json:"generated_test_sha256,omitempty"`
+	ResponsePath          string   `json:"response_path,omitempty"`
+	MetadataPath          string   `json:"metadata_path,omitempty"`
+	TracePath             string   `json:"trace_path,omitempty"`
+	WorkspaceDiffPath     string   `json:"workspace_diff_path,omitempty"`
+	SandboxFingerprint    string   `json:"sandbox_fingerprint,omitempty"`
+	TokenSource           string   `json:"token_source,omitempty"`
+	CostSource            string   `json:"cost_source,omitempty"`
+	EstimatedCostUSD      *float64 `json:"estimated_cost_usd,omitempty"`
+	PromptVersionID       string   `json:"prompt_version_id,omitempty"`
+	PromptMode            string   `json:"prompt_mode,omitempty"`
+	LatencyMS             int      `json:"latency_ms,omitempty"`
+	PromptTokens          *int     `json:"prompt_tokens,omitempty"`
+	CompletionTokens      *int     `json:"completion_tokens,omitempty"`
+	TotalTokens           *int     `json:"total_tokens,omitempty"`
+	GeneratedAtUTC        string   `json:"generated_at_utc,omitempty"`
+	GeneratedTestArtifact string   `json:"generated_test_artifact_id,omitempty"`
+}
+
+type ReusableEvaluationResult struct {
+	EvaluationResultID string                     `json:"evaluation_result_id"`
+	RunID              string                     `json:"run_id"`
+	Result             contracts.EvaluationResult `json:"result"`
+	UpdatedAtUTC       string                     `json:"updated_at_utc,omitempty"`
 }
 
 type IngestRunOptions struct {
@@ -279,6 +348,15 @@ type ingestContext struct {
 	summary *IngestSummary
 }
 
+// OpenSQLite 打开 SQLite 数据库
+// 如果目录不存在会自动创建，如果数据库文件不存在会在 Init 时创建
+//
+// 参数:
+//   - path: 数据库文件路径
+//
+// 返回值:
+//   - *SQLiteStore: 存储实例
+//   - error: 打开过程中的错误
 func OpenSQLite(path string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
@@ -290,6 +368,7 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 	return &SQLiteStore{db: db, path: path}, nil
 }
 
+// Close 关闭数据库连接
 func (s *SQLiteStore) Close() error {
 	if s.db == nil {
 		return nil
@@ -297,6 +376,41 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
+func (s *SQLiteStore) ensureColumn(ctx context.Context, table, columnDef string) error {
+	columnName := strings.Fields(columnDef)[0]
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == columnName {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+columnDef)
+	return err
+}
+
+// Init 初始化数据库表结构
+// 创建所有必要的表（experiments、generation_runs、evaluation_runs、generated_cases、evaluation_results 等）
+//
+// 参数:
+//   - ctx: 上下文
+//
+// 返回值:
+//   - error: 初始化过程中的错误
 func (s *SQLiteStore) Init(ctx context.Context) error {
 	ddl := []string{
 		`PRAGMA foreign_keys = ON;`,
@@ -365,6 +479,30 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			config_json TEXT,
 			created_at_utc TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS subjects (
+			subject_id TEXT PRIMARY KEY,
+			subject_kind TEXT,
+			framework TEXT,
+			model TEXT,
+			skill TEXT,
+			display_name TEXT,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			tags_json TEXT,
+			created_at_utc TEXT NOT NULL,
+			updated_at_utc TEXT NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS subject_versions (
+			subject_version_id TEXT PRIMARY KEY,
+			subject_id TEXT NOT NULL,
+			model_config_id TEXT,
+			framework_config_sha256 TEXT,
+			skill_sha256 TEXT,
+			agent_command_sha256 TEXT,
+			docker_image TEXT,
+			sandbox_fingerprint TEXT,
+			env_contract_sha256 TEXT,
+			created_at_utc TEXT NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS prompt_profiles (
 			profile_id TEXT PRIMARY KEY,
 			strategy TEXT,
@@ -403,6 +541,12 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			generated_case_id TEXT PRIMARY KEY,
 			run_id TEXT NOT NULL,
 			model TEXT NOT NULL,
+			subject_id TEXT,
+			subject_kind TEXT,
+			agent_framework TEXT,
+			agent_model TEXT,
+			skill_name TEXT,
+			skill_version TEXT,
 			language TEXT NOT NULL,
 			sample_id TEXT NOT NULL,
 			sample_uid TEXT,
@@ -411,10 +555,26 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			generated_test_artifact_id TEXT,
 			response_artifact_id TEXT,
 			metadata_artifact_id TEXT,
+			trace_artifact_id TEXT,
+			workspace_diff_artifact_id TEXT,
+			sandbox_fingerprint TEXT,
+			subject_version_id TEXT,
+			generation_key TEXT,
+			dependency_fingerprint TEXT,
+			generation_env_fingerprint TEXT,
+			reused INTEGER NOT NULL DEFAULT 0,
+			reuse_stage TEXT,
+			reuse_key TEXT,
+			reuse_reason TEXT,
+			reused_from_run_id TEXT,
+			reused_from_case_id TEXT,
 			latency_ms INTEGER,
 			prompt_tokens INTEGER,
 			completion_tokens INTEGER,
 			total_tokens INTEGER,
+			token_source TEXT,
+			estimated_cost_usd REAL,
+			cost_source TEXT,
 			generated_at_utc TEXT,
 			success INTEGER NOT NULL,
 			truncated INTEGER NOT NULL DEFAULT 0,
@@ -454,8 +614,15 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			evaluation_run_id TEXT NOT NULL,
 			run_id TEXT NOT NULL,
 			model TEXT NOT NULL,
+			subject_id TEXT,
+			subject_kind TEXT,
+			agent_framework TEXT,
+			agent_model TEXT,
+			skill_name TEXT,
+			skill_version TEXT,
 			language TEXT NOT NULL,
 			sample_id TEXT NOT NULL,
+			sample_uid TEXT,
 			generated_case_id TEXT,
 			generated_test_artifact_id TEXT,
 			source_artifact_id TEXT,
@@ -481,6 +648,9 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			prompt_tokens INTEGER,
 			completion_tokens INTEGER,
 			total_tokens INTEGER,
+			token_source TEXT,
+			estimated_cost_usd REAL,
+			cost_source TEXT,
 			truncated INTEGER NOT NULL DEFAULT 0,
 			mutation_tool TEXT,
 			failure_origin TEXT,
@@ -490,6 +660,18 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			test_error TEXT,
 			coverage_error TEXT,
 			mutation_error TEXT,
+			trace_artifact_id TEXT,
+			workspace_diff_artifact_id TEXT,
+			sandbox_fingerprint TEXT,
+			evaluation_key TEXT,
+			evaluator_version TEXT,
+			mutation_config_sha256 TEXT,
+			reused INTEGER NOT NULL DEFAULT 0,
+			reuse_stage TEXT,
+			reuse_key TEXT,
+			reuse_reason TEXT,
+			reused_from_run_id TEXT,
+			reused_from_result_id TEXT,
 			created_db_at_utc TEXT NOT NULL,
 			updated_db_at_utc TEXT NOT NULL,
 			UNIQUE(evaluation_run_id, model, language, sample_id)
@@ -536,6 +718,80 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 		);`,
 	}
 	for _, stmt := range ddl {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	for _, col := range []string{
+		"subject_id TEXT",
+		"subject_kind TEXT",
+		"agent_framework TEXT",
+		"agent_model TEXT",
+		"skill_name TEXT",
+		"skill_version TEXT",
+	} {
+		if err := s.ensureColumn(ctx, "generated_cases", col); err != nil {
+			return err
+		}
+		if err := s.ensureColumn(ctx, "evaluation_results", col); err != nil {
+			return err
+		}
+	}
+	for _, col := range []string{
+		"sample_uid TEXT",
+		"trace_artifact_id TEXT",
+		"workspace_diff_artifact_id TEXT",
+		"sandbox_fingerprint TEXT",
+		"subject_version_id TEXT",
+		"generation_key TEXT",
+		"dependency_fingerprint TEXT",
+		"generation_env_fingerprint TEXT",
+		"reused INTEGER NOT NULL DEFAULT 0",
+		"reuse_stage TEXT",
+		"reuse_key TEXT",
+		"reuse_reason TEXT",
+		"reused_from_run_id TEXT",
+		"reused_from_case_id TEXT",
+		"token_source TEXT",
+		"estimated_cost_usd REAL",
+		"cost_source TEXT",
+	} {
+		if err := s.ensureColumn(ctx, "generated_cases", col); err != nil {
+			return err
+		}
+	}
+	for _, col := range []string{
+		"sample_uid TEXT",
+		"trace_artifact_id TEXT",
+		"workspace_diff_artifact_id TEXT",
+		"sandbox_fingerprint TEXT",
+		"evaluation_key TEXT",
+		"evaluator_version TEXT",
+		"mutation_config_sha256 TEXT",
+		"reused INTEGER NOT NULL DEFAULT 0",
+		"reuse_stage TEXT",
+		"reuse_key TEXT",
+		"reuse_reason TEXT",
+		"reused_from_run_id TEXT",
+		"reused_from_result_id TEXT",
+		"token_source TEXT",
+		"estimated_cost_usd REAL",
+		"cost_source TEXT",
+	} {
+		if err := s.ensureColumn(ctx, "evaluation_results", col); err != nil {
+			return err
+		}
+	}
+	for _, stmt := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_generated_cases_generation_key_success_time
+			ON generated_cases(generation_key, success, generated_at_utc)`,
+		`CREATE INDEX IF NOT EXISTS idx_generated_cases_subject_language_sample
+			ON generated_cases(subject_id, language, sample_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_evaluation_results_evaluation_key_time
+			ON evaluation_results(evaluation_key, updated_db_at_utc)`,
+		`CREATE INDEX IF NOT EXISTS idx_evaluation_results_subject_language_sample
+			ON evaluation_results(subject_id, language, sample_id)`,
+	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
@@ -618,6 +874,16 @@ func (s *SQLiteStore) IngestReportFile(ctx context.Context, path string) (Ingest
 	return sum, nil
 }
 
+// IngestRun 入库整个运行目录
+// 自动检测并入库 manifest、evaluation、report 文件
+//
+// 参数:
+//   - ctx: 上下文
+//   - opts: 入库选项，包含 RunDir 路径
+//
+// 返回值:
+//   - IngestSummary: 入库统计摘要
+//   - error: 入库过程中的错误
 func (s *SQLiteStore) IngestRun(ctx context.Context, opts IngestRunOptions) (IngestSummary, error) {
 	runDir := opts.RunDir
 	if runDir == "" {
@@ -957,7 +1223,9 @@ func (s *SQLiteStore) SelectEvaluationResultSet(ctx context.Context, runID strin
 	}
 	query := `
 		SELECT
-			er.model, er.language, er.sample_id,
+			er.model, COALESCE(er.subject_id, ''), COALESCE(er.subject_kind, ''), COALESCE(er.agent_framework, ''),
+			COALESCE(er.agent_model, ''), COALESCE(er.skill_name, ''), COALESCE(er.skill_version, ''),
+			er.language, er.sample_id,
 			COALESCE(g.path, ''), COALESCE(src.path, ''),
 			er.compile_pass, er.test_pass, er.truncated,
 			er.line_coverage, er.branch_coverage, er.mutation_score,
@@ -968,10 +1236,13 @@ func (s *SQLiteStore) SelectEvaluationResultSet(ctx context.Context, runID strin
 			er.runtime_ms, er.prompt_tokens, er.completion_tokens, er.total_tokens,
 			COALESCE(er.compile_error, ''), COALESCE(er.test_error, ''), COALESCE(er.coverage_error, ''), COALESCE(er.mutation_error, ''),
 			COALESCE(er.mutation_tool, ''), COALESCE(er.failure_origin, ''), er.score_eligible, COALESCE(er.score_exclusion_reason, ''),
+			COALESCE(trace.path, ''), COALESCE(diff.path, ''), COALESCE(er.sandbox_fingerprint, ''),
 				gc.latency_ms
 		FROM evaluation_results er
 		LEFT JOIN artifacts g ON g.artifact_id = er.generated_test_artifact_id
 		LEFT JOIN artifacts src ON src.artifact_id = er.source_artifact_id
+		LEFT JOIN artifacts trace ON trace.artifact_id = er.trace_artifact_id
+		LEFT JOIN artifacts diff ON diff.artifact_id = er.workspace_diff_artifact_id
 		LEFT JOIN generated_cases gc ON gc.generated_case_id = er.generated_case_id
 		WHERE ` + strings.Join(where, " AND ") + `
 		ORDER BY er.run_id, er.model, er.language, er.sample_id`
@@ -989,7 +1260,8 @@ func (s *SQLiteStore) SelectEvaluationResultSet(ctx context.Context, runID strin
 		var mutationTotal, mutationKilled, mutationSurvived, mutationNoTests, mutationTimeouts, mutationSkipped, mutationSuspicious sql.NullInt64
 		var assertionCount, testCaseCount, testPassCount, testTotalCount, runtimeMS, latencyMS, promptTokens, completionTokens, totalTokens sql.NullInt64
 		if err := rows.Scan(
-			&r.Model, &r.Language, &r.SampleID,
+			&r.Model, &r.SubjectID, &r.SubjectKind, &r.AgentFramework, &r.AgentModel, &r.SkillName, &r.SkillVersion,
+			&r.Language, &r.SampleID,
 			&r.GeneratedTestPath, &r.SourcePath,
 			&compilePass, &testPass, &truncated,
 			&lineCov, &branchCov, &mutationScore,
@@ -1000,7 +1272,8 @@ func (s *SQLiteStore) SelectEvaluationResultSet(ctx context.Context, runID strin
 			&runtimeMS, &promptTokens, &completionTokens, &totalTokens,
 			&r.CompileError, &r.TestError, &r.CoverageError, &r.MutationError,
 			&r.MutationTool, &r.FailureOrigin, &eligible, &r.ScoreExclusionReason,
-				&latencyMS,
+			&r.TracePath, &r.WorkspaceDiffPath, &r.SandboxFingerprint,
+			&latencyMS,
 		); err != nil {
 			return contracts.EvaluationResultSet{}, err
 		}
@@ -1024,7 +1297,7 @@ func (s *SQLiteStore) SelectEvaluationResultSet(ctx context.Context, runID strin
 		r.TestTotalCount = nullableSQLInt(testTotalCount)
 		r.TestPassRate = nullableSQLFloat(testPassRate)
 		r.RuntimeMS = nullableSQLInt(runtimeMS)
-			r.LatencyMS = nullableSQLInt(latencyMS)
+		r.LatencyMS = nullableSQLInt(latencyMS)
 		r.PromptTokens = nullableSQLInt(promptTokens)
 		r.CompletionTokens = nullableSQLInt(completionTokens)
 		r.TotalTokens = nullableSQLInt(totalTokens)
@@ -1107,6 +1380,159 @@ func (s *SQLiteStore) FindReusableGeneratedCase(ctx context.Context, model, lang
 	return out, true, nil
 }
 
+func (s *SQLiteStore) FindReusableGeneratedAsset(ctx context.Context, generationKey string) (ReusableGeneratedCase, bool, error) {
+	generationKey = strings.TrimSpace(generationKey)
+	if generationKey == "" {
+		return ReusableGeneratedCase{}, false, nil
+	}
+	row := s.db.QueryRowContext(ctx, `
+		SELECT gc.generated_case_id, gc.run_id, gc.model, gc.language, gc.sample_id,
+		       COALESCE(test_art.path, ''), COALESCE(test_art.sha256, ''),
+		       COALESCE(resp_art.path, ''), COALESCE(meta_art.path, ''),
+		       COALESCE(trace_art.path, ''), COALESCE(diff_art.path, ''),
+		       COALESCE(gc.sandbox_fingerprint, ''), COALESCE(gc.latency_ms, 0),
+		       gc.prompt_tokens, gc.completion_tokens, gc.total_tokens,
+		       COALESCE(gc.token_source, ''), gc.estimated_cost_usd, COALESCE(gc.cost_source, ''),
+		       COALESCE(gc.generated_at_utc, ''), COALESCE(gc.generated_test_artifact_id, '')
+		FROM generated_cases gc
+		LEFT JOIN artifacts test_art ON test_art.artifact_id = gc.generated_test_artifact_id
+		LEFT JOIN artifacts resp_art ON resp_art.artifact_id = gc.response_artifact_id
+		LEFT JOIN artifacts meta_art ON meta_art.artifact_id = gc.metadata_artifact_id
+		LEFT JOIN artifacts trace_art ON trace_art.artifact_id = gc.trace_artifact_id
+		LEFT JOIN artifacts diff_art ON diff_art.artifact_id = gc.workspace_diff_artifact_id
+		WHERE gc.success = 1
+		  AND gc.generation_key = ?
+		  AND COALESCE(test_art.deleted_at_utc, '') = ''
+		ORDER BY gc.generated_at_utc DESC
+		LIMIT 1`, generationKey)
+	var out ReusableGeneratedCase
+	var promptTokens, completionTokens, totalTokens sql.NullInt64
+	var estimatedCost sql.NullFloat64
+	if err := row.Scan(
+		&out.GeneratedCaseID, &out.RunID, &out.Model, &out.Language, &out.SampleID,
+		&out.GeneratedTestPath, &out.GeneratedTestSHA256,
+		&out.ResponsePath, &out.MetadataPath,
+		&out.TracePath, &out.WorkspaceDiffPath,
+		&out.SandboxFingerprint, &out.LatencyMS,
+		&promptTokens, &completionTokens, &totalTokens,
+		&out.TokenSource, &estimatedCost, &out.CostSource,
+		&out.GeneratedAtUTC, &out.GeneratedTestArtifact,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return ReusableGeneratedCase{}, false, nil
+		}
+		return ReusableGeneratedCase{}, false, err
+	}
+	out.GeneratedTestPath = resolveStoredPath(out.GeneratedTestPath)
+	out.ResponsePath = resolveStoredPath(out.ResponsePath)
+	out.MetadataPath = resolveStoredPath(out.MetadataPath)
+	out.TracePath = resolveStoredPath(out.TracePath)
+	out.WorkspaceDiffPath = resolveStoredPath(out.WorkspaceDiffPath)
+	out.PromptTokens = nullableSQLInt(promptTokens)
+	out.CompletionTokens = nullableSQLInt(completionTokens)
+	out.TotalTokens = nullableSQLInt(totalTokens)
+	out.EstimatedCostUSD = nullableSQLFloat(estimatedCost)
+	if !fileExists(out.GeneratedTestPath) {
+		return ReusableGeneratedCase{}, false, nil
+	}
+	if out.GeneratedTestSHA256 != "" {
+		sha, _, err := fileSHA256(out.GeneratedTestPath)
+		if err != nil || sha != out.GeneratedTestSHA256 {
+			return ReusableGeneratedCase{}, false, nil
+		}
+	}
+	return out, true, nil
+}
+
+func (s *SQLiteStore) FindReusableEvaluationAsset(ctx context.Context, evaluationKey string) (ReusableEvaluationResult, bool, error) {
+	evaluationKey = strings.TrimSpace(evaluationKey)
+	if evaluationKey == "" {
+		return ReusableEvaluationResult{}, false, nil
+	}
+	row := s.db.QueryRowContext(ctx, `
+		SELECT er.evaluation_result_id, er.run_id,
+		       er.compile_pass, er.test_pass, er.test_pass_count, er.test_total_count, er.test_pass_rate,
+		       er.line_coverage, er.branch_coverage,
+		       er.mutation_score, er.mutation_total, er.mutation_killed, er.mutation_survived,
+		       er.mutation_no_tests, er.mutation_timeouts, er.mutation_skipped, er.mutation_suspicious,
+		       er.assertion_count, er.test_case_count, er.assertion_density, er.runtime_ms,
+		       er.prompt_tokens, er.completion_tokens, er.total_tokens,
+		       COALESCE(er.token_source, ''), er.estimated_cost_usd, COALESCE(er.cost_source, ''),
+		       er.truncated, COALESCE(er.mutation_tool, ''), COALESCE(er.failure_origin, ''),
+		       er.score_eligible, COALESCE(er.score_exclusion_reason, ''),
+		       COALESCE(er.compile_error, ''), COALESCE(er.test_error, ''), COALESCE(er.coverage_error, ''), COALESCE(er.mutation_error, ''),
+		       COALESCE(trace_art.path, ''), COALESCE(diff_art.path, ''), COALESCE(er.sandbox_fingerprint, ''),
+		       COALESCE(er.evaluation_key, ''), COALESCE(er.evaluator_version, ''), COALESCE(er.mutation_config_sha256, ''),
+		       COALESCE(er.updated_db_at_utc, '')
+		FROM evaluation_results er
+		LEFT JOIN artifacts trace_art ON trace_art.artifact_id = er.trace_artifact_id
+		LEFT JOIN artifacts diff_art ON diff_art.artifact_id = er.workspace_diff_artifact_id
+		WHERE er.evaluation_key = ?
+		  AND er.compile_pass = 1
+		  AND COALESCE(er.test_pass, 1) = 1
+		  AND er.score_eligible = 1
+		ORDER BY er.updated_db_at_utc DESC
+		LIMIT 1`, evaluationKey)
+
+	var out ReusableEvaluationResult
+	var compilePass, truncated int
+	var testPass sql.NullInt64
+	var testPassCount, testTotalCount, mutationTotal, mutationKilled, mutationSurvived sql.NullInt64
+	var mutationNoTests, mutationTimeouts, mutationSkipped, mutationSuspicious sql.NullInt64
+	var assertionCount, testCaseCount, runtimeMS, promptTokens, completionTokens, totalTokens sql.NullInt64
+	var testPassRate, lineCoverage, branchCoverage, mutationScore, assertionDensity, estimatedCost sql.NullFloat64
+	var scoreEligible sql.NullInt64
+	if err := row.Scan(
+		&out.EvaluationResultID, &out.RunID,
+		&compilePass, &testPass, &testPassCount, &testTotalCount, &testPassRate,
+		&lineCoverage, &branchCoverage,
+		&mutationScore, &mutationTotal, &mutationKilled, &mutationSurvived,
+		&mutationNoTests, &mutationTimeouts, &mutationSkipped, &mutationSuspicious,
+		&assertionCount, &testCaseCount, &assertionDensity, &runtimeMS,
+		&promptTokens, &completionTokens, &totalTokens,
+		&out.Result.TokenSource, &estimatedCost, &out.Result.CostSource,
+		&truncated, &out.Result.MutationTool, &out.Result.FailureOrigin,
+		&scoreEligible, &out.Result.ScoreExclusionReason,
+		&out.Result.CompileError, &out.Result.TestError, &out.Result.CoverageError, &out.Result.MutationError,
+		&out.Result.TracePath, &out.Result.WorkspaceDiffPath, &out.Result.SandboxFingerprint,
+		&out.Result.EvaluationKey, &out.Result.EvaluatorVersion, &out.Result.MutationConfigSHA256,
+		&out.UpdatedAtUTC,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return ReusableEvaluationResult{}, false, nil
+		}
+		return ReusableEvaluationResult{}, false, err
+	}
+	out.Result.CompilePass = compilePass != 0
+	out.Result.TestPass = nullableIntBool(testPass)
+	out.Result.TestPassCount = nullableSQLInt(testPassCount)
+	out.Result.TestTotalCount = nullableSQLInt(testTotalCount)
+	out.Result.TestPassRate = nullableSQLFloat(testPassRate)
+	out.Result.LineCoverage = nullableSQLFloat(lineCoverage)
+	out.Result.BranchCoverage = nullableSQLFloat(branchCoverage)
+	out.Result.MutationScore = nullableSQLFloat(mutationScore)
+	out.Result.MutationTotal = nullableSQLInt(mutationTotal)
+	out.Result.MutationKilled = nullableSQLInt(mutationKilled)
+	out.Result.MutationSurvived = nullableSQLInt(mutationSurvived)
+	out.Result.MutationNoTests = nullableSQLInt(mutationNoTests)
+	out.Result.MutationTimeouts = nullableSQLInt(mutationTimeouts)
+	out.Result.MutationSkipped = nullableSQLInt(mutationSkipped)
+	out.Result.MutationSuspicious = nullableSQLInt(mutationSuspicious)
+	out.Result.AssertionCount = nullableSQLInt(assertionCount)
+	out.Result.TestCaseCount = nullableSQLInt(testCaseCount)
+	out.Result.AssertionDensity = nullableSQLFloat(assertionDensity)
+	out.Result.RuntimeMS = nullableSQLInt(runtimeMS)
+	out.Result.PromptTokens = nullableSQLInt(promptTokens)
+	out.Result.CompletionTokens = nullableSQLInt(completionTokens)
+	out.Result.TotalTokens = nullableSQLInt(totalTokens)
+	out.Result.EstimatedCostUSD = nullableSQLFloat(estimatedCost)
+	out.Result.Truncated = truncated != 0
+	out.Result.ScoreEligible = nullableIntBool(scoreEligible)
+	out.Result.TracePath = resolveStoredPath(out.Result.TracePath)
+	out.Result.WorkspaceDiffPath = resolveStoredPath(out.Result.WorkspaceDiffPath)
+	return out, true, nil
+}
+
 func (s *SQLiteStore) ingestManifestTx(ctx context.Context, tx *sql.Tx, path string, manifest contracts.GeneratedManifest, ictx *ingestContext) error {
 	now := nowUTC()
 	manifestArtifactID, err := s.putArtifact(ctx, tx, ictx, "generated_manifest", path, "manifest")
@@ -1130,7 +1556,7 @@ func (s *SQLiteStore) ingestManifestTx(ctx context.Context, tx *sql.Tx, path str
 	modelConfigs := s.readModelConfigsFromYAML(manifest.Spec.ConfigPath)
 	seenModels := map[string]struct{}{}
 	for _, c := range manifest.Cases {
-		seenModels[c.Model] = struct{}{}
+		seenModels[firstNonEmpty(c.AgentModel, c.Model)] = struct{}{}
 	}
 	for model := range seenModels {
 		cfg := modelConfigs[model]
@@ -1170,6 +1596,20 @@ func (s *SQLiteStore) ingestManifestTx(ctx context.Context, tx *sql.Tx, path str
 	}
 	for _, c := range manifest.Cases {
 		sampleUID := sampleUIDs[caseKey(c.Model, c.Language, c.SampleID)]
+		if c.SampleUID != "" {
+			sampleUID = c.SampleUID
+		}
+		subjectID := firstNonEmpty(c.SubjectID, c.Model)
+		subjectModel := firstNonEmpty(c.AgentModel, c.Model)
+		cfg := modelConfigs[subjectModel]
+		modelConfigID := stableID("model_config", subjectModel, cfg.Provider, cfg.ModelID)
+		subjectVersionID := firstNonEmpty(c.SubjectVersionID, stableID("subject_version", subjectID, modelConfigID, c.SandboxFingerprint, c.SkillVersion))
+		if err := s.upsertSubjectTx(ctx, tx, subjectID, c.SubjectKind, c.AgentFramework, subjectModel, c.SkillName, now); err != nil {
+			return err
+		}
+		if err := s.upsertSubjectVersionTx(ctx, tx, subjectVersionID, subjectID, modelConfigID, c.SandboxFingerprint, now); err != nil {
+			return err
+		}
 		promptArtifactID, _ := s.putOptionalArtifact(ctx, tx, ictx, "prompt_rendering", c.PromptPath, "prompt")
 		promptRenderingID := stableID("prompt_rendering", manifest.RunID, c.Model, c.Language, c.SampleID)
 		if _, err := tx.ExecContext(ctx, `
@@ -1186,32 +1626,64 @@ func (s *SQLiteStore) ingestManifestTx(ctx context.Context, tx *sql.Tx, path str
 		generatedTestArtifactID, _ := s.putOptionalArtifact(ctx, tx, ictx, "generated_test", c.GeneratedTestPath, "generated_test")
 		responseArtifactID, _ := s.putOptionalArtifact(ctx, tx, ictx, "model_response", c.ResponsePath, "response")
 		metadataArtifactID, _ := s.putOptionalArtifact(ctx, tx, ictx, "generation_metadata", c.MetadataPath, "metadata")
+		traceArtifactID, _ := s.putOptionalArtifact(ctx, tx, ictx, "agent_trace", c.TracePath, "trace")
+		workspaceDiffArtifactID, _ := s.putOptionalArtifact(ctx, tx, ictx, "agent_workspace_diff", c.WorkspaceDiffPath, "workspace_diff")
 		caseID := stableID("generated_case", manifest.RunID, c.Model, c.Language, c.SampleID)
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO generated_cases(generated_case_id, run_id, model, language, sample_id, sample_uid, sample_path,
+			INSERT INTO generated_cases(generated_case_id, run_id, model, subject_id, subject_kind, agent_framework, agent_model, skill_name, skill_version,
+				language, sample_id, sample_uid, sample_path,
 				prompt_rendering_id, generated_test_artifact_id, response_artifact_id, metadata_artifact_id,
-				latency_ms, prompt_tokens, completion_tokens, total_tokens, generated_at_utc, success, truncated,
-				error_json, created_db_at_utc, updated_db_at_utc)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				trace_artifact_id, workspace_diff_artifact_id, sandbox_fingerprint,
+				subject_version_id, generation_key, dependency_fingerprint, generation_env_fingerprint,
+				reused, reuse_stage, reuse_key, reuse_reason, reused_from_run_id, reused_from_case_id,
+				latency_ms, prompt_tokens, completion_tokens, total_tokens, token_source, estimated_cost_usd, cost_source,
+				generated_at_utc, success, truncated, error_json, created_db_at_utc, updated_db_at_utc)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(run_id, model, language, sample_id) DO UPDATE SET
+				subject_id=excluded.subject_id,
+				subject_kind=excluded.subject_kind,
+				agent_framework=excluded.agent_framework,
+				agent_model=excluded.agent_model,
+				skill_name=excluded.skill_name,
+				skill_version=excluded.skill_version,
 				sample_uid=excluded.sample_uid,
 				sample_path=excluded.sample_path,
 				prompt_rendering_id=excluded.prompt_rendering_id,
 				generated_test_artifact_id=excluded.generated_test_artifact_id,
 				response_artifact_id=excluded.response_artifact_id,
 				metadata_artifact_id=excluded.metadata_artifact_id,
+				trace_artifact_id=excluded.trace_artifact_id,
+				workspace_diff_artifact_id=excluded.workspace_diff_artifact_id,
+				sandbox_fingerprint=excluded.sandbox_fingerprint,
+				subject_version_id=excluded.subject_version_id,
+				generation_key=excluded.generation_key,
+				dependency_fingerprint=excluded.dependency_fingerprint,
+				generation_env_fingerprint=excluded.generation_env_fingerprint,
+				reused=excluded.reused,
+				reuse_stage=excluded.reuse_stage,
+				reuse_key=excluded.reuse_key,
+				reuse_reason=excluded.reuse_reason,
+				reused_from_run_id=excluded.reused_from_run_id,
+				reused_from_case_id=excluded.reused_from_case_id,
 				latency_ms=excluded.latency_ms,
 				prompt_tokens=excluded.prompt_tokens,
 				completion_tokens=excluded.completion_tokens,
 				total_tokens=excluded.total_tokens,
+				token_source=excluded.token_source,
+				estimated_cost_usd=excluded.estimated_cost_usd,
+				cost_source=excluded.cost_source,
 				generated_at_utc=excluded.generated_at_utc,
 				success=excluded.success,
 				truncated=excluded.truncated,
 				error_json=excluded.error_json,
 				updated_db_at_utc=excluded.updated_db_at_utc`,
-			caseID, manifest.RunID, c.Model, c.Language, c.SampleID, nullString(sampleUID), c.SamplePath,
+			caseID, manifest.RunID, c.Model, nullString(subjectID), nullString(c.SubjectKind), nullString(c.AgentFramework), nullString(c.AgentModel), nullString(c.SkillName), nullString(c.SkillVersion),
+			c.Language, c.SampleID, nullString(sampleUID), c.SamplePath,
 			promptRenderingID, nullString(generatedTestArtifactID), nullString(responseArtifactID), nullString(metadataArtifactID),
-			c.LatencyMS, nullableInt(c.PromptTokens), nullableInt(c.CompletionTokens), nullableInt(c.TotalTokens), formatTime(c.GeneratedAtUTC),
+			nullString(traceArtifactID), nullString(workspaceDiffArtifactID), nullString(c.SandboxFingerprint),
+			nullString(subjectVersionID), nullString(c.GenerationKey), nullString(c.DependencyFingerprint), nullString(c.GenerationEnvFingerprint),
+			boolToInt(c.Reused), nullString(c.ReuseStage), nullString(c.ReuseKey), nullString(c.ReuseReason), nullString(c.ReusedFromRunID), nullString(c.ReusedFromCaseID),
+			c.LatencyMS, nullableInt(c.PromptTokens), nullableInt(c.CompletionTokens), nullableInt(c.TotalTokens), nullString(c.TokenSource), nullableFloat(c.EstimatedCostUSD), nullString(c.CostSource), formatTime(c.GeneratedAtUTC),
 			boolToInt(c.Success), boolToInt(c.Truncated), nullString(string(mustJSON(c.Error))), now, now); err != nil {
 			return fmt.Errorf("upsert generated case: %w", err)
 		}
@@ -1276,6 +1748,8 @@ func (s *SQLiteStore) ingestEvaluationTx(ctx context.Context, tx *sql.Tx, path s
 	for _, row := range set.Results {
 		sourceArtifactID, _ := s.putOptionalArtifact(ctx, tx, ictx, "dataset_source", row.SourcePath, "source")
 		generatedTestArtifactID, _ := s.putOptionalArtifact(ctx, tx, ictx, "generated_test", row.GeneratedTestPath, "generated_test")
+		traceArtifactID, _ := s.putOptionalArtifact(ctx, tx, ictx, "agent_trace", row.TracePath, "trace")
+		workspaceDiffArtifactID, _ := s.putOptionalArtifact(ctx, tx, ictx, "agent_workspace_diff", row.WorkspaceDiffPath, "workspace_diff")
 		generatedCaseID := stableID("generated_case", set.RunID, row.Model, row.Language, row.SampleID)
 		resultID := stableID("evaluation_result", evalRunID, row.Model, row.Language, row.SampleID)
 		eligible := true
@@ -1283,18 +1757,29 @@ func (s *SQLiteStore) ingestEvaluationTx(ctx context.Context, tx *sql.Tx, path s
 			eligible = *row.ScoreEligible
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO evaluation_results(evaluation_result_id, evaluation_run_id, run_id, model, language, sample_id,
+			INSERT INTO evaluation_results(evaluation_result_id, evaluation_run_id, run_id, model, subject_id, subject_kind, agent_framework, agent_model, skill_name, skill_version,
+				language, sample_id, sample_uid,
 				generated_case_id, generated_test_artifact_id, source_artifact_id,
 				compile_pass, test_pass, test_pass_count, test_total_count, test_pass_rate,
 				line_coverage, branch_coverage, mutation_score, mutation_total, mutation_killed, mutation_survived,
 				mutation_no_tests, mutation_timeouts, mutation_skipped, mutation_suspicious,
 				assertion_count, test_case_count, assertion_density, runtime_ms,
-				prompt_tokens, completion_tokens, total_tokens, truncated, mutation_tool,
+				prompt_tokens, completion_tokens, total_tokens, token_source, estimated_cost_usd, cost_source, truncated, mutation_tool,
 				failure_origin, score_eligible, score_exclusion_reason,
 				compile_error, test_error, coverage_error, mutation_error,
+				trace_artifact_id, workspace_diff_artifact_id, sandbox_fingerprint,
+				evaluation_key, evaluator_version, mutation_config_sha256,
+				reused, reuse_stage, reuse_key, reuse_reason, reused_from_run_id, reused_from_result_id,
 				created_db_at_utc, updated_db_at_utc)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(evaluation_run_id, model, language, sample_id) DO UPDATE SET
+				subject_id=excluded.subject_id,
+				subject_kind=excluded.subject_kind,
+				agent_framework=excluded.agent_framework,
+				agent_model=excluded.agent_model,
+				skill_name=excluded.skill_name,
+				skill_version=excluded.skill_version,
+				sample_uid=excluded.sample_uid,
 				generated_case_id=excluded.generated_case_id,
 				generated_test_artifact_id=excluded.generated_test_artifact_id,
 				source_artifact_id=excluded.source_artifact_id,
@@ -1320,6 +1805,9 @@ func (s *SQLiteStore) ingestEvaluationTx(ctx context.Context, tx *sql.Tx, path s
 				prompt_tokens=excluded.prompt_tokens,
 				completion_tokens=excluded.completion_tokens,
 				total_tokens=excluded.total_tokens,
+				token_source=excluded.token_source,
+				estimated_cost_usd=excluded.estimated_cost_usd,
+				cost_source=excluded.cost_source,
 				truncated=excluded.truncated,
 				mutation_tool=excluded.mutation_tool,
 				failure_origin=excluded.failure_origin,
@@ -1329,19 +1817,69 @@ func (s *SQLiteStore) ingestEvaluationTx(ctx context.Context, tx *sql.Tx, path s
 				test_error=excluded.test_error,
 				coverage_error=excluded.coverage_error,
 				mutation_error=excluded.mutation_error,
+				trace_artifact_id=excluded.trace_artifact_id,
+				workspace_diff_artifact_id=excluded.workspace_diff_artifact_id,
+				sandbox_fingerprint=excluded.sandbox_fingerprint,
+				evaluation_key=excluded.evaluation_key,
+				evaluator_version=excluded.evaluator_version,
+				mutation_config_sha256=excluded.mutation_config_sha256,
+				reused=excluded.reused,
+				reuse_stage=excluded.reuse_stage,
+				reuse_key=excluded.reuse_key,
+				reuse_reason=excluded.reuse_reason,
+				reused_from_run_id=excluded.reused_from_run_id,
+				reused_from_result_id=excluded.reused_from_result_id,
 				updated_db_at_utc=excluded.updated_db_at_utc`,
-			resultID, evalRunID, set.RunID, row.Model, row.Language, row.SampleID,
+			resultID, evalRunID, set.RunID, row.Model, nullString(firstNonEmpty(row.SubjectID, row.Model)), nullString(row.SubjectKind), nullString(row.AgentFramework), nullString(row.AgentModel), nullString(row.SkillName), nullString(row.SkillVersion),
+			row.Language, row.SampleID, nullString(row.SampleUID),
 			generatedCaseID, nullString(generatedTestArtifactID), nullString(sourceArtifactID),
 			boolToInt(row.CompilePass), ptrBoolToNullableInt(row.TestPass), nullableInt(row.TestPassCount), nullableInt(row.TestTotalCount), nullableFloat(row.TestPassRate),
 			nullableFloat(row.LineCoverage), nullableFloat(row.BranchCoverage), nullableFloat(row.MutationScore), nullableInt(row.MutationTotal), nullableInt(row.MutationKilled), nullableInt(row.MutationSurvived),
 			nullableInt(row.MutationNoTests), nullableInt(row.MutationTimeouts), nullableInt(row.MutationSkipped), nullableInt(row.MutationSuspicious),
 			nullableInt(row.AssertionCount), nullableInt(row.TestCaseCount), nullableFloat(row.AssertionDensity), nullableInt(row.RuntimeMS),
-			nullableInt(row.PromptTokens), nullableInt(row.CompletionTokens), nullableInt(row.TotalTokens), boolToInt(row.Truncated), nullString(row.MutationTool),
+			nullableInt(row.PromptTokens), nullableInt(row.CompletionTokens), nullableInt(row.TotalTokens), nullString(row.TokenSource), nullableFloat(row.EstimatedCostUSD), nullString(row.CostSource), boolToInt(row.Truncated), nullString(row.MutationTool),
 			nullString(row.FailureOrigin), boolToInt(eligible), nullString(row.ScoreExclusionReason),
 			nullString(row.CompileError), nullString(row.TestError), nullString(row.CoverageError), nullString(row.MutationError),
+			nullString(traceArtifactID), nullString(workspaceDiffArtifactID), nullString(row.SandboxFingerprint),
+			nullString(row.EvaluationKey), nullString(row.EvaluatorVersion), nullString(row.MutationConfigSHA256),
+			boolToInt(row.Reused), nullString(row.ReuseStage), nullString(row.ReuseKey), nullString(row.ReuseReason), nullString(row.ReusedFromRunID), nullString(row.ReusedFromResultID),
 			now, now); err != nil {
 			return fmt.Errorf("upsert evaluation result: %w", err)
 		}
+	}
+	return nil
+}
+
+func (s *SQLiteStore) upsertSubjectTx(ctx context.Context, tx *sql.Tx, subjectID, subjectKind, framework, model, skill, now string) error {
+	if strings.TrimSpace(subjectID) == "" {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO subjects(subject_id, subject_kind, framework, model, skill, display_name, enabled, tags_json, created_at_utc, updated_at_utc)
+		VALUES(?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+		ON CONFLICT(subject_id) DO UPDATE SET
+			subject_kind=excluded.subject_kind,
+			framework=excluded.framework,
+			model=excluded.model,
+			skill=excluded.skill,
+			display_name=excluded.display_name,
+			updated_at_utc=excluded.updated_at_utc`,
+		subjectID, nullString(subjectKind), nullString(framework), nullString(model), nullString(skill), subjectID, "[]", now, now); err != nil {
+		return fmt.Errorf("upsert subject: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) upsertSubjectVersionTx(ctx context.Context, tx *sql.Tx, subjectVersionID, subjectID, modelConfigID, sandboxFingerprint, now string) error {
+	if strings.TrimSpace(subjectVersionID) == "" || strings.TrimSpace(subjectID) == "" {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO subject_versions(subject_version_id, subject_id, model_config_id, sandbox_fingerprint, created_at_utc)
+		VALUES(?, ?, ?, ?, ?)
+		ON CONFLICT(subject_version_id) DO NOTHING`,
+		subjectVersionID, subjectID, nullString(modelConfigID), nullString(sandboxFingerprint), now); err != nil {
+		return fmt.Errorf("upsert subject version: %w", err)
 	}
 	return nil
 }
@@ -1396,7 +1934,10 @@ func (s *SQLiteStore) upsertDatasetSnapshot(ctx context.Context, tx *sql.Tx, man
 		}
 		class, scenario := inferClassScenario(c.SamplePath, c.SampleID)
 		sourceArtifactID, sha, _ := s.putSourceArtifact(ctx, tx, ictx, c.SamplePath)
-		uid := stableID("dataset_sample", c.Language, c.SampleID, c.SamplePath, sha)
+		uid := strings.TrimSpace(c.SampleUID)
+		if uid == "" {
+			uid = stableID("dataset_sample", c.Language, c.SampleID, c.SamplePath, sha)
+		}
 		byKey[key] = sampleInfo{
 			key: key, uid: uid, id: c.SampleID, language: c.Language, class: class, scenario: scenario,
 			path: c.SamplePath, sha: sha, artifact: sourceArtifactID,
@@ -1601,8 +2142,8 @@ func inferClassScenario(path, sampleID string) (string, string) {
 	switch {
 	case strings.Contains(p, "self_contained"):
 		class = "self_contained"
-	case strings.Contains(p, "module_level"):
-		class = "module_level"
+	case strings.Contains(p, "repo_level"):
+		class = "repo_level"
 	}
 	scenario := filepath.Base(filepath.Dir(path))
 	if scenario == "." || scenario == "" {
@@ -1788,6 +2329,15 @@ func nonEmptyStrings(values []string) []string {
 	return out
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func nowUTC() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
 }
@@ -1832,6 +2382,139 @@ func (s *SQLiteStore) ListGenerationRuns(ctx context.Context, limit int) ([]DBGe
 			return nil, err
 		}
 		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListAssetSubjects(ctx context.Context, limit int) ([]DBSubjectAssetItem, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT COALESCE(s.subject_id, gc.subject_id, gc.model) AS subject_id,
+		       COALESCE(s.subject_kind, gc.subject_kind, ''),
+		       COALESCE(s.framework, gc.agent_framework, ''),
+		       COALESCE(s.model, gc.agent_model, ''),
+		       COALESCE(s.skill, gc.skill_name, ''),
+		       COUNT(DISTINCT gc.generated_case_id) AS generated_cases,
+		       COUNT(DISTINCT er.evaluation_result_id) AS evaluation_results,
+		       COALESCE(MAX(gc.generated_at_utc), '') AS latest_generated_at
+		FROM generated_cases gc
+		LEFT JOIN subjects s ON s.subject_id = gc.subject_id
+		LEFT JOIN evaluation_results er ON er.generated_case_id = gc.generated_case_id
+		GROUP BY subject_id
+		ORDER BY latest_generated_at DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBSubjectAssetItem
+	for rows.Next() {
+		var row DBSubjectAssetItem
+		if err := rows.Scan(&row.SubjectID, &row.SubjectKind, &row.Framework, &row.Model, &row.Skill, &row.GeneratedCases, &row.EvaluationResults, &row.LatestGeneratedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListAssetGenerations(ctx context.Context, subjectID, language, sampleID string, limit int) ([]DBGenerationAssetItem, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if subjectID != "" {
+		where = append(where, "COALESCE(subject_id, model) = ?")
+		args = append(args, subjectID)
+	}
+	if language != "" {
+		where = append(where, "language = ?")
+		args = append(args, language)
+	}
+	if sampleID != "" {
+		where = append(where, "sample_id = ?")
+		args = append(args, sampleID)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT gc.generated_case_id, gc.run_id, COALESCE(gc.subject_id, gc.model), gc.language, gc.sample_id,
+		       COALESCE(gc.subject_version_id, ''), COALESCE(gc.sample_uid, ''),
+		       COALESCE(gc.generation_key, ''), COALESCE(gc.dependency_fingerprint, ''),
+		       COALESCE(gc.generation_env_fingerprint, ''), COALESCE(gc.sandbox_fingerprint, ''),
+		       gc.success, gc.reused, COALESCE(gc.generated_at_utc, ''),
+		       COALESCE(test_art.path, '')
+		FROM generated_cases gc
+		LEFT JOIN artifacts test_art ON test_art.artifact_id = gc.generated_test_artifact_id
+		WHERE `+strings.Join(where, " AND ")+`
+		ORDER BY gc.generated_at_utc DESC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBGenerationAssetItem
+	for rows.Next() {
+		var row DBGenerationAssetItem
+		var success, reused int
+		if err := rows.Scan(
+			&row.GeneratedCaseID, &row.RunID, &row.SubjectID, &row.Language, &row.SampleID,
+			&row.SubjectVersionID, &row.SampleUID, &row.GenerationKey, &row.DependencyFingerprint,
+			&row.GenerationEnvFingerprint, &row.SandboxFingerprint,
+			&success, &reused, &row.GeneratedAtUTC, &row.GeneratedTestPath,
+		); err != nil {
+			return nil, err
+		}
+		row.Success = success != 0
+		row.Reused = reused != 0
+		row.GeneratedTestPath = resolveStoredPath(row.GeneratedTestPath)
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListAssetEvaluations(ctx context.Context, subjectID, language, sampleID string, limit int) ([]DBEvaluationAssetItem, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if subjectID != "" {
+		where = append(where, "COALESCE(subject_id, model) = ?")
+		args = append(args, subjectID)
+	}
+	if language != "" {
+		where = append(where, "language = ?")
+		args = append(args, language)
+	}
+	if sampleID != "" {
+		where = append(where, "sample_id = ?")
+		args = append(args, sampleID)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT evaluation_result_id, run_id, COALESCE(subject_id, model), language, sample_id,
+		       COALESCE(evaluation_key, ''), compile_pass, reused, COALESCE(updated_db_at_utc, '')
+		FROM evaluation_results
+		WHERE `+strings.Join(where, " AND ")+`
+		ORDER BY updated_db_at_utc DESC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBEvaluationAssetItem
+	for rows.Next() {
+		var row DBEvaluationAssetItem
+		var compilePass, reused int
+		if err := rows.Scan(&row.EvaluationResultID, &row.RunID, &row.SubjectID, &row.Language, &row.SampleID, &row.EvaluationKey, &compilePass, &reused, &row.CreatedAtUTC); err != nil {
+			return nil, err
+		}
+		row.CompilePass = compilePass != 0
+		row.Reused = reused != 0
+		out = append(out, row)
 	}
 	return out, rows.Err()
 }

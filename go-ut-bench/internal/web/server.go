@@ -1,3 +1,5 @@
+// web 包提供 HTTP 管理服务
+// 提供 Web UI 和 API 接口，用于启动评测、查看进度、生成报告
 package web
 
 import (
@@ -418,7 +420,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		Models:      models,
 		Languages:   []string{"python", "go", "java", "cpp"},
 		Scenarios:   []string{"boundary", "simple_function", "complex_dependency", "interface_mock"},
-		Classes:     []string{"self_contained", "module_level"},
+		Classes:     []string{"self_contained", "repo_level"},
 		DatasetRoot: s.mgr.datasetRoot,
 		ConfigPath:  s.configPath,
 	})

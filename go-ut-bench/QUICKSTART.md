@@ -1,80 +1,71 @@
-# go-ut-bench Docker 快速开始
+# go-ut-bench 快速开始
 
-这份文档只覆盖当前仓库真实存在的 Docker 用法，不再引用已经不存在的 `docker.sh` / `docker-compose` 包装脚本。
+这份文档只写当前仓库里已经能跑通的路径，并补上 Agent + Skill 的最小用法。
 
 ## 1. 构建镜像
+
+在 [go-ut-bench](/C:/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/go-ut-bench) 目录执行：
 
 ```bash
 docker build -t utbench:latest .
 ```
 
-检查 CLI 是否正常：
+检查 CLI：
 
 ```bash
 docker run --rm utbench:latest --help
 ```
 
-## 2. 准备目录和配置
+## 2. 准备配置
 
-仓库根目录下需要至少有这些内容：
+至少要有：
 
 - `datasets/`
 - `artifacts/`
 - `configs/models.yaml`
 
-如果要调用真实模型，再准备一个 `.env` 文件，例如：
+如果要调真实模型，再准备 `.env`：
 
 ```dotenv
-DEEPSEEK_API_KEY=sk-your-deepseek-key
-DASHSCOPE_API_KEY=sk-your-qwen-key
-MINIMAX_API_KEY=your-minimax-key
-VOLCENGINE_API_KEY=your-volcengine-key
-ARK_API_KEY=your-ark-key
+DEEPSEEK_API_KEY=...
+DASHSCOPE_API_KEY=...
+MINIMAX_API_KEY=...
+VOLCENGINE_API_KEY=...
+ARK_API_KEY=...
+BIGMODEL_API_KEY=...
 ```
 
-## 3. 先跑一个 dry-run
+如果要跑 CLI Agent，再准备一个 Agent 配置文件。仓库里已有示例：
 
-Windows PowerShell:
+- [configs/agents.example.yaml](/C:/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/go-ut-bench/configs/agents.example.yaml)
+
+如果你要跑当前示例里的 `OpenCode` framework，还需要先构建内层 Agent 镜像：
+
+```bash
+docker build -t utbench-agent-opencode:latest -f ./docker/agents/opencode/Dockerfile .
+```
+
+## 3. 先跑纯模型 baseline
+
+Windows PowerShell：
 
 ```powershell
-docker run --rm `
+docker run --rm --env-file .env `
   -v "${PWD}/datasets:/app/datasets" `
   -v "${PWD}/artifacts:/app/artifacts" `
   -v "${PWD}/configs:/app/configs" `
   utbench:latest run `
-    --models deepseek `
+    --models deepseek-v4-flash `
     --langs python `
     --dataset-root /app/datasets `
     --output-root /app/artifacts `
     --config /app/configs/models.yaml `
     --class self_contained `
-    --scenario simple_function `
     --max-samples 1 `
-    --run-id docker_dryrun_001 `
-    --dry-run
+    --run-id quick_model_001
 ```
 
-Linux / macOS:
-
-```bash
-docker run --rm \
-  -v "$(pwd)/datasets:/app/datasets" \
-  -v "$(pwd)/artifacts:/app/artifacts" \
-  -v "$(pwd)/configs:/app/configs" \
-  utbench:latest run \
-    --models deepseek \
-    --langs python \
-    --dataset-root /app/datasets \
-    --output-root /app/artifacts \
-    --config /app/configs/models.yaml \
-    --class self_contained \
-    --scenario simple_function \
-    --max-samples 1 \
-    --run-id docker_dryrun_001 \
-    --dry-run
-```
-
-## 4. 跑真实模型
+Linux / macOS：
 
 ```bash
 docker run --rm --env-file .env \
@@ -82,36 +73,103 @@ docker run --rm --env-file .env \
   -v "$(pwd)/artifacts:/app/artifacts" \
   -v "$(pwd)/configs:/app/configs" \
   utbench:latest run \
-    --models deepseek,qwen \
-    --langs python,go \
+    --models deepseek-v4-flash \
+    --langs python \
     --dataset-root /app/datasets \
     --output-root /app/artifacts \
     --config /app/configs/models.yaml \
     --class self_contained \
-    --max-samples 5 \
-    --run-id docker_real_001
+    --max-samples 1 \
+    --run-id quick_model_001
 ```
 
-## 5. 分步执行
+这会自动包含纯模型 subject：
 
-如果你不想直接跑 `run`，可以手动分阶段执行。注意要复用同一个 `--run-id`，否则输出会分散到不同目录。
+```text
+model_api__deepseek-v4-flash__no_skill
+```
+
+## 4. 跑 Agent + Skill
+
+当前 CLI Agent 的入口不是写死在代码里，而是从 `agents.yaml` 读：
+
+- `frameworks.<name>.command`
+- `frameworks.<name>.sandbox_mode`
+- `frameworks.<name>.docker_image`
+- `frameworks.<name>.env`
+- `frameworks.<name>.env_from_host`
+- `skills.<name>.*`
+
+最小命令：
 
 ```bash
-RUN_ID=docker_step_001
+docker run --rm --env-file .env \
+  -v "$(pwd)/datasets:/app/datasets" \
+  -v "$(pwd)/artifacts:/app/artifacts" \
+  -v "$(pwd)/configs:/app/configs" \
+  utbench:latest run \
+    --models deepseek-v4-flash \
+    --langs python \
+    --config /app/configs/models.yaml \
+    --agents-config /app/configs/agents.example.yaml \
+    --subjects model_api__deepseek-v4-flash__no_skill,opencode__deepseek-v4-flash__no_skill,opencode__deepseek-v4-flash__unit_test_skill \
+    --dataset-root /app/datasets \
+    --output-root /app/artifacts \
+    --class self_contained \
+    --max-samples 1 \
+    --run-id quick_agent_001
+```
 
+如果不传 `--subjects`，会自动展开 `framework × model × skill` 的全部合法组合。
+
+## 5. CLI Agent 实际怎么被调用
+
+当前实现是通用模板调用，不是为某一个 Agent 写死参数。
+
+`cli_agent` 的实际执行流程：
+
+1. 为每个 `subject × sample` 复制一个独立工作区
+2. 生成 `utbench_agent_prompt.md`
+3. 注入 skill 文件或 skill prompt
+4. 渲染 `framework.command`
+5. 执行命令
+6. 查找测试文件输出
+7. 记录 trace 和 workspace diff
+
+当 `sandbox_mode: docker` 时，UT-Bench 会实际执行一条内层 Docker 命令，逻辑等价于：
+
+```text
 docker run --rm \
+  [--network none] \
+  [--cpus ...] \
+  [--memory ...] \
+  -v <workspace>:/workspace \
+  -w /workspace \
+  <docker_image> \
+  /bin/sh -lc "<rendered command>"
+```
+
+所以，CLI Agent 不是共享整个 benchmark 运行目录，而是只看到当前样本的那个工作区。
+
+## 6. 只跑 generate / evaluate / report
+
+```bash
+RUN_ID=quick_step_001
+
+docker run --rm --env-file .env \
   -v "$(pwd)/datasets:/app/datasets" \
   -v "$(pwd)/artifacts:/app/artifacts" \
   -v "$(pwd)/configs:/app/configs" \
   utbench:latest generate \
     --run-id "$RUN_ID" \
-    --models deepseek \
+    --models deepseek-v4-flash \
     --langs python \
+    --config /app/configs/models.yaml \
+    --agents-config /app/configs/agents.example.yaml \
     --dataset-root /app/datasets \
     --output-root /app/artifacts \
-    --config /app/configs/models.yaml \
-    --max-samples 2 \
-    --dry-run
+    --class self_contained \
+    --max-samples 1
 
 docker run --rm \
   -v "$(pwd)/artifacts:/app/artifacts" \
@@ -124,38 +182,14 @@ docker run --rm \
   -v "$(pwd)/artifacts:/app/artifacts" \
   utbench:latest report \
     --run-id "$RUN_ID" \
-    --input /app/artifacts/runs/$RUN_ID/evaluation/evaluation_result.json \
+    --evaluation /app/artifacts/runs/$RUN_ID/evaluation/evaluation_result.json \
     --output-root /app/artifacts
 ```
 
-关键点：
+注意：
 
 - `evaluate` 用 `--manifest`
-- `report` 用 `--input`
-- 报告目录是 `/app/artifacts/runs/<run-id>/report/`
-
-## 6. 使用仓库自带脚本
-
-仓库里保留了两个可直接使用的包装脚本：
-
-Windows PowerShell:
-
-```powershell
-.\run_bench.ps1 -Models deepseek -Langs python -MaxSamples 2 -Mutation $false
-```
-
-Linux / macOS / WSL:
-
-```bash
-chmod +x ./run_bench.sh
-./run_bench.sh deepseek python 2 false
-```
-
-这两个脚本默认都使用：
-
-- 镜像名 `utbench:latest`
-- 配置文件 `/app/configs/models.yaml`
-- 挂载 `datasets/`、`artifacts/`、`configs/`
+- `report` 用 `--evaluation`
 
 ## 7. 结果目录
 
@@ -164,25 +198,26 @@ artifacts/runs/<run-id>/
   generated/
     generated_manifest.json
     tests/
+    prompts/
     metadata/
   evaluation/
     evaluation_result.json
   report/
     report_summary.json
     report.html
+  agent_workspaces/
+  logs/
   run_summary.json
 ```
 
-## 8. 常见问题
+## 8. 对 CLI Agent 的选择建议
 
-### `docker run ... evaluate --input ...` 为什么报错？
+如果现在就要接一个真实 Agent，建议先接 `OpenCode`。
 
-因为当前 CLI 的 `evaluate` 子命令只接受 `--manifest`。
+原因：
 
-### 为什么文档里的模型名和我本地不一样？
+- 更贴合 `framework × model` 的组合目标
+- 更适合作为“Agent 壳 + 多模型 provider”入口
+- 自动化 benchmark 场景里更容易做非交互式调用
 
-以 [configs/models.yaml](configs/models.yaml) 为准，命令里的 `--models` 必须使用其中的键名。
-
-### 为什么不建议依赖默认配置路径？
-
-因为 CLI 默认路径是 `../benchmark/config/models.yaml`。在当前仓库根目录运行时，更稳妥的做法是显式传入 `--config /app/configs/models.yaml` 或 `--config ./configs/models.yaml`。
+`Claude Code` 适合第二个接入，用来评测 Claude 自身工作流，而不是作为第一优先的多模型框架入口。
