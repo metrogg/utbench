@@ -7,6 +7,13 @@ storage/
 *.exe
 *.exe~
 
+# Datasets (runtime-mounted; not needed inside image; pytest leaves cache dirs
+# with restricted ACLs that break `docker build` context tar)
+datasets/
+**/pytest-cache-files-*
+**/.pytest_cache/
+**/__pycache__/
+
 # Git
 .git/
 .gitignore

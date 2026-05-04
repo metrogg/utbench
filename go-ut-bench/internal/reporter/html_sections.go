@@ -378,16 +378,20 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
         </div>
         <div class="lb-meta" style="border-top:1px dashed rgba(148,163,184,0.3);padding-top:8px;margin-top:6px;font-size:12px;">
           <span style="display:inline-flex;align-items:center;gap:4px;">
-            <span style="color:#64748b;">⏱</span>平均耗时: <strong>%s</strong>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M9 2h6"/></svg>
+            平均耗时: <strong>%s</strong>
           </span>
           <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;">
-            <span style="color:#64748b;">📊</span>平均Token: <strong>%s</strong>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+            平均Token: <strong>%s</strong>
           </span>
           <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;">
-            <span style="color:#64748b;">📝</span>样本数: <strong>%d</strong>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            样本数: <strong>%d</strong>
           </span>
           <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;">
-            <span style="color:#64748b;">🧾</span>Token口径: <strong>%s</strong>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2v20l2-2 2 2 2-2 2 2 2-2 2 2 2-2 2 2V2l-2 2-2-2-2 2-2-2-2 2-2-2-2 2z"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="13" y2="14"/></svg>
+            Token口径: <strong>%s</strong>
           </span>
         </div>
       </div>
