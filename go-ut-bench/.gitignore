@@ -56,3 +56,4 @@ docker_build*
 
 # Environment files
 .env
+*.exe~
