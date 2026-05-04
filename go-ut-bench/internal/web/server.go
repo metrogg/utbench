@@ -362,6 +362,21 @@ type dbReportRequest struct {
 	ScoreEligibleOnly bool     `json:"score_eligible_only"`
 }
 
+// dbReportSummary 是写入 _db_report 目录下 run_summary.json 的结构，
+// 使合并报告能被 /api/runs 发现并显示在 Web UI 中。
+type dbReportSummary struct {
+	RunID           string            `json:"run_id"`
+	CreatedAtUTC    string            `json:"created_at_utc"`
+	SchemaVersion   string            `json:"schema_version"`
+	Phase           string            `json:"phase"`
+	SourceRunIDs    []string          `json:"source_run_ids"`
+	ResultCount     int               `json:"result_count"`
+	ReportJSONPath  string            `json:"report_json_path"`
+	ReportHTMLPath  string            `json:"report_html_path"`
+	IsMergedReport  bool              `json:"is_merged_report"`
+	Spec            contracts.RunSpec `json:"spec"`
+}
+
 func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -376,13 +391,34 @@ func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
 	if outRunID == "" {
 		outRunID = contracts.NewRunID() + "_db_report"
 	}
+
+	// 增量合并：如果指定了 run_id 且该目录下已有 run_summary.json，
+	// 读取其 source_run_ids 与本次新选的合并（去重）。
+	allSourceRunIDs := append([]string{}, req.SourceRunIDs...)
+	summaryPath := filepath.Join(s.outputRoot, "runs", outRunID, "run_summary.json")
+	if existing, err := os.ReadFile(summaryPath); err == nil {
+		var prev dbReportSummary
+		if json.Unmarshal(existing, &prev) == nil && len(prev.SourceRunIDs) > 0 {
+			seen := make(map[string]bool, len(allSourceRunIDs))
+			for _, id := range allSourceRunIDs {
+				seen[id] = true
+			}
+			for _, id := range prev.SourceRunIDs {
+				if !seen[id] {
+					allSourceRunIDs = append(allSourceRunIDs, id)
+					seen[id] = true
+				}
+			}
+		}
+	}
+
 	db, err := s.openStore(r.Context())
 	if err != nil {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	set, err := db.SelectEvaluationResultSet(r.Context(), outRunID, store.DBReportFilter{
-		RunIDs:            req.SourceRunIDs,
+		RunIDs:            allSourceRunIDs,
 		EvaluationRunIDs:  req.EvaluationRunIDs,
 		Models:            req.Models,
 		Languages:         req.Languages,
@@ -406,11 +442,61 @@ func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusInternalServerError, "report generated but ingest failed: "+err.Error())
 		return
 	}
+
+	// 写入 run_summary.json，使合并报告出现在 /api/runs 列表中。
+	// 收集涉及的模型和语言。
+	modelSet := make(map[string]bool)
+	langSet := make(map[string]bool)
+	for _, res := range set.Results {
+		modelSet[res.Model] = true
+		langSet[res.Language] = true
+	}
+	models := make([]string, 0, len(modelSet))
+	for m := range modelSet {
+		models = append(models, m)
+	}
+	languages := make([]string, 0, len(langSet))
+	for l := range langSet {
+		languages = append(languages, l)
+	}
+	sort.Strings(models)
+	sort.Strings(languages)
+
+	summary := dbReportSummary{
+		RunID:          outRunID,
+		CreatedAtUTC:   time.Now().UTC().Format(time.RFC3339Nano),
+		SchemaVersion:  "v0.1.0",
+		Phase:          "report",
+		SourceRunIDs:   allSourceRunIDs,
+		ResultCount:    len(set.Results),
+		ReportJSONPath: out.ReportJSONPath,
+		ReportHTMLPath: out.ReportHTMLPath,
+		IsMergedReport: true,
+		Spec: contracts.RunSpec{
+			RunID:        outRunID,
+			Models:       models,
+			Languages:    languages,
+			OutputRoot:   s.outputRoot,
+			ConfigPath:   s.configPath,
+			CreatedAtUTC: time.Now().UTC(),
+		},
+	}
+	if data, err := json.MarshalIndent(summary, "", "  "); err == nil {
+		_ = os.MkdirAll(filepath.Dir(summaryPath), 0o755)
+		_ = os.WriteFile(summaryPath, data, 0o644)
+	}
+
+	// 使 runs 缓存失效，下次 loadRuns 能立即看到新合并报告。
+	s.cacheMu.Lock()
+	s.runsCache = nil
+	s.cacheMu.Unlock()
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"run_id":           outRunID,
 		"result_count":     len(set.Results),
 		"report_json_path": out.ReportJSONPath,
 		"report_html_path": out.ReportHTMLPath,
+		"source_run_ids":   allSourceRunIDs,
 	})
 }
 
@@ -674,14 +760,17 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 // ─── /api/runs ───────────────────────────────────────────────────────────────
 
 type runSummaryItem struct {
-	RunID     string            `json:"run_id"`
-	Status    RunStatus         `json:"status"`
-	Paused    bool              `json:"paused,omitempty"`
-	StartedAt time.Time         `json:"started_at"`
-	EndedAt   *time.Time        `json:"ended_at,omitempty"`
-	Error     string            `json:"error,omitempty"`
-	Spec      contracts.RunSpec `json:"spec"`
-	UseDocker bool              `json:"use_docker,omitempty"`
+	RunID          string            `json:"run_id"`
+	Status         RunStatus         `json:"status"`
+	Paused         bool              `json:"paused,omitempty"`
+	StartedAt      time.Time         `json:"started_at"`
+	EndedAt        *time.Time        `json:"ended_at,omitempty"`
+	Error          string            `json:"error,omitempty"`
+	Spec           contracts.RunSpec `json:"spec"`
+	UseDocker      bool              `json:"use_docker,omitempty"`
+	IsMergedReport bool              `json:"is_merged_report,omitempty"`
+	SourceRunIDs   []string          `json:"source_run_ids,omitempty"`
+	ResultCount    int               `json:"result_count,omitempty"`
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
@@ -750,10 +839,13 @@ func (s *Server) listRunsFromDisk(w http.ResponseWriter, activeRuns []*RunEntry,
 	matches, _ := filepath.Glob(pattern)
 	for _, path := range matches {
 		var raw struct {
-			RunID        string            `json:"run_id"`
-			CreatedAtUTC string            `json:"created_at_utc"`
-			Spec         contracts.RunSpec `json:"spec"`
-			Backend      string            `json:"backend"`
+			RunID          string            `json:"run_id"`
+			CreatedAtUTC   string            `json:"created_at_utc"`
+			Spec           contracts.RunSpec `json:"spec"`
+			Backend        string            `json:"backend"`
+			IsMergedReport bool              `json:"is_merged_report"`
+			SourceRunIDs   []string          `json:"source_run_ids"`
+			ResultCount    int               `json:"result_count"`
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -769,11 +861,14 @@ func (s *Server) listRunsFromDisk(w http.ResponseWriter, activeRuns []*RunEntry,
 		if _, exists := byID[runID]; !exists {
 			t, _ := time.Parse(time.RFC3339Nano, raw.CreatedAtUTC)
 			byID[runID] = runSummaryItem{
-				RunID:     runID,
-				Status:    StatusCompleted,
-				StartedAt: t,
-				Spec:      raw.Spec,
-				UseDocker: strings.EqualFold(strings.TrimSpace(raw.Backend), "docker"),
+				RunID:          runID,
+				Status:         StatusCompleted,
+				StartedAt:      t,
+				Spec:           raw.Spec,
+				UseDocker:      strings.EqualFold(strings.TrimSpace(raw.Backend), "docker"),
+				IsMergedReport: raw.IsMergedReport,
+				SourceRunIDs:   raw.SourceRunIDs,
+				ResultCount:    raw.ResultCount,
 			}
 		}
 	}

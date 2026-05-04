@@ -486,30 +486,38 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
             <tbody>
               <template x-for="run in filteredRuns" :key="run.run_id">
                 <tr>
-                  <td class="font-mono text-[12px]" style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="run.run_id"></td>
-                  <td @click="openRun(run.run_id)" style="cursor:pointer">
+                  <td class="font-mono text-[12px]" style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? window.open('/api/runs/' + run.run_id + '/report-html') : openRun(run.run_id)">
+                    <span x-text="run.run_id"></span>
+                    <span x-show="run.is_merged_report" class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full" style="background:var(--accent-bg);color:var(--accent)">合并</span>
+                  </td>
+                  <td @click="run.is_merged_report ? null : openRun(run.run_id)" style="cursor:pointer">
                     <span :class="'status-' + run.status" class="inline-flex items-center text-[12px] font-medium px-2.5 py-0.5 rounded-full" style="background:var(--badge-bg)">
                       <span class="status-dot"></span><span x-text="statusText(run.status, run.paused)"></span>
                     </span>
                     <span x-show="run.paused" class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background:var(--warn-bg);color:var(--yellow)">暂停</span>
                   </td>
-                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="runSubjectSummary(run)"></td>
-                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="(run.spec?.languages ?? []).join(', ') || '—'"></td>
-                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="run.spec?.dataset_scenario || '—'"></td>
-                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="run.spec?.max_samples ?? '—'"></td>
-                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="fmtTime(run.started_at)"></td>
-                  <td style="color:var(--fg-muted);cursor:pointer" @click="openRun(run.run_id)" x-text="duration(run.started_at, run.ended_at)"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="run.is_merged_report ? (run.source_run_ids?.length || 0) + ' 个源运行 · ' + (run.result_count || '?') + ' 条结果' : runSubjectSummary(run)"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="(run.spec?.languages ?? []).join(', ') || '—'"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="run.spec?.dataset_scenario || '—'"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="run.spec?.max_samples || '—'"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="fmtTime(run.started_at)"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="duration(run.started_at, run.ended_at)"></td>
                   <td class="text-right whitespace-nowrap">
-                    <template x-if="run.status === 'running'">
+                    <template x-if="run.status === 'running' && !run.is_merged_report">
                       <span class="inline-flex gap-1.5">
                         <button x-show="!run.paused" @click.stop="runControl(run.run_id, 'pause')" class="text-[12px]" style="color:var(--yellow)" title="暂停">暂停</button>
                         <button x-show="run.paused" @click.stop="runControl(run.run_id, 'resume')" class="text-[12px]" style="color:var(--accent)" title="继续">继续</button>
                         <button @click.stop="runControl(run.run_id, 'cancel')" class="text-[12px]" style="color:var(--red)" title="取消">取消</button>
                       </span>
                     </template>
-                    <button x-show="run.status === 'completed' || run.status === 'failed' || run.status === 'canceled'" @click.stop="ingestRunToDB(run.run_id)" :disabled="dbIngesting" class="text-[12px] mr-2" style="color:var(--green)" title="补录该任务到数据库">入库</button>
-                    <button @click.stop="rerunRun(run.run_id)" class="text-[12px] mr-2" style="color:var(--yellow)" title="以相同配置再跑一次">重跑</button>
-                    <button @click.stop="openRun(run.run_id)" class="text-[12px]" style="color:var(--accent)">详情 →</button>
+                    <button x-show="!run.is_merged_report && (run.status === 'completed' || run.status === 'failed' || run.status === 'canceled')" @click.stop="ingestRunToDB(run.run_id)" :disabled="dbIngesting" class="text-[12px] mr-2" style="color:var(--green)" title="补录该任务到数据库">入库</button>
+                    <button x-show="!run.is_merged_report" @click.stop="rerunRun(run.run_id)" class="text-[12px] mr-2" style="color:var(--yellow)" title="以相同配置再跑一次">重跑</button>
+                    <template x-if="run.is_merged_report">
+                      <a :href="'/api/runs/' + run.run_id + '/report-html'" target="_blank" @click.stop class="text-[12px]" style="color:var(--accent)">查看报告 →</a>
+                    </template>
+                    <template x-if="!run.is_merged_report">
+                      <button @click.stop="openRun(run.run_id)" class="text-[12px]" style="color:var(--accent)">详情 →</button>
+                    </template>
                   </td>
                 </tr>
               </template>
@@ -568,6 +576,41 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
             </template>
           </div>
 
+          <!-- 已有合并报告（可追加） -->
+          <div x-show="mergedReports.length > 0" class="form-section">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="section-title">已有合并报告（可追加新数据）</div>
+              <span x-show="pinnedReportID" class="text-[11px] px-2 py-0.5 rounded-full" style="background:var(--accent-bg);color:var(--accent)">
+                已置顶: <span class="font-mono" x-text="pinnedReportID?.slice(0,20) + '...'"></span>
+              </span>
+            </div>
+            <div class="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              <template x-for="mr in sortedMergedReports" :key="mr.run_id">
+                <label class="flex items-start gap-2 text-[12px] cursor-pointer p-2 rounded hover-surface transition-colors"
+                       :style="dbReportSelection.merge_target === mr.run_id ? 'outline:1px solid var(--accent); background:var(--bg-overlay)' : ''">
+                  <input type="radio" name="merge_target" :value="mr.run_id"
+                         :checked="dbReportSelection.merge_target === mr.run_id"
+                         @change="selectMergeTarget(mr.run_id)" class="mt-0.5" style="accent-color:var(--accent)">
+                  <span class="min-w-0 flex-1">
+                    <span class="font-mono block truncate">
+                      <span x-text="mr.run_id"></span>
+                      <span x-show="pinnedReportID === mr.run_id" class="ml-1 text-[10px]" style="color:var(--yellow)" title="已置顶">&#9733;</span>
+                    </span>
+                    <span class="text-[11px]" style="color:var(--fg-subtle)" x-text="`${mr.result_count || '?'} 条结果 · ${mr.source_run_ids?.length || 0} 个源运行 · ${mr.started_at?.slice(0,10) || ''}`"></span>
+                  </span>
+                  <button @click.stop="togglePinReport(mr.run_id)" class="text-[14px] shrink-0 px-1" :style="pinnedReportID === mr.run_id ? 'color:var(--yellow)' : 'color:var(--fg-muted)'" :title="pinnedReportID === mr.run_id ? '取消置顶' : '置顶为主报告'">
+                    <span x-text="pinnedReportID === mr.run_id ? '&#9733;' : '&#9734;'"></span>
+                  </button>
+                  <a :href="'/api/runs/' + mr.run_id + '/report-html'" target="_blank"
+                     @click.stop class="text-[11px] shrink-0" style="color:var(--accent)" title="查看报告">查看</a>
+                </label>
+              </template>
+            </div>
+            <div class="text-[11px] mt-2" style="color:var(--fg-muted)">
+              点击 &#9734; 置顶主报告，之后每次合并自动追加到置顶报告。不选择则创建新报告。
+            </div>
+          </div>
+
           <!-- 跨运行对比报告生成 -->
           <div class="form-section">
             <div class="flex flex-wrap items-start gap-3 mb-4">
@@ -618,14 +661,24 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
               <div>
                 <div class="label-text">当前选择</div>
                 <div class="text-[12px] p-3 rounded-lg mb-3" style="background:var(--bg-overlay)">
+                  <div x-show="dbReportSelection.merge_target" class="font-medium mb-1" style="color:var(--accent)">
+                    追加到: <span class="font-mono" x-text="dbReportSelection.merge_target?.slice(0,20) + '...'"></span>
+                  </div>
                   <div x-text="'运行: ' + (dbReportSelection.run_ids.length || '全部')"></div>
                   <div x-text="'模型: ' + (dbReportSelection.models.length || '全部')"></div>
                   <div x-text="'语言: ' + (dbReportSelection.languages.length || '全部')"></div>
                 </div>
                 <button @click="generateDBReport()" :disabled="dbReportGenerating" class="btn-primary text-[12px] w-full py-2.5">
-                  <span x-text="dbReportGenerating ? '生成中...' : '生成对比报告'"></span>
+                  <span x-text="dbReportGenerating ? '生成中...' : (dbReportSelection.merge_target ? '追加合并' : '生成对比报告')"></span>
                 </button>
                 <button @click="clearReportSelection()" class="btn-ghost text-[12px] w-full mt-2">清空选择</button>
+                <!-- 生成结果链接 -->
+                <div x-show="lastDBReportResult" class="mt-3 p-2 rounded-lg text-[12px]" style="background:var(--bg-overlay)">
+                  <div class="mb-1" style="color:var(--green)">报告已生成</div>
+                  <a :href="'/api/runs/' + lastDBReportResult?.run_id + '/report-html'" target="_blank" class="underline" style="color:var(--accent)">查看 HTML 报告</a>
+                  <span class="mx-1" style="color:var(--fg-muted)">|</span>
+                  <span style="color:var(--fg-subtle)" x-text="lastDBReportResult?.result_count + ' 条结果'"></span>
+                </div>
               </div>
             </div>
           </div>
@@ -1445,7 +1498,14 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                   <td class="font-medium text-[13px]"><span class="mono-clip" :title="m.name" x-text="m.name"></span></td>
                   <td class="text-[12px]" style="color:var(--fg-muted)" x-text="m.provider"></td>
                   <td class="font-mono text-[12px]"><span class="mono-clip" :title="m.model_id" x-text="m.model_id"></span></td>
-                  <td class="font-mono text-[11px]" style="color:var(--fg-muted)"><span class="mono-clip" :title="m.api_endpoint" x-text="m.api_endpoint"></span></td>
+                  <td class="font-mono text-[11px]" style="color:var(--fg-muted)">
+                    <span class="mono-clip" :title="m.api_endpoint" x-text="m.api_endpoint"></span>
+                    <template x-if="m.anthropic_endpoint">
+                      <div class="mt-0.5 text-[10px]" style="color:var(--accent)">
+                        <span class="mono-clip" :title="'Anthropic: ' + m.anthropic_endpoint" x-text="'Anthropic: ' + m.anthropic_endpoint"></span>
+                      </div>
+                    </template>
+                  </td>
                   <td class="text-[12px]">
                     <div class="key-cell">
                       <span class="font-mono text-[11px] mono-clip" style="color:var(--fg-muted)" :title="m.api_key_env" x-text="m.api_key_env"></span>
@@ -1509,8 +1569,15 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
               </div>
             </div>
             <div>
-              <label class="text-[11px] font-medium" style="color:var(--fg-muted)">API 端点 <span style="color:var(--red)">*</span></label>
+              <label class="text-[11px] font-medium" style="color:var(--fg-muted)">API 端点（OpenAI 兼容）<span style="color:var(--red)">*</span></label>
               <input x-model="modelForm.api_endpoint" type="text" class="input-base w-full font-mono text-[12px]" placeholder="https://api.example.com/v1">
+            </div>
+            <div>
+              <label class="text-[11px] font-medium" style="color:var(--fg-muted)">Anthropic 端点
+                <span style="color:var(--fg-subtle)" class="font-normal">（Claude Code 使用，可选）</span>
+              </label>
+              <input x-model="modelForm.anthropic_endpoint" type="text" class="input-base w-full font-mono text-[12px]" placeholder="例如：https://api.deepseek.com/anthropic">
+              <div class="mt-1 text-[11px]" style="color:var(--fg-subtle)">Claude Code 需要 Anthropic 兼容端点。留空则 Claude Code 使用上方的 OpenAI 端点。</div>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
@@ -1947,7 +2014,9 @@ function app() {
     dbIngestRunID: '',
     dbFilters: { run_id:'', model:'', language:'' },
     dbArtifactFilters: { run_id:'', kind:'' },
-    dbReportSelection: { run_ids: [], models: [], languages: [], score_eligible_only: false },
+    dbReportSelection: { run_ids: [], models: [], languages: [], score_eligible_only: false, merge_target: '' },
+    lastDBReportResult: null,
+    pinnedReportID: localStorage.getItem('utbench_pinned_report') || '',
     // 新增：各表数据
     dbGenerationRuns: [],
     dbGeneratedCases: [],
@@ -2033,7 +2102,8 @@ function app() {
     modelFormMode: 'create', // create | edit
     modelForm: {
       name: '', enabled: true, provider: '', model_id: '',
-      api_endpoint: '', api_key_env: '', api_key: '', api_key_set: false,
+      api_endpoint: '', anthropic_endpoint: '',
+      api_key_env: '', api_key: '', api_key_set: false,
       parameters: { temperature: 0.7, top_p: 0.9, max_tokens: 4096 },
     },
     modelFormError: '',
@@ -2353,6 +2423,7 @@ function app() {
           const updated = this.runs.find(r => r.run_id === this.currentRun.run_id)
           if (updated) { this.currentRun.status = updated.status; this.currentRun.ended_at = updated.ended_at; this.currentRun.error = updated.error }
         }
+        this.autoSelectPinnedReport()
       } catch(e) { console.error('runs', e) }
       this.runsLoading = false
     },
@@ -2370,6 +2441,21 @@ function app() {
     get completedRuns() {
       // 返回已完成的任务，用于数据源选择
       return this.runs.filter(r => r.status === 'completed')
+    },
+
+    get mergedReports() {
+      // 返回已完成的合并报告，用于增量合并选择
+      return this.runs.filter(r => r.is_merged_report && r.status === 'completed')
+    },
+
+    get sortedMergedReports() {
+      // 置顶的排最前面，其余按时间倒序
+      const pinned = this.pinnedReportID
+      return [...this.mergedReports].sort((a, b) => {
+        if (a.run_id === pinned && b.run_id !== pinned) return -1
+        if (b.run_id === pinned && a.run_id !== pinned) return 1
+        return (b.started_at || '').localeCompare(a.started_at || '')
+      })
     },
 
     get selectedScenarioCount() {
@@ -2504,12 +2590,17 @@ function app() {
     async generateDBReport() {
       if (this.dbReportGenerating) return
       this.dbReportGenerating = true
+      this.lastDBReportResult = null
       try {
         const body = {
           source_run_ids: this.dbReportSelection.run_ids.length ? this.dbReportSelection.run_ids : (this.dbFilters.run_id ? [this.dbFilters.run_id] : []),
           models: this.dbReportSelection.models.length ? this.dbReportSelection.models : (this.dbFilters.model ? [this.dbFilters.model] : []),
           languages: this.dbReportSelection.languages.length ? this.dbReportSelection.languages : (this.dbFilters.language ? [this.dbFilters.language] : []),
           score_eligible_only: !!this.dbReportSelection.score_eligible_only,
+        }
+        // 增量合并：如果选择了合并目标，传入 run_id 让后端追加到已有报告
+        if (this.dbReportSelection.merge_target) {
+          body.run_id = this.dbReportSelection.merge_target
         }
         const r = await fetch('/api/db/report', {
           method: 'POST',
@@ -2518,13 +2609,44 @@ function app() {
         })
         const data = await r.json()
         if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
-        this.showToast(`DB 报告已生成：${data.result_count || 0} 条结果`, 'ok')
+        const action = this.dbReportSelection.merge_target ? '追加合并' : '生成'
+        this.showToast(`DB 报告已${action}：${data.result_count || 0} 条结果`, 'ok')
+        this.lastDBReportResult = data
         await this.loadRuns()
         await this.loadDatabase()
       } catch(e) {
         this.showToast('生成 DB 报告失败：' + (e.message || String(e)), 'err', 6000)
       } finally {
         this.dbReportGenerating = false
+      }
+    },
+
+    selectMergeTarget(runID) {
+      this.dbReportSelection.merge_target = runID
+    },
+
+    togglePinReport(runID) {
+      if (this.pinnedReportID === runID) {
+        // 取消置顶
+        this.pinnedReportID = ''
+        localStorage.removeItem('utbench_pinned_report')
+        this.dbReportSelection.merge_target = ''
+      } else {
+        // 置顶并自动选为合并目标
+        this.pinnedReportID = runID
+        localStorage.setItem('utbench_pinned_report', runID)
+        this.dbReportSelection.merge_target = runID
+      }
+    },
+
+    autoSelectPinnedReport() {
+      // 如果有置顶报告且存在于列表中，自动选为合并目标
+      if (this.pinnedReportID && this.mergedReports.some(r => r.run_id === this.pinnedReportID)) {
+        this.dbReportSelection.merge_target = this.pinnedReportID
+      } else if (this.pinnedReportID) {
+        // 置顶报告已不存在，清除
+        this.pinnedReportID = ''
+        localStorage.removeItem('utbench_pinned_report')
       }
     },
 
@@ -2538,7 +2660,10 @@ function app() {
     },
 
     clearReportSelection() {
-      this.dbReportSelection = { run_ids: [], models: [], languages: [], score_eligible_only: false }
+      this.dbReportSelection = { run_ids: [], models: [], languages: [], score_eligible_only: false, merge_target: '' }
+      this.lastDBReportResult = null
+      // 清空后仍保留置顶报告的自动选择
+      this.$nextTick(() => this.autoSelectPinnedReport())
     },
 
     // 新增：各表加载函数
@@ -2969,7 +3094,8 @@ function app() {
       this.modelFormMode = 'create'
       this.modelForm = {
         name: '', enabled: true, provider: '', model_id: '',
-        api_endpoint: '', api_key_env: '', api_key: '', api_key_set: false,
+        api_endpoint: '', anthropic_endpoint: '',
+        api_key_env: '', api_key: '', api_key_set: false,
         parameters: { temperature: 0.7, top_p: 0.9, max_tokens: 4096 },
       }
       this.modelFormError = ''
@@ -2981,6 +3107,7 @@ function app() {
       this.modelForm = {
         name: m.name, enabled: !!m.enabled, provider: m.provider || '',
         model_id: m.model_id || '', api_endpoint: m.api_endpoint || '',
+        anthropic_endpoint: m.anthropic_endpoint || '',
         api_key_env: m.api_key_env || '', api_key: '', api_key_set: !!m.api_key_set,
         parameters: Object.assign({ temperature: 0.7, top_p: 0.9, max_tokens: 4096 }, m.parameters || {}),
       }

@@ -180,6 +180,106 @@ frameworks:
       - "*Test.java"
       - "*test*.cpp"
 
+  claudecode:
+    enabled: true
+    kind: cli_agent
+    sandbox:
+      provider: docker
+      mode: docker
+      image: utbench-agent-base:latest
+      timeout_seconds: 600
+      network_disabled: false
+      memory: 2g
+      cpu: "2"
+    preflight:
+      python:
+        - claude --version
+        - python3 --version
+        - pytest --version
+      go:
+        - claude --version
+        - go version
+      java:
+        - claude --version
+        - java -version
+        - mvn -version
+      cpp:
+        - claude --version
+        - g++ --version
+        - cmake --version
+    forbidden_command_patterns:
+      - apt-get update
+      - apt-get install
+      - apt install
+      - apk add
+      - yum install
+      - dnf install
+      - pip install
+      - pip3 install
+      - python -m pip install
+      - python3 -m pip install
+      - npm install
+      - yarn add
+      - pnpm add
+    env:
+      PATH: "/go/bin:/usr/local/go/bin:/opt/java/openjdk/bin:/usr/share/maven/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      CLAUDE_CONFIG_DIR: "{{.ContainerWorkdir}}/.claude"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      DISABLE_AUTOUPDATER: "1"
+      # 通过模板变量将 models.yaml 中的模型端点注入 Claude Code
+      # 优先使用 anthropic_endpoint（Anthropic 兼容），回退到 api_endpoint
+      ANTHROPIC_BASE_URL: "{{if .AnthropicEndpoint}}{{.AnthropicEndpoint}}{{else}}{{.ModelEndpoint}}{{end}}"
+      ANTHROPIC_MODEL: "{{.ModelID}}"
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "{{.ModelID}}"
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "{{.ModelID}}"
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "{{.ModelID}}"
+    env_from_host:
+      # 认证密钥从宿主机环境变量透传
+      # 用户应将 ANTHROPIC_AUTH_TOKEN 设置为对应 provider 的 API key
+      # 例如使用 DeepSeek 时: export ANTHROPIC_AUTH_TOKEN=$DEEPSEEK_API_KEY
+      - ANTHROPIC_API_KEY
+      - ANTHROPIC_AUTH_TOKEN
+      - ANTHROPIC_CUSTOM_HEADERS
+      # 原生 Claude 模型支持（Bedrock/Vertex/Foundry）
+      - CLAUDE_CODE_USE_BEDROCK
+      - CLAUDE_CODE_USE_VERTEX
+      - CLAUDE_CODE_USE_FOUNDRY
+      - AWS_REGION
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      - GOOGLE_APPLICATION_CREDENTIALS
+      - CLOUD_ML_REGION
+      - ANTHROPIC_VERTEX_PROJECT_ID
+      - ANTHROPIC_FOUNDRY_API_KEY
+      - ANTHROPIC_FOUNDRY_RESOURCE
+    # Claude Code 接入 Anthropic 兼容端点（DeepSeek/MiniMax 等）：
+    # - ANTHROPIC_BASE_URL 通过模板变量从 models.yaml 的 endpoint 自动注入
+    # - ANTHROPIC_AUTH_TOKEN 从宿主机环境变量透传
+    # - 在隔离沙箱中使用 bypassPermissions，避免交互式授权阻塞 benchmark
+    command: >
+      mkdir -p "{{.ContainerWorkdir}}/.claude" &&
+      PROMPT="$(cat {{.ContainerPrompt}})" &&
+      claude -p
+      {{if eq .Skill ""}}--bare{{end}}
+      --output-format stream-json
+      --verbose
+      --permission-mode bypassPermissions
+      --max-turns 50
+      --model "{{.ModelID}}"
+      "$PROMPT"
+    compatible_languages:
+      - python
+      - go
+      - java
+      - cpp
+    output_globs:
+      - generated_test.py
+      - "test_*.py"
+      - "*_test.go"
+      - "*Test.java"
+      - "*test*.cpp"
+
 skills:
   unit_test_skill:
     enabled: true
@@ -197,6 +297,7 @@ skills:
     compatible_frameworks:
       - opencode
       - codebuddy
+      - claudecode
     compatible_languages:
       - python
       - go
@@ -217,6 +318,7 @@ skills:
       - ./skills/qta-ut/scripts/
     compatible_frameworks:
       - codebuddy
+      - claudecode
     compatible_languages:
       - python
       - go

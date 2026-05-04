@@ -75,7 +75,7 @@ func runDockerSandbox(ctx context.Context, req SandboxRunRequest, timeout int) (
 			mountSource = absPath
 		}
 	}
-	args := []string{"run", "--rm"}
+	args := []string{"run", "--rm", "--user", "agent"}
 	// 添加 label 以便取消时能定位和清理孤儿容器
 	runID := req.Env["UTBENCH_RUN_ID"]
 	if runID != "" {

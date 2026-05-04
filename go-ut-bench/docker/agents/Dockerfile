@@ -1,5 +1,5 @@
 # UT-Bench Agent Sandbox: Universal image (all agents, all languages)
-# Contains: OpenCode CLI + CodeBuddy CLI + Python + Go + Java + C++ + test frameworks.
+# Contains: OpenCode CLI + CodeBuddy CLI + Claude Code CLI + Python + Go + Java + C++ + test frameworks.
 # Does NOT contain: coverage / mutation tools (those live in the eval image).
 #
 # This is a unified sandbox image shared by all CLI Agent frameworks.
@@ -16,6 +16,9 @@ RUN npm install -g opencode-ai opencode-linux-x64-baseline
 
 # CodeBuddy CLI (腾讯)
 RUN npm install -g @tencent-ai/codebuddy-code
+
+# Claude Code CLI (Anthropic)
+RUN npm install -g @anthropic-ai/claude-code
 
 # ── Stage 2: Full runtime image ─────────────────────────────
 FROM python:3.11-slim-bookworm
@@ -78,5 +81,10 @@ RUN set -eux; \
     rm /tmp/go.tar.gz
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 ENV GOPROXY=https://goproxy.cn,direct
+
+# ── 非 root 用户（Claude Code 拒绝以 root 使用 --dangerously-skip-permissions）──
+RUN useradd -m -s /bin/bash agent \
+    && mkdir -p /home/agent/.npm /home/agent/.cache \
+    && chown -R agent:agent /home/agent
 
 WORKDIR /workspace

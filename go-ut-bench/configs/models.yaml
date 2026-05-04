@@ -4,6 +4,7 @@ models:
     provider: deepseek
     config:
       api_endpoint: "https://api.deepseek.com"
+      anthropic_endpoint: "https://api.deepseek.com/anthropic"
       model: "deepseek-v4-flash"
       api_key_env: "DEEPSEEK_API_KEY"
       pricing:
@@ -24,6 +25,7 @@ models:
     provider: deepseek
     config:
       api_endpoint: "https://api.deepseek.com"
+      anthropic_endpoint: "https://api.deepseek.com/anthropic"
       model: "deepseek-v4-pro"
       api_key_env: "DEEPSEEK_API_KEY"
       pricing:
@@ -42,6 +44,7 @@ models:
     provider: minimax
     config:
       api_endpoint: "https://api.minimax.chat/v1"
+      anthropic_endpoint: "https://api.minimaxi.com/anthropic"
       model: "MiniMax-M2.7"
       api_key_env: "MINIMAX_API_KEY"
       parameters:
@@ -54,6 +57,7 @@ models:
     provider: minimax
     config:
       api_endpoint: "https://api.minimax.chat/v1"
+      anthropic_endpoint: "https://api.minimaxi.com/anthropic"
       api_key_env: "MINIMAX2.5_API_KEY"
       model: "minimax-M2.5"
       parameters:
