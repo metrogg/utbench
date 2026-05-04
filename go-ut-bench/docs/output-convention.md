@@ -98,6 +98,7 @@ storage/
 
 - `sample_uid`
 - `evaluation_key`
+- `evaluation_env_fingerprint`
 - `evaluator_version`
 - `mutation_config_sha256`
 - `reused`
@@ -146,6 +147,13 @@ generated/prompts/rendered/<subject-id>/<language>/<sample-id>.prompt.txt
 - token 使用
 - 生成延迟
 - subject / framework / skill 信息
+- `subject_version_id`
+- `framework_config_sha256`
+- `skill_sha256`
+- `agent_command_sha256`
+- `docker_image`
+- `docker_image_digest`
+- `env_contract_sha256`
 
 ### `metadata/agent_traces/`
 
@@ -197,6 +205,7 @@ agent_workspaces/<subject-id>/<language>/<sample-id>/
 - `trace_path`
 - `workspace_diff_path`
 - `sandbox_fingerprint`
+- `evaluation_env_fingerprint`
 
 ## 6. `report/` 目录
 

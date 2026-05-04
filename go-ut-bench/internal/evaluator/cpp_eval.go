@@ -166,8 +166,16 @@ func prepareCppWorkspace(testPath, samplePath string) (string, string, string, s
 
 	modifiedTestSource := testSource
 	if !hasSourceInclude {
-		sourceInclude := []byte("#include \"" + sourceBase + "\"\n")
-		modifiedTestSource = append(sourceInclude, testSource...)
+		// 检查是否包含绝对路径形式的 include（如 #include "/workspace/xxx.cpp"）
+		// 如果包含，重写为相对路径
+		absPathPattern := regexp.MustCompile(`#include\s+"(/[^"]*` + regexp.QuoteMeta(sourceBase) + `)"`)
+		if absPathPattern.Match(modifiedTestSource) {
+			modifiedTestSource = absPathPattern.ReplaceAll(modifiedTestSource, []byte("#include \""+sourceBase+"\""))
+		} else {
+			// 完全没有 source include，添加一个
+			sourceInclude := []byte("#include \"" + sourceBase + "\"\n")
+			modifiedTestSource = append(sourceInclude, testSource...)
+		}
 	} else {
 		modifiedTestSource = bytes.ReplaceAll(modifiedTestSource,
 			[]byte("#include \"source.cpp\""),
@@ -485,9 +493,8 @@ func parseBranchPercent(line string) (float64, bool) {
 //   - mutationStats: 变异统计数据
 //   - string: 错误信息（成功时为空）
 func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeoutSeconds int, testPassRate *float64, testPassed, testTotal int) (float64, mutationStats, string) {
-	// 限制最大超时时间为300秒（与 Python 版本一致），防止Mull无限卡住
-	if timeoutSeconds <= 0 || timeoutSeconds > 300 {
-		timeoutSeconds = 300
+	if timeoutSeconds <= 0 || timeoutSeconds > CppMutationTimeoutSeconds {
+		timeoutSeconds = CppMutationTimeoutSeconds
 	}
 
 	minPassRate := GetMinPassRateForTool("mull")
@@ -499,9 +506,6 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 	} else if testPassRate != nil {
 		total = 100
 		passed = int(math.Round(*testPassRate * float64(total)))
-		if passed == 0 && *testPassRate > 0 {
-			passed = 1
-		}
 		if passed > total {
 			passed = total
 		}
@@ -514,7 +518,7 @@ func collectCppMutation(ctx context.Context, workdir, sourceBase string, timeout
 
 	mullRunner := findMullRunner()
 	if mullRunner == "" {
-		return 0, mutationStats{}, "Mull not installed. Install: curl -1sLf 'https://dl.cloudsmith.io/public/mull-project/mull-stable/setup.deb.sh' | bash && apt-get install -y mull-19"
+		return 0, mutationStats{}, "Mull not installed. Install via GitHub Releases: https://github.com/mull-project/mull/releases or use the Docker image."
 	}
 
 	// Find mull-ir-frontend plugin path

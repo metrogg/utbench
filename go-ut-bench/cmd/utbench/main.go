@@ -417,7 +417,9 @@ func runWeb(args []string) error {
 	datasetRoot := fs.String("dataset-root", "./datasets", "Dataset root directory")
 	outputRoot := fs.String("output-root", "./artifacts", "Output root directory")
 	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
-	imageName := fs.String("docker-image", "utbench:latest", "Docker image for containerized runs")
+	agentsConfigPath := fs.String("agents-config", "", "Agent/skill config path (auto-detected from --config dir if omitted)")
+	imageName := fs.String("docker-image", "", "Deprecated alias for --docker-eval-image")
+	evalImageName := fs.String("docker-eval-image", "utbench:latest", "Docker image for containerized evaluation runs")
 	projectRoot := fs.String("project-root", ".", "Project root mounted into Docker")
 	envFile := fs.String("env-file", "./.env", "Environment file passed to Docker runs")
 
@@ -425,15 +427,45 @@ func runWeb(args []string) error {
 		return err
 	}
 
+	// Auto-detect agents config from the same directory as models.yaml
+	if *agentsConfigPath == "" {
+		cfgDir := filepath.Dir(*configPath)
+		for _, candidate := range []string{"agents.yaml", "agents.example.yaml"} {
+			p := filepath.Join(cfgDir, candidate)
+			if _, err := os.Stat(p); err == nil {
+				*agentsConfigPath = p
+				break
+			}
+		}
+	}
+
 	absProjectRoot, err := filepath.Abs(*projectRoot)
 	if err != nil {
 		return fmt.Errorf("resolve project root: %w", err)
+	}
+
+	// When running inside a container, --project-root defaults to the
+	// container-internal working directory (e.g. "/app").  Docker daemon
+	// running on the host cannot resolve that path for bind mounts.
+	// If UTBENCH_SANDBOX_HOST_OUTPUT_ROOT is set, derive the host project
+	// root from it (the parent of the "artifacts" directory).
+	if *projectRoot == "." {
+		if hostOutputRoot := strings.TrimSpace(os.Getenv("UTBENCH_SANDBOX_HOST_OUTPUT_ROOT")); hostOutputRoot != "" {
+			if _, err := os.Stat("/.dockerenv"); err == nil || strings.TrimSpace(os.Getenv("container")) != "" {
+				absProjectRoot = filepath.Dir(hostOutputRoot)
+			}
+		}
 	}
 	absEnvFile := *envFile
 	if absEnvFile != "" {
 		absEnvFile, err = filepath.Abs(absEnvFile)
 		if err != nil {
 			return fmt.Errorf("resolve env file: %w", err)
+		}
+		// When running inside a container with the default env file path,
+		// map it to the host path so Docker daemon can access it.
+		if *envFile == "./.env" && absProjectRoot != filepath.Clean(".") {
+			absEnvFile = filepath.Join(absProjectRoot, ".env")
 		}
 	}
 
@@ -442,12 +474,20 @@ func runWeb(args []string) error {
 		return fmt.Errorf("load env file: %w", err)
 	}
 
-	dockerCfg := web.DockerConfig{
-		ImageName:   *imageName,
-		ProjectRoot: absProjectRoot,
-		EnvFile:     absEnvFile,
+	if strings.TrimSpace(*imageName) != "" {
+		*evalImageName = *imageName
 	}
-	mgr := web.NewRunManager(*configPath, *datasetRoot, *outputRoot, *dbPath, dockerCfg)
+	dockerCfg := web.DockerConfig{
+		EvalImageName: *evalImageName,
+		ProjectRoot:   absProjectRoot,
+		EnvFile:       absEnvFile,
+	}
+	if *agentsConfigPath != "" {
+		fmt.Printf("[web] agents config: %s\n", *agentsConfigPath)
+	} else {
+		fmt.Printf("[web] agents config: not found (searched in %s)\n", filepath.Dir(*configPath))
+	}
+	mgr := web.NewRunManager(*configPath, *agentsConfigPath, *datasetRoot, *outputRoot, *dbPath, dockerCfg)
 	bld := web.NewBuildManager(absProjectRoot)
 	server, err := web.NewServer(mgr, bld, *configPath, *outputRoot, *dbPath, dockerCfg)
 	if err != nil {
@@ -491,6 +531,8 @@ func runRun(args []string) error {
 	subjects := fs.String("subjects", "", "Comma-separated subjects (framework__model__skill)")
 	langs := fs.String("langs", "", "Comma-separated languages")
 	runID := fs.String("run-id", "", "Run ID")
+	evalBackendFlag := fs.String("eval-backend", "local", "Evaluation backend (local, docker)")
+	evalDockerImage := fs.String("eval-docker-image", "utbench:latest", "Docker image for docker eval backend")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -537,7 +579,18 @@ func runRun(args []string) error {
 	datasetSvc := dataset.NewService()
 	runnerSvc := runner.NewService(logger)
 	evaluatorSvc := evaluator.NewService(logger)
-	reporterSvc := reporter.NewService(logger)
+	reporterSvc := reporter.NewService(logger, &runner.DefaultPromptMetaProvider{})
+
+	// 设置评测后端
+	switch strings.ToLower(strings.TrimSpace(*evalBackendFlag)) {
+	case "docker":
+		evaluator.SetEvalBackend(evaluator.NewDockerBackend(*evalDockerImage))
+		logger.Info("eval backend set to docker", "image", *evalDockerImage)
+	case "local", "":
+		// 默认 LocalBackend，无需设置
+	default:
+		return fmt.Errorf("unknown eval-backend: %s (supported: local, docker)", *evalBackendFlag)
+	}
 
 	svc := orchestrator.New(datasetSvc, runnerSvc, evaluatorSvc, reporterSvc)
 	opts := orchestrator.Options{Ingest: *ingest, DBPath: *dbPath}
@@ -629,7 +682,22 @@ func runGenerate(args []string) error {
 		return fmt.Errorf("discover samples: %w", err)
 	}
 
-	output, err := runnerSvc.Generate(ctx, spec, samples)
+	var reuseStore runner.GenerationReuseStore
+	if spec.ReuseGenerated && strings.TrimSpace(spec.DBPath) != "" && !spec.DryRun {
+		if db, openErr := store.OpenSQLite(spec.DBPath); openErr == nil {
+			if initErr := db.Init(ctx); initErr == nil {
+				reuseStore = db
+			} else {
+				_ = db.Close()
+			}
+		}
+	}
+	output, err := runnerSvc.Generate(ctx, spec, samples, reuseStore)
+	if reuseStore != nil {
+		if closer, ok := reuseStore.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("generate: %w", err)
 	}
@@ -650,11 +718,15 @@ func runEvaluate(args []string) error {
 	verbose := fs.Bool("v", false, "Verbose output")
 	outputRoot := fs.String("output-root", "./artifacts", "Output root directory")
 	manifestPath := fs.String("manifest", "", "Path to generated_manifest.json (required)")
+	dbPath := fs.String("db-path", "./storage/utbench.db", "SQLite database path")
+	reuseEvaluation := fs.Bool("reuse-evaluation", false, "Reuse matching evaluation results from SQLite when environment keys match")
 	mutationEnabled := fs.Bool("mutation-enabled", true, "Enable mutation testing")
 	mutationTimeout := fs.Int("mutation-timeout", 600, "Mutation timeout (seconds)")
 	mutationPolicy := fs.String("mutation-policy", "warn", "Mutation policy")
 	testTimeout := fs.Int("test-timeout", 180, "Test execution timeout (seconds)")
 	runID := fs.String("run-id", "", "Run ID")
+	evalBackendFlag := fs.String("eval-backend", "local", "Evaluation backend (local, docker)")
+	evalDockerImage := fs.String("eval-docker-image", "utbench:latest", "Docker image for docker eval backend")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -670,6 +742,8 @@ func runEvaluate(args []string) error {
 
 	spec := contracts.RunSpec{
 		OutputRoot:      *outputRoot,
+		DBPath:          *dbPath,
+		ReuseEvaluation: *reuseEvaluation,
 		MutationEnabled: *mutationEnabled,
 		MutationTimeout: *mutationTimeout,
 		MutationPolicy:  policy,
@@ -683,6 +757,16 @@ func runEvaluate(args []string) error {
 	logger := obs.NewLogger(*verbose, logDir)
 	ctx, cancel := withSignal(context.Background())
 	defer cancel()
+
+	// 设置评测后端
+	switch strings.ToLower(strings.TrimSpace(*evalBackendFlag)) {
+	case "docker":
+		evaluator.SetEvalBackend(evaluator.NewDockerBackend(*evalDockerImage))
+	case "local", "":
+		// 默认 LocalBackend
+	default:
+		return fmt.Errorf("unknown eval-backend: %s (supported: local, docker)", *evalBackendFlag)
+	}
 
 	evaluatorSvc := evaluator.NewService(logger)
 	output, err := evaluatorSvc.Evaluate(ctx, spec, *manifestPath)
@@ -724,7 +808,7 @@ func runReport(args []string) error {
 
 	logDir := filepath.Join(spec.OutputRoot, "runs", spec.RunID, "logs")
 	logger := obs.NewLogger(*verbose, logDir)
-	reporterSvc := reporter.NewService(logger)
+	reporterSvc := reporter.NewService(logger, &runner.DefaultPromptMetaProvider{})
 	output, err := reporterSvc.Generate(context.Background(), spec, *evaluationPath)
 	if err != nil {
 		return fmt.Errorf("report: %w", err)
@@ -1056,7 +1140,7 @@ func runDBReport(args []string) error {
 		return fmt.Errorf("select db results: %w", err)
 	}
 	logger := obs.NewLogger(*verbose, filepath.Join(*outputRoot, "runs", outRunID, "logs"))
-	reporterSvc := reporter.NewService(logger)
+	reporterSvc := reporter.NewService(logger, &runner.DefaultPromptMetaProvider{})
 	spec := contracts.RunSpec{
 		RunID:      outRunID,
 		OutputRoot: *outputRoot,

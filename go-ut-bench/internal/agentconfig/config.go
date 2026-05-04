@@ -23,6 +23,7 @@ type FrameworkSpec struct {
 	Kind                     string              `json:"kind"`
 	Enabled                  bool                `json:"enabled"`
 	Command                  string              `json:"command,omitempty"`
+	Sandbox                  SandboxSpec         `json:"sandbox,omitempty"`
 	DockerImage              string              `json:"docker_image,omitempty"`
 	DockerImages             map[string]string   `json:"docker_images,omitempty"`
 	SandboxMode              string              `json:"sandbox_mode,omitempty"`
@@ -38,6 +39,17 @@ type FrameworkSpec struct {
 	NetworkDisabled          bool                `json:"network_disabled,omitempty"`
 	CPU                      string              `json:"cpu,omitempty"`
 	Memory                   string              `json:"memory,omitempty"`
+}
+
+type SandboxSpec struct {
+	Provider        string            `json:"provider,omitempty"`
+	Mode            string            `json:"mode,omitempty"`
+	Image           string            `json:"image,omitempty"`
+	Images          map[string]string `json:"images,omitempty"`
+	TimeoutSeconds  int               `json:"timeout_seconds,omitempty"`
+	NetworkDisabled bool              `json:"network_disabled,omitempty"`
+	CPU             string            `json:"cpu,omitempty"`
+	Memory          string            `json:"memory,omitempty"`
 }
 
 type SubjectEntry struct {
@@ -60,9 +72,19 @@ type ResolvedSubject struct {
 type fileConfig struct {
 	Models     []string `yaml:"models"`
 	Frameworks map[string]struct {
-		Enabled                  *bool               `yaml:"enabled"`
-		Kind                     string              `yaml:"kind"`
-		Command                  string              `yaml:"command"`
+		Enabled *bool  `yaml:"enabled"`
+		Kind    string `yaml:"kind"`
+		Command string `yaml:"command"`
+		Sandbox struct {
+			Provider        string            `yaml:"provider"`
+			Mode            string            `yaml:"mode"`
+			Image           string            `yaml:"image"`
+			Images          map[string]string `yaml:"images"`
+			TimeoutSeconds  int               `yaml:"timeout_seconds"`
+			NetworkDisabled *bool             `yaml:"network_disabled"`
+			CPU             string            `yaml:"cpu"`
+			Memory          string            `yaml:"memory"`
+		} `yaml:"sandbox"`
 		DockerImage              string              `yaml:"docker_image"`
 		DockerImages             map[string]string   `yaml:"docker_images"`
 		SandboxMode              string              `yaml:"sandbox_mode"`
@@ -151,19 +173,17 @@ func normalizeFrameworks(cfg fileConfig) map[string]FrameworkSpec {
 		if kind == "" {
 			kind = KindCLIAgent
 		}
-		networkDisabled := true
-		if item.NetworkDisabled != nil {
-			networkDisabled = *item.NetworkDisabled
-		}
+		sandbox := normalizeSandboxSpec(item)
 		out[name] = FrameworkSpec{
 			Name:                     name,
 			Kind:                     kind,
 			Enabled:                  true,
 			Command:                  item.Command,
-			DockerImage:              item.DockerImage,
-			DockerImages:             normalizeStringMap(item.DockerImages),
-			SandboxMode:              defaultString(item.SandboxMode, "docker"),
-			TimeoutSeconds:           item.TimeoutSeconds,
+			Sandbox:                  sandbox,
+			DockerImage:              sandbox.Image,
+			DockerImages:             normalizeStringMap(sandbox.Images),
+			SandboxMode:              sandbox.Mode,
+			TimeoutSeconds:           sandbox.TimeoutSeconds,
 			OutputGlobs:              item.OutputGlobs,
 			Env:                      item.Env,
 			EnvFromHost:              uniqueNonEmpty(item.EnvFromHost),
@@ -172,12 +192,93 @@ func normalizeFrameworks(cfg fileConfig) map[string]FrameworkSpec {
 			CompatibleModels:         item.CompatibleModels,
 			CompatibleLangs:          item.CompatibleLanguages,
 			DisableNoSkill:           item.DisableNoSkill,
-			NetworkDisabled:          networkDisabled,
-			CPU:                      item.CPU,
-			Memory:                   item.Memory,
+			NetworkDisabled:          sandbox.NetworkDisabled,
+			CPU:                      sandbox.CPU,
+			Memory:                   sandbox.Memory,
 		}
 	}
 	return out
+}
+
+func normalizeSandboxSpec(item struct {
+	Enabled *bool  `yaml:"enabled"`
+	Kind    string `yaml:"kind"`
+	Command string `yaml:"command"`
+	Sandbox struct {
+		Provider        string            `yaml:"provider"`
+		Mode            string            `yaml:"mode"`
+		Image           string            `yaml:"image"`
+		Images          map[string]string `yaml:"images"`
+		TimeoutSeconds  int               `yaml:"timeout_seconds"`
+		NetworkDisabled *bool             `yaml:"network_disabled"`
+		CPU             string            `yaml:"cpu"`
+		Memory          string            `yaml:"memory"`
+	} `yaml:"sandbox"`
+	DockerImage              string              `yaml:"docker_image"`
+	DockerImages             map[string]string   `yaml:"docker_images"`
+	SandboxMode              string              `yaml:"sandbox_mode"`
+	TimeoutSeconds           int                 `yaml:"timeout_seconds"`
+	OutputGlobs              []string            `yaml:"output_globs"`
+	Env                      map[string]string   `yaml:"env"`
+	EnvFromHost              []string            `yaml:"env_from_host"`
+	Preflight                map[string][]string `yaml:"preflight"`
+	ForbiddenCommandPatterns []string            `yaml:"forbidden_command_patterns"`
+	CompatibleModels         []string            `yaml:"compatible_models"`
+	CompatibleLanguages      []string            `yaml:"compatible_languages"`
+	DisableNoSkill           bool                `yaml:"disable_no_skill"`
+	NetworkDisabled          *bool               `yaml:"network_disabled"`
+	CPU                      string              `yaml:"cpu"`
+	Memory                   string              `yaml:"memory"`
+}) SandboxSpec {
+	mode := strings.TrimSpace(item.Sandbox.Mode)
+	if mode == "" {
+		mode = defaultString(item.SandboxMode, "docker")
+	}
+	provider := strings.TrimSpace(item.Sandbox.Provider)
+	if provider == "" {
+		if strings.EqualFold(mode, "docker") {
+			provider = "docker"
+		} else {
+			provider = "local"
+		}
+	}
+	networkDisabled := true
+	switch {
+	case item.Sandbox.NetworkDisabled != nil:
+		networkDisabled = *item.Sandbox.NetworkDisabled
+	case item.NetworkDisabled != nil:
+		networkDisabled = *item.NetworkDisabled
+	}
+	timeoutSeconds := item.Sandbox.TimeoutSeconds
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = item.TimeoutSeconds
+	}
+	image := strings.TrimSpace(item.Sandbox.Image)
+	if image == "" {
+		image = strings.TrimSpace(item.DockerImage)
+	}
+	images := normalizeStringMap(item.Sandbox.Images)
+	if len(images) == 0 {
+		images = normalizeStringMap(item.DockerImages)
+	}
+	cpu := strings.TrimSpace(item.Sandbox.CPU)
+	if cpu == "" {
+		cpu = strings.TrimSpace(item.CPU)
+	}
+	memory := strings.TrimSpace(item.Sandbox.Memory)
+	if memory == "" {
+		memory = strings.TrimSpace(item.Memory)
+	}
+	return SandboxSpec{
+		Provider:        provider,
+		Mode:            mode,
+		Image:           image,
+		Images:          images,
+		TimeoutSeconds:  timeoutSeconds,
+		NetworkDisabled: networkDisabled,
+		CPU:             cpu,
+		Memory:          memory,
+	}
 }
 
 func normalizeSkills(cfg fileConfig, baseDir string) map[string]contracts.SkillSpec {

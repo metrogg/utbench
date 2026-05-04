@@ -113,13 +113,14 @@ func (c *apiClient) generateTest(
 		}
 	}
 
-	payload := buildPayload(model, prompt)
+	provider := resolveProvider(model)
+	payload := provider.BuildPayload(model, prompt)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", nil, 0, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "payload_error", Message: err.Error(), Retryable: false}
 	}
 
-	endpoint := resolveEndpoint(model)
+	endpoint := provider.ResolveEndpoint(model)
 	var lastErr *contracts.ErrorInfo
 	var lastTruncated bool
 	var allResponses []map[string]any
@@ -130,7 +131,7 @@ func (c *apiClient) generateTest(
 
 	for attempt := 1; attempt <= c.retries; attempt++ {
 		started := time.Now()
-		code, rawResp, p, cm, total, truncated, errInfo := c.doOnce(ctx, endpoint, apiKey, model.Provider, body)
+		code, rawResp, p, cm, total, truncated, errInfo := c.doOnce(ctx, endpoint, apiKey, provider, body)
 		latency := int(time.Since(started).Milliseconds())
 
 		if errInfo != nil {
@@ -175,7 +176,7 @@ func (c *apiClient) generateTest(
 		}
 		maxContinuationAttempts--
 
-		continuationPayload := buildContinuationPayload(model, prompt, accumulatedCode.String())
+		continuationPayload := provider.BuildContinuationPayload(model, prompt, accumulatedCode.String())
 		body, err = json.Marshal(continuationPayload)
 		if err != nil {
 			return accumulatedCode.String(), mergeResponses(allResponses), latency, &totalPromptTokens, &totalCompletionTokens, &totalTokens, true, &contracts.ErrorInfo{
@@ -218,7 +219,7 @@ func (c *apiClient) doOnce(
 	ctx context.Context,
 	endpoint string,
 	apiKey string,
-	provider string,
+	provider LLMProvider,
 	body []byte,
 ) (string, map[string]any, *int, *int, *int, bool, *contracts.ErrorInfo) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -270,142 +271,13 @@ func (c *apiClient) doOnce(
 		}
 	}
 
-	text, err := extractResponseText(payload, provider)
+	text, err := provider.ExtractResponseText(payload)
 	if err != nil {
 		return "", payload, nil, nil, nil, false, &contracts.ErrorInfo{Kind: "response_extract_error", Message: err.Error(), Retryable: false}
 	}
 	promptTokens, completionTokens, totalTokens := extractUsage(payload)
-	truncated := extractFinishReason(payload, provider)
+	truncated := provider.ExtractFinishReason(payload)
 	return text, payload, promptTokens, completionTokens, totalTokens, truncated, nil
-}
-
-// resolveEndpoint 根据模型配置解析 API 端点 URL
-// 处理不同提供商的端点格式差异
-//
-// 参数:
-//   - model: 模型配置
-//
-// 返回值:
-//   - string: 完整的 API 端点 URL
-func resolveEndpoint(model modelConfig) string {
-	base := strings.TrimSuffix(model.Endpoint, "/")
-	if model.Provider == "dashscope" {
-		if strings.Contains(base, "compatible-mode") {
-			return base + "/chat/completions"
-		}
-		if strings.HasSuffix(base, "/api/v1") {
-			return base + "/services/aigc/text-generation/generation"
-		}
-		return base + "/services/aigc/text-generation/generation"
-	}
-	return base + "/chat/completions"
-}
-
-// buildPayload 构建 API 请求体
-// 根据提供商类型生成不同格式的请求结构
-//
-// 参数:
-//   - model: 模型配置
-//   - prompt: 提示词内容
-//
-// 返回值:
-//   - map[string]any: 请求体 JSON 结构
-func buildPayload(model modelConfig, prompt string) map[string]any {
-	params := map[string]any{}
-	for k, v := range model.Params {
-		params[k] = v
-	}
-
-	if model.Provider == "dashscope" && !strings.Contains(model.Endpoint, "compatible-mode") {
-		return map[string]any{
-			"model":      model.Model,
-			"input":      map[string]any{"messages": []map[string]any{{"role": "user", "content": prompt}}},
-			"parameters": params,
-		}
-	}
-
-	payload := map[string]any{
-		"model": model.Model,
-		"messages": []map[string]any{
-			{"role": "system", "content": systemMessage},
-			{"role": "user", "content": prompt},
-		},
-		"stream": false,
-	}
-	for k, v := range params {
-		payload[k] = v
-	}
-	return payload
-}
-
-// buildContinuationPayload 构建续写请求体
-// 当响应被截断时，使用此函数构建继续生成的请求
-//
-// 参数:
-//   - model: 模型配置
-//   - originalPrompt: 原始提示词
-//   - generatedSoFar: 已生成的内容
-//
-// 返回值:
-//   - map[string]any: 续写请求体 JSON 结构
-func buildContinuationPayload(model modelConfig, originalPrompt string, generatedSoFar string) map[string]any {
-	continuationPrompt := "Continue generating the unit test code from where you left off. " +
-		"Output only the remaining code without any explanations or markdown fences. " +
-		"Do not repeat what was already generated."
-
-	params := map[string]any{}
-	for k, v := range model.Params {
-		params[k] = v
-	}
-
-	switch model.Provider {
-	case "dashscope":
-		if !strings.Contains(model.Endpoint, "compatible-mode") {
-			return map[string]any{
-				"model": model.Model,
-				"input": map[string]any{
-					"messages": []map[string]any{
-						{"role": "user", "content": originalPrompt},
-						{"role": "assistant", "content": generatedSoFar},
-						{"role": "user", "content": continuationPrompt},
-					},
-				},
-				"parameters": params,
-			}
-		}
-		return map[string]any{
-			"model": model.Model,
-			"messages": []map[string]any{
-				{"role": "system", "content": systemMessage},
-				{"role": "user", "content": originalPrompt},
-				{"role": "assistant", "content": generatedSoFar},
-				{"role": "user", "content": continuationPrompt},
-			},
-			"stream": false,
-		}
-	case "volcengine":
-		return map[string]any{
-			"model": model.Model,
-			"messages": []map[string]any{
-				{"role": "system", "content": systemMessage},
-				{"role": "user", "content": originalPrompt},
-				{"role": "assistant", "content": generatedSoFar},
-				{"role": "user", "content": continuationPrompt},
-			},
-			"stream": false,
-		}
-	default:
-		return map[string]any{
-			"model": model.Model,
-			"messages": []map[string]any{
-				{"role": "system", "content": systemMessage},
-				{"role": "user", "content": originalPrompt},
-				{"role": "assistant", "content": generatedSoFar},
-				{"role": "user", "content": continuationPrompt},
-			},
-			"stream": false,
-		}
-	}
 }
 
 // mergeResponses 合并多次响应（用于续写场景）
@@ -494,49 +366,6 @@ func extractResponseTextFromAny(response map[string]any) (string, error) {
 	return "", fmt.Errorf("unable to extract text from response")
 }
 
-// extractResponseText 从响应中提取文本内容（带提供商参数）
-// 根据提供商类型选择正确的提取路径
-//
-// 参数:
-//   - response: 响应数据
-//   - provider: 提供商类型
-//
-// 返回值:
-//   - string: 提取的文本
-//   - error: 错误信息
-func extractResponseText(response map[string]any, provider string) (string, error) {
-	if provider == "dashscope" {
-		if output, ok := response["output"].(map[string]any); ok {
-			if text, ok := output["text"].(string); ok && text != "" {
-				return text, nil
-			}
-			if choices, ok := output["choices"].([]any); ok && len(choices) > 0 {
-				if item, ok := choices[0].(map[string]any); ok {
-					if msg, ok := item["message"].(map[string]any); ok {
-						if content, ok := msg["content"].(string); ok {
-							return content, nil
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if choices, ok := response["choices"].([]any); ok && len(choices) > 0 {
-		if choice, ok := choices[0].(map[string]any); ok {
-			if msg, ok := choice["message"].(map[string]any); ok {
-				if content, ok := msg["content"].(string); ok {
-					return content, nil
-				}
-			}
-			if text, ok := choice["text"].(string); ok {
-				return text, nil
-			}
-		}
-	}
-	return "", fmt.Errorf("unable to extract text from response")
-}
-
 // extractUsage 从响应中提取 token 使用量
 // 解析 usage 字段，返回 prompt/completion/total token 数量
 //
@@ -562,39 +391,6 @@ func extractUsage(response map[string]any) (*int, *int, *int) {
 	}
 	t := toIntPtr(usage["total_tokens"])
 	return p, c, t
-}
-
-// extractFinishReason 从响应中提取结束原因
-// 检查 finish_reason 是否为 "length"（表示被截断）
-//
-// 参数:
-//   - response: 响应数据
-//   - provider: 提供商类型
-//
-// 返回值:
-//   - bool: 是否因长度截断
-func extractFinishReason(response map[string]any, provider string) bool {
-	if provider == "dashscope" {
-		if output, ok := response["output"].(map[string]any); ok {
-			if choices, ok := output["choices"].([]any); ok && len(choices) > 0 {
-				if item, ok := choices[0].(map[string]any); ok {
-					if fr, ok := item["finish_reason"].(string); ok {
-						return fr == "length"
-					}
-				}
-			}
-		}
-		return false
-	}
-
-	if choices, ok := response["choices"].([]any); ok && len(choices) > 0 {
-		if choice, ok := choices[0].(map[string]any); ok {
-			if fr, ok := choice["finish_reason"].(string); ok {
-				return fr == "length"
-			}
-		}
-	}
-	return false
 }
 
 // toIntPtr 将任意类型转换为 int 指针
@@ -758,7 +554,7 @@ func validateGeneratedTest(code, language string) error {
 		return fmt.Errorf("contains leaked reasoning tags")
 	}
 	if strings.EqualFold(language, "python") {
-		if !strings.Contains(stripped, "def test_") && !strings.Contains(stripped, "import pytest") {
+		if !strings.Contains(stripped, "def test_") && !strings.Contains(stripped, "import pytest") && !strings.Contains(stripped, "unittest.TestCase") {
 			return fmt.Errorf("invalid python test structure")
 		}
 	}

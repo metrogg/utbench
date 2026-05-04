@@ -14,12 +14,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"go-ut-bench/internal/agentconfig"
 	"go-ut-bench/internal/contracts"
 	"go-ut-bench/internal/obs"
 	"go-ut-bench/internal/orchestrator"
 	"go-ut-bench/internal/reporter"
+	"go-ut-bench/internal/runner"
 	"go-ut-bench/internal/store"
 
 	"gopkg.in/yaml.v3"
@@ -37,6 +40,28 @@ type Server struct {
 	dockerCfg  DockerConfig
 	mux        *http.ServeMux
 	db         *store.SQLiteStore // 持久化的数据库连接，避免每次请求重新打开
+
+	// 缓存层：避免重复读磁盘/解析YAML
+	cacheMu       sync.RWMutex
+	catalogCache  *catalogCacheEntry
+	runsCache     *runsCacheEntry
+	envCheckCache *envCheckCacheEntry
+}
+
+type catalogCacheEntry struct {
+	data      webCatalog
+	loadedAt  time.Time
+	configMod time.Time // models.yaml 的 mtime，用于失效判断
+}
+
+type runsCacheEntry struct {
+	data     []runSummaryItem
+	loadedAt time.Time
+}
+
+type envCheckCacheEntry struct {
+	data     environmentCheckResponse
+	loadedAt time.Time
 }
 
 // NewServer wires up a Server with the given RunManager and build manager.
@@ -74,8 +99,27 @@ func (s *Server) Start(addr string) error {
 	return http.ListenAndServe(addr, s)
 }
 
-// Close closes the database connection.
+// Close cancels all running tasks, cleans up Docker containers, and closes the database connection.
 func (s *Server) Close() error {
+	// 取消所有活跃任务
+	for _, entry := range s.mgr.List() {
+		entry.mu.RLock()
+		status := entry.Status
+		runID := entry.RunID
+		useDocker := entry.UseDocker
+		entry.mu.RUnlock()
+		if status == StatusRunning || status == StatusPending {
+			_ = s.mgr.Cancel(runID)
+		}
+		// 清理 sandbox 子容器
+		if useDocker {
+			killSandboxContainers(runID)
+		}
+	}
+	// 清理所有可能残留的 utbench sandbox 容器（兜底）
+	killAllUtbenchSandboxes()
+	// 停止 RunManager 后台清理 goroutine
+	s.mgr.Close()
 	if s.db != nil {
 		return s.db.Close()
 	}
@@ -123,6 +167,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/db/evaluation-stages", s.handleDBEvaluationStages)
 	s.mux.HandleFunc("/api/db/dataset-samples", s.handleDBDatasetSamples)
 	s.mux.HandleFunc("/api/db/dataset-snapshots", s.handleDBDatasetSnapshots)
+	s.mux.HandleFunc("/api/db/asset-subjects", s.handleDBAssetSubjects)
+	s.mux.HandleFunc("/api/db/subject-versions", s.handleDBSubjectVersions)
+	s.mux.HandleFunc("/api/db/asset-generations", s.handleDBAssetGenerations)
+	s.mux.HandleFunc("/api/db/asset-evaluations", s.handleDBAssetEvaluations)
+	s.mux.HandleFunc("/api/db/asset-explain-reuse", s.handleDBAssetExplainReuse)
 	s.mux.HandleFunc("/api/db/model-configs", s.handleDBModelConfigs)
 	s.mux.HandleFunc("/api/db/prompt-profiles", s.handleDBPromptProfiles)
 	s.mux.HandleFunc("/api/db/evaluation-envs", s.handleDBEvaluationEnvs)
@@ -343,7 +392,7 @@ func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logger := obs.NewLogger(false, filepath.Join(s.outputRoot, "runs", outRunID, "logs"))
-	out, err := reporter.NewService(logger).GenerateFromResultSet(contracts.RunSpec{
+	out, err := reporter.NewService(logger, &runner.DefaultPromptMetaProvider{}).GenerateFromResultSet(contracts.RunSpec{
 		RunID:      outRunID,
 		OutputRoot: s.outputRoot,
 		ConfigPath: s.configPath,
@@ -373,13 +422,45 @@ type modelInfo struct {
 	Enabled  bool   `json:"enabled"`
 }
 
+type frameworkInfo struct {
+	Name                string   `json:"name"`
+	Kind                string   `json:"kind"`
+	SandboxMode         string   `json:"sandbox_mode,omitempty"`
+	CompatibleModels    []string `json:"compatible_models,omitempty"`
+	CompatibleLanguages []string `json:"compatible_languages,omitempty"`
+}
+
+type skillInfo struct {
+	Name                 string   `json:"name"`
+	Version              string   `json:"version,omitempty"`
+	InjectMode           string   `json:"inject_mode,omitempty"`
+	CompatibleFrameworks []string `json:"compatible_frameworks,omitempty"`
+	CompatibleLanguages  []string `json:"compatible_languages,omitempty"`
+}
+
+type subjectInfo struct {
+	ID          string   `json:"id"`
+	Kind        string   `json:"kind"`
+	Framework   string   `json:"framework"`
+	Model       string   `json:"model"`
+	Skill       string   `json:"skill"`
+	SandboxMode string   `json:"sandbox_mode,omitempty"`
+	Labels      []string `json:"labels,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+}
+
 type configResponse struct {
-	Models      []modelInfo `json:"models"`
-	Languages   []string    `json:"languages"`
-	Scenarios   []string    `json:"scenarios"`
-	Classes     []string    `json:"classes"`
-	DatasetRoot string      `json:"dataset_root"`
-	ConfigPath  string      `json:"config_path"`
+	Models             []modelInfo     `json:"models"`
+	Frameworks         []frameworkInfo `json:"frameworks,omitempty"`
+	Skills             []skillInfo     `json:"skills,omitempty"`
+	Subjects           []subjectInfo   `json:"subjects,omitempty"`
+	Languages          []string        `json:"languages"`
+	Scenarios          []string        `json:"scenarios"`
+	Classes            []string        `json:"classes"`
+	DatasetRoot        string          `json:"dataset_root"`
+	ConfigPath         string          `json:"config_path"`
+	AgentsConfigPath   string          `json:"agents_config_path,omitempty"`
+	AgentsConfigError  string          `json:"agents_config_error,omitempty"`
 }
 
 type modelsYAML struct {
@@ -392,20 +473,55 @@ type modelsYAML struct {
 	} `yaml:"models"`
 }
 
-func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
+type webCatalog struct {
+	models            []modelInfo
+	frameworks        []frameworkInfo
+	skills            []skillInfo
+	subjects          []subjectInfo
+	agentsConfigError string
+}
+
+// loadWebCatalogCached 带缓存的 catalog 加载，2秒内复用。
+// 当 models.yaml 文件 mtime 变化时自动失效。
+func (s *Server) loadWebCatalogCached() (webCatalog, error) {
+	const cacheTTL = 2 * time.Second
+
+	// 获取 config 文件 mtime
+	info, err := os.Stat(s.configPath)
+	if err != nil {
+		return s.loadWebCatalog()
 	}
+	modTime := info.ModTime()
+
+	s.cacheMu.RLock()
+	if s.catalogCache != nil && time.Since(s.catalogCache.loadedAt) < cacheTTL && s.catalogCache.configMod == modTime {
+		cat := s.catalogCache.data
+		s.cacheMu.RUnlock()
+		return cat, nil
+	}
+	s.cacheMu.RUnlock()
+
+	cat, err := s.loadWebCatalog()
+	if err != nil {
+		return cat, err
+	}
+
+	s.cacheMu.Lock()
+	s.catalogCache = &catalogCacheEntry{data: cat, loadedAt: time.Now(), configMod: modTime}
+	s.cacheMu.Unlock()
+	return cat, nil
+}
+
+func (s *Server) loadWebCatalog() (webCatalog, error) {
 	raw, err := os.ReadFile(s.configPath)
 	if err != nil {
-		errJSON(w, http.StatusInternalServerError, "cannot read models.yaml: "+err.Error())
-		return
+		return webCatalog{}, fmt.Errorf("cannot read models.yaml: %w", err)
 	}
 	var mf modelsYAML
 	_ = yaml.Unmarshal(raw, &mf)
 
 	models := make([]modelInfo, 0, len(mf.Models))
+	modelNames := make([]string, 0, len(mf.Models))
 	for name, m := range mf.Models {
 		models = append(models, modelInfo{
 			Name:     name,
@@ -413,16 +529,144 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			ModelID:  m.Config.Model,
 			Enabled:  m.Enabled,
 		})
+		if m.Enabled {
+			modelNames = append(modelNames, name)
+		}
 	}
 	sort.Slice(models, func(i, j int) bool { return models[i].Name < models[j].Name })
+	sort.Strings(modelNames)
+
+	catalog := webCatalog{models: models}
+	agentsConfigPath := strings.TrimSpace(s.mgr.agentsConfigPath)
+	if agentsConfigPath == "" {
+		catalog.agentsConfigError = "未配置 agents config 路径（--agents-config）"
+		return catalog, nil
+	}
+	resolved, err := agentconfig.Load(agentsConfigPath, modelNames, nil)
+	if err != nil {
+		catalog.agentsConfigError = fmt.Sprintf("加载 agents config 失败: %v", err)
+		fmt.Printf("[web] agents config error: %v\n", err)
+		return catalog, nil
+	}
+	fmt.Printf("[web] agents config loaded: %d subjects, models=%v\n", len(resolved), modelNames)
+	frameworkSeen := map[string]frameworkInfo{}
+	skillSeen := map[string]skillInfo{}
+	subjects := make([]subjectInfo, 0, len(resolved))
+	for _, item := range resolved {
+		if item.Framework.Name != "" {
+			frameworkSeen[item.Framework.Name] = frameworkInfo{
+				Name:                item.Framework.Name,
+				Kind:                item.Framework.Kind,
+				SandboxMode:         item.Framework.SandboxMode,
+				CompatibleModels:    append([]string{}, item.Framework.CompatibleModels...),
+				CompatibleLanguages: append([]string{}, item.Framework.CompatibleLangs...),
+			}
+		}
+		if item.Skill.Name != "" {
+			skillSeen[item.Skill.Name] = skillInfo{
+				Name:                 item.Skill.Name,
+				Version:              item.Skill.Version,
+				InjectMode:           item.Skill.InjectMode,
+				CompatibleFrameworks: append([]string{}, item.Skill.CompatibleFrameworks...),
+				CompatibleLanguages:  append([]string{}, item.Skill.CompatibleLanguages...),
+			}
+		}
+		subjects = append(subjects, subjectInfo{
+			ID:          item.Spec.ID,
+			Kind:        item.Spec.Kind,
+			Framework:   item.Spec.Framework,
+			Model:       item.Spec.Model,
+			Skill:       item.Spec.Skill,
+			SandboxMode: item.Framework.SandboxMode,
+			Labels:      append([]string{}, item.Spec.Labels...),
+			Tags:        append([]string{}, item.Spec.Tags...),
+		})
+	}
+	catalog.frameworks = make([]frameworkInfo, 0, len(frameworkSeen))
+	for _, v := range frameworkSeen {
+		catalog.frameworks = append(catalog.frameworks, v)
+	}
+	sort.Slice(catalog.frameworks, func(i, j int) bool { return catalog.frameworks[i].Name < catalog.frameworks[j].Name })
+	catalog.skills = make([]skillInfo, 0, len(skillSeen))
+	for _, v := range skillSeen {
+		catalog.skills = append(catalog.skills, v)
+	}
+	sort.Slice(catalog.skills, func(i, j int) bool { return catalog.skills[i].Name < catalog.skills[j].Name })
+	sort.Slice(subjects, func(i, j int) bool { return subjects[i].ID < subjects[j].ID })
+	catalog.subjects = subjects
+	return catalog, nil
+}
+
+func deriveModelsFromSubjects(subjectIDs []string, subjects []subjectInfo) []string {
+	if len(subjectIDs) == 0 {
+		return nil
+	}
+	selected := map[string]struct{}{}
+	for _, id := range subjectIDs {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			selected[id] = struct{}{}
+		}
+	}
+	modelSet := map[string]struct{}{}
+	for _, subject := range subjects {
+		if _, ok := selected[subject.ID]; ok && strings.TrimSpace(subject.Model) != "" {
+			modelSet[subject.Model] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(modelSet))
+	for model := range modelSet {
+		out = append(out, model)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func subjectRequiresDockerSandbox(subjectIDs []string, subjects []subjectInfo) bool {
+	if len(subjectIDs) == 0 {
+		return false
+	}
+	selected := map[string]struct{}{}
+	for _, id := range subjectIDs {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			selected[id] = struct{}{}
+		}
+	}
+	for _, subject := range subjects {
+		if _, ok := selected[subject.ID]; !ok {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(subject.SandboxMode), "docker") {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	catalog, err := s.loadWebCatalogCached()
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	writeJSON(w, http.StatusOK, configResponse{
-		Models:      models,
-		Languages:   []string{"python", "go", "java", "cpp"},
-		Scenarios:   []string{"boundary", "simple_function", "complex_dependency", "interface_mock"},
-		Classes:     []string{"self_contained", "repo_level"},
-		DatasetRoot: s.mgr.datasetRoot,
-		ConfigPath:  s.configPath,
+		Models:            catalog.models,
+		Frameworks:        catalog.frameworks,
+		Skills:            catalog.skills,
+		Subjects:          catalog.subjects,
+		Languages:         contracts.SupportedLanguages,
+		Scenarios:         contracts.SupportedScenarios,
+		Classes:           []string{"self_contained", "repo_level"},
+		DatasetRoot:       s.mgr.datasetRoot,
+		ConfigPath:        s.configPath,
+		AgentsConfigPath:  s.mgr.agentsConfigPath,
+		AgentsConfigError: catalog.agentsConfigError,
 	})
 }
 
@@ -436,6 +680,7 @@ type runSummaryItem struct {
 	EndedAt   *time.Time        `json:"ended_at,omitempty"`
 	Error     string            `json:"error,omitempty"`
 	Spec      contracts.RunSpec `json:"spec"`
+	UseDocker bool              `json:"use_docker,omitempty"`
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
@@ -450,14 +695,65 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listRuns(w http.ResponseWriter, _ *http.Request) {
-	// Merge in-memory runs + completed runs scanned from artifacts/
+	// 快速路径：如果全部在内存中（活跃任务），直接返回，不扫描磁盘。
+	// 只有当有已完成任务需要从 artifacts/ 恢复时才做文件系统扫描（带缓存）。
+	const cacheTTL = 10 * time.Second
+
+	activeRuns := s.mgr.List()
+	hasActive := len(activeRuns) > 0
+
+	// 检查缓存
+	s.cacheMu.RLock()
+	cached := s.runsCache
+	s.cacheMu.RUnlock()
+
+	if cached != nil && time.Since(cached.loadedAt) < cacheTTL {
+		// 合并缓存的已完成任务 + 实时的活跃任务
+		merged := make(map[string]runSummaryItem)
+		for _, item := range cached.data {
+			merged[item.RunID] = item
+		}
+		for _, entry := range activeRuns {
+			entry.mu.RLock()
+			merged[entry.RunID] = runSummaryItem{
+				RunID:     entry.RunID,
+				Status:    entry.Status,
+				Paused:    entry.Paused,
+				StartedAt: entry.StartedAt,
+				EndedAt:   entry.EndedAt,
+				Error:     entry.Error,
+				Spec:      entry.Spec,
+			}
+			entry.mu.RUnlock()
+		}
+		out := make([]runSummaryItem, 0, len(merged))
+		for _, v := range merged {
+			out = append(out, v)
+		}
+		sort.Slice(out, func(i, j int) bool {
+			return out[i].StartedAt.After(out[j].StartedAt)
+		})
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+
+	// 缓存失效，重新扫描
+	s.listRunsFromDisk(w, activeRuns, hasActive)
+}
+
+func (s *Server) listRunsFromDisk(w http.ResponseWriter, activeRuns []*RunEntry, updateCache bool) {
 	byID := make(map[string]runSummaryItem)
 
 	// Scan artifacts/runs/*/run_summary.json
 	pattern := filepath.Join(s.outputRoot, "runs", "*", "run_summary.json")
 	matches, _ := filepath.Glob(pattern)
 	for _, path := range matches {
-		var raw map[string]any
+		var raw struct {
+			RunID        string            `json:"run_id"`
+			CreatedAtUTC string            `json:"created_at_utc"`
+			Spec         contracts.RunSpec `json:"spec"`
+			Backend      string            `json:"backend"`
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -465,23 +761,24 @@ func (s *Server) listRuns(w http.ResponseWriter, _ *http.Request) {
 		if err := json.Unmarshal(data, &raw); err != nil {
 			continue
 		}
-		runID, _ := raw["run_id"].(string)
+		runID := strings.TrimSpace(raw.RunID)
 		if runID == "" {
 			continue
 		}
 		if _, exists := byID[runID]; !exists {
-			createdStr, _ := raw["created_at_utc"].(string)
-			t, _ := time.Parse(time.RFC3339Nano, createdStr)
+			t, _ := time.Parse(time.RFC3339Nano, raw.CreatedAtUTC)
 			byID[runID] = runSummaryItem{
 				RunID:     runID,
 				Status:    StatusCompleted,
 				StartedAt: t,
+				Spec:      raw.Spec,
+				UseDocker: strings.EqualFold(strings.TrimSpace(raw.Backend), "docker"),
 			}
 		}
 	}
 
 	// Override / add active in-memory runs
-	for _, entry := range s.mgr.List() {
+	for _, entry := range activeRuns {
 		entry.mu.RLock()
 		item := runSummaryItem{
 			RunID:     entry.RunID,
@@ -496,6 +793,15 @@ func (s *Server) listRuns(w http.ResponseWriter, _ *http.Request) {
 		byID[entry.RunID] = item
 	}
 
+	// 缓存已完成任务（不含活跃任务的实时状态）
+	diskItems := make([]runSummaryItem, 0, len(byID))
+	for _, v := range byID {
+		diskItems = append(diskItems, v)
+	}
+	s.cacheMu.Lock()
+	s.runsCache = &runsCacheEntry{data: diskItems, loadedAt: time.Now()}
+	s.cacheMu.Unlock()
+
 	out := make([]runSummaryItem, 0, len(byID))
 	for _, v := range byID {
 		out = append(out, v)
@@ -509,6 +815,7 @@ func (s *Server) listRuns(w http.ResponseWriter, _ *http.Request) {
 type createRunRequest struct {
 	RunID           string   `json:"run_id"`
 	Models          []string `json:"models"`
+	Subjects        []string `json:"subjects,omitempty"`
 	Languages       []string `json:"languages"`
 	Class           string   `json:"class"`
 	Scenario        string   `json:"scenario"`
@@ -518,6 +825,7 @@ type createRunRequest struct {
 	Mode            string   `json:"mode"`
 	DryRun          bool     `json:"dry_run"`
 	ReuseGenerated  bool     `json:"reuse_generated"`
+	ReuseEvaluation bool     `json:"reuse_evaluation"`
 	MutationEnabled bool     `json:"mutation_enabled"`
 	MutationTimeout int      `json:"mutation_timeout"`
 	MutationPolicy  string   `json:"mutation_policy"`
@@ -555,10 +863,6 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 
 	// Validate based on phase
 	if phase == "full" || phase == "generate" {
-		if len(req.Models) == 0 {
-			errJSON(w, http.StatusBadRequest, "models is required for generate/full phase")
-			return
-		}
 		if len(req.Languages) == 0 {
 			errJSON(w, http.StatusBadRequest, "languages is required for generate/full phase")
 			return
@@ -592,27 +896,64 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	classes := splitTrim(req.Class)
+	catalog, err := s.loadWebCatalogCached()
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	models := append([]string{}, req.Models...)
+	if len(models) == 0 && len(req.Subjects) > 0 {
+		models = deriveModelsFromSubjects(req.Subjects, catalog.subjects)
+	}
+	if len(req.Subjects) > 0 && strings.TrimSpace(s.mgr.agentsConfigPath) == "" {
+		errJSON(w, http.StatusBadRequest, "subjects requires agents config")
+		return
+	}
+	if (phase == "full" || phase == "generate") && len(models) == 0 {
+		errJSON(w, http.StatusBadRequest, "models or subjects is required for generate/full phase")
+		return
+	}
+	if !req.UseDocker && subjectRequiresDockerSandbox(req.Subjects, catalog.subjects) {
+		outputRootSlash := filepath.ToSlash(s.outputRoot)
+		if strings.HasPrefix(outputRootSlash, "/app/") {
+			if strings.TrimSpace(os.Getenv("UTBENCH_SANDBOX_HOST_OUTPUT_ROOT")) == "" {
+				errJSON(w, http.StatusBadRequest, "当前 Web 运行在容器内，且选择了 sandbox_mode=docker 的 subject，但未设置 UTBENCH_SANDBOX_HOST_OUTPUT_ROOT")
+				return
+			}
+			if _, err := os.Stat("/var/run/docker.sock"); err != nil {
+				errJSON(w, http.StatusBadRequest, "当前 Web 运行在容器内，且选择了 sandbox_mode=docker 的 subject，但未挂载 /var/run/docker.sock")
+				return
+			}
+		}
+	}
+	agentsConfigPath := ""
+	if len(req.Subjects) > 0 {
+		agentsConfigPath = s.mgr.agentsConfigPath
+	}
 
 	spec := contracts.RunSpec{
-		RunID:           runID,
-		Models:          req.Models,
-		Languages:       req.Languages,
-		DatasetClasses:  classes,
-		DatasetScenario: req.Scenario,
-		DatasetLevel:    req.Level,
-		DatasetRoot:     s.mgr.datasetRoot,
-		ConfigPath:      s.configPath,
-		Mode:            contracts.RunMode(mode),
-		DryRun:          req.DryRun,
-		ReuseGenerated:  req.ReuseGenerated,
-		DBPath:          s.mgr.dbPath,
-		MutationEnabled: req.MutationEnabled,
-		MutationTimeout: mutTimeout,
-		MutationPolicy:  mutPolicy,
-		MaxSamples:      req.MaxSamples,
-		Workers:         req.Workers,
-		OutputRoot:      s.outputRoot,
-		CreatedAtUTC:    time.Now().UTC(),
+		RunID:            runID,
+		Models:           models,
+		Subjects:         splitTrim(strings.Join(req.Subjects, ",")),
+		AgentsConfigPath: agentsConfigPath,
+		Languages:        req.Languages,
+		DatasetClasses:   classes,
+		DatasetScenario:  req.Scenario,
+		DatasetLevel:     req.Level,
+		DatasetRoot:      s.mgr.datasetRoot,
+		ConfigPath:       s.configPath,
+		Mode:             contracts.RunMode(mode),
+		DryRun:           req.DryRun,
+		ReuseGenerated:   req.ReuseGenerated,
+		ReuseEvaluation:  req.ReuseEvaluation,
+		DBPath:           s.mgr.dbPath,
+		MutationEnabled:  req.MutationEnabled,
+		MutationTimeout:  mutTimeout,
+		MutationPolicy:   mutPolicy,
+		MaxSamples:       req.MaxSamples,
+		Workers:          req.Workers,
+		OutputRoot:       s.outputRoot,
+		CreatedAtUTC:     time.Now().UTC(),
 	}
 	opts := orchestrator.Options{
 		Ingest:         req.Ingest,
@@ -624,6 +965,10 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entry := s.mgr.Submit(spec, opts, req.UseDocker)
+	// 新任务提交后清除 runs 缓存
+	s.cacheMu.Lock()
+	s.runsCache = nil
+	s.cacheMu.Unlock()
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"run_id":        entry.RunID,
 		"status":        string(entry.Status),
@@ -741,6 +1086,9 @@ func (s *Server) handleRunRerun(w http.ResponseWriter, r *http.Request, runID st
 
 	opts := orchestrator.Options{DBPath: s.mgr.dbPath}
 	entry := s.mgr.Submit(spec, opts, true)
+	s.cacheMu.Lock()
+	s.runsCache = nil
+	s.cacheMu.Unlock()
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"run_id":        entry.RunID,
 		"source_run_id": runID,
@@ -807,17 +1155,20 @@ func (s *Server) handleRunReevaluate(w http.ResponseWriter, r *http.Request, run
 		errJSON(w, http.StatusConflict, "Docker image is not ready; reevaluate requires Docker so evaluator tools are complete")
 		return
 	}
-	out, err := runEvaluateInDocker(r.Context(), runID, spec, s.dockerCfg)
-	if err != nil {
-		errJSON(w, http.StatusInternalServerError, "reevaluate failed: "+err.Error()+": "+tailString(string(out), 2000))
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"run_id":          runID,
-		"manifest_path":   manifestPath,
-		"evaluation_path": filepath.Join(s.outputRoot, "runs", runID, "evaluation", "evaluation_result.json"),
-		"backend":         "docker",
-		"output_tail":     tailString(string(out), 2000),
+	// 异步执行评测，避免阻塞 HTTP 响应。使用 background context 确保客户端断开不会取消任务。
+	go func() {
+		out, err := runEvaluateInDocker(context.Background(), runID, spec, s.dockerCfg)
+		if err != nil {
+			fmt.Printf("[reevaluate] run=%s failed: %v\n%s\n", runID, err, tailString(string(out), 500))
+			return
+		}
+		fmt.Printf("[reevaluate] run=%s completed\n", runID)
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"run_id":        runID,
+		"manifest_path": manifestPath,
+		"status":        "reevaluation_started",
+		"message":       "Re-evaluation is running in the background. Check run status for completion.",
 	})
 }
 
@@ -922,7 +1273,7 @@ func (s *Server) handleRunRegenerateReport(w http.ResponseWriter, r *http.Reques
 
 	logDir := filepath.Join(s.outputRoot, "runs", runID, "logs")
 	logger := obs.NewLogger(true, logDir)
-	out, err := reporter.NewService(logger).Generate(context.Background(), spec, evaluationPath)
+	out, err := reporter.NewService(logger, &runner.DefaultPromptMetaProvider{}).Generate(context.Background(), spec, evaluationPath)
 	if err != nil {
 		errJSON(w, http.StatusInternalServerError, "regenerate report failed: "+err.Error())
 		return
@@ -1230,6 +1581,131 @@ func (s *Server) handleDBDatasetSnapshots(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBAssetSubjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows, err := db.ListAssetSubjects(r.Context(), parseLimit(r, 100))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBSubjectVersions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	rows, err := db.ListSubjectVersions(r.Context(), q.Get("subject"), parseLimit(r, 100))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBAssetGenerations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	rows, err := db.ListAssetGenerations(r.Context(), q.Get("subject"), q.Get("language"), q.Get("sample"), parseLimit(r, 100))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBAssetEvaluations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	rows, err := db.ListAssetEvaluations(r.Context(), q.Get("subject"), q.Get("language"), q.Get("sample"), parseLimit(r, 100))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleDBAssetExplainReuse(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	q := r.URL.Query()
+	subjectID := strings.TrimSpace(q.Get("subject"))
+	lang := strings.TrimSpace(q.Get("language"))
+	sampleID := strings.TrimSpace(q.Get("sample"))
+	if subjectID == "" || lang == "" || sampleID == "" {
+		errJSON(w, http.StatusBadRequest, "subject, language, sample are required")
+		return
+	}
+	db, err := s.openStore(r.Context())
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows, err := db.ListAssetGenerations(r.Context(), subjectID, lang, sampleID, parseLimit(r, 20))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response := map[string]any{
+		"subject_id":  subjectID,
+		"language":    lang,
+		"sample_id":   sampleID,
+		"matched":     false,
+		"miss_reason": "no_successful_generation_asset",
+		"candidates":  rows,
+	}
+	for _, row := range rows {
+		if row.Success && row.GeneratedTestPath != "" && row.GenerationKey != "" {
+			response["matched"] = true
+			response["miss_reason"] = ""
+			response["generation_key"] = row.GenerationKey
+			response["latest_reusable"] = row
+			response["comparisons"] = map[string]string{
+				"stored_subject_version_id":  row.SubjectVersionID,
+				"stored_sandbox_fingerprint": row.SandboxFingerprint,
+				"stored_sample_uid":          row.SampleUID,
+				"dependency_fingerprint":     row.DependencyFingerprint,
+				"generation_env_fingerprint": row.GenerationEnvFingerprint,
+			}
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleDBModelConfigs(w http.ResponseWriter, r *http.Request) {

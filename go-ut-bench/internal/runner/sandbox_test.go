@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"path/filepath"
 	"testing"
 )
 
@@ -15,7 +14,7 @@ func TestResolveDockerWorkspaceMountUsesHostOutputRootOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveDockerWorkspaceMount returned error: %v", err)
 	}
-	want := filepath.Join("/host/artifacts", "runs", "run_1", "agent_workspaces", "opencode", "python", "sample_001")
+	want := "/host/artifacts/runs/run_1/agent_workspaces/opencode/python/sample_001"
 	if got != want {
 		t.Fatalf("unexpected mount source: got=%s want=%s", got, want)
 	}

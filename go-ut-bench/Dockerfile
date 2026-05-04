@@ -2,6 +2,8 @@
 # Ubuntu 24.04 with all evaluation toolchains pre-installed
 # Supports: Python, Go, Java, C++ unit test evaluation
 
+FROM docker:28-cli AS docker-cli
+
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -12,14 +14,17 @@ ARG UBUNTU_MIRROR=
 # Optionally override Ubuntu archive/security hosts for build environments
 # that need a regional mirror. Leave UBUNTU_MIRROR empty to keep upstream
 # defaults and avoid hard failures when a third-party mirror is flaky.
+# Note: only replace the host portion, keep http:// protocol to avoid
+# certificate verification issues before ca-certificates is installed.
 RUN if [ -n "${UBUNTU_MIRROR}" ]; then \
+      MIRROR_HOST=$(echo "${UBUNTU_MIRROR}" | sed 's|https\?://||;s|/$||'); \
       if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
-        sed -i "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources && \
-        sed -i "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources; \
+        sed -i "s|archive.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list.d/ubuntu.sources && \
+        sed -i "s|security.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list.d/ubuntu.sources; \
       fi; \
       if [ -f /etc/apt/sources.list ]; then \
-        sed -i "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list && \
-        sed -i "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list; \
+        sed -i "s|archive.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list && \
+        sed -i "s|security.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list; \
       fi; \
     fi
 
@@ -38,13 +43,14 @@ RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update && apt-get
 RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
     add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" && \
     if [ -n "${UBUNTU_MIRROR}" ]; then \
+      MIRROR_HOST=$(echo "${UBUNTU_MIRROR}" | sed 's|https\?://||;s|/$||'); \
       if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
-        sed -i "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources && \
-        sed -i "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources; \
+        sed -i "s|archive.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list.d/ubuntu.sources && \
+        sed -i "s|security.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list.d/ubuntu.sources; \
       fi; \
       if [ -f /etc/apt/sources.list ]; then \
-        sed -i "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list && \
-        sed -i "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list; \
+        sed -i "s|archive.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list && \
+        sed -i "s|security.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list; \
       fi; \
     fi && \
     apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update
@@ -55,7 +61,6 @@ RUN apt-get install -y --fix-missing --no-install-recommends \
     gcc \
     g++ \
     cmake \
-    docker.io \
     git \
     unzip \
     python3 \
@@ -79,6 +84,50 @@ RUN apt-get install -y --fix-missing --no-install-recommends \
     libgcc-s1 \
     && cd /usr/src/gtest && cmake . && make && cp lib/*.a /usr/lib/ \
     && rm -rf /var/lib/apt/lists/*
+
+# Configure Maven to use Aliyun mirror for faster downloads in China
+RUN mkdir -p /root/.m2 && cat > /root/.m2/settings.xml << 'SETTINGSEOF'
+<settings>
+  <mirrors>
+    <mirror>
+      <id>aliyun</id>
+      <mirrorOf>central</mirrorOf>
+      <name>Aliyun Maven Mirror</name>
+      <url>https://maven.aliyun.com/repository/central</url>
+    </mirror>
+  </mirrors>
+</settings>
+SETTINGSEOF
+
+# Pre-download Maven dependencies used by Java evaluation (JUnit 5, JaCoCo, Surefire, PITest).
+# This avoids downloading them on every container run, which is slow and unreliable
+# with concurrent workers.
+RUN mkdir -p /tmp/maven-warmup && cat > /tmp/maven-warmup/pom.xml << 'POMEOF'
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>warmup</groupId><artifactId>warmup</artifactId><version>1.0</version>
+  <properties>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
+  </properties>
+  <dependencies>
+    <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency>
+    <dependency><groupId>org.junit.vintage</groupId><artifactId>junit-vintage-engine</artifactId><version>5.10.2</version><scope>test</scope></dependency>
+  </dependencies>
+  <build><plugins>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.11.0</version></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.1.2</version></plugin>
+    <plugin><groupId>org.jacoco</groupId><artifactId>jacoco-maven-plugin</artifactId><version>0.8.11</version></plugin>
+    <plugin><groupId>org.pitest</groupId><artifactId>pitest-maven</artifactId><version>1.19.6</version>
+      <dependencies><dependency><groupId>org.pitest</groupId><artifactId>pitest-junit5-plugin</artifactId><version>1.2.1</version></dependency></dependencies>
+    </plugin>
+  </plugins></build>
+</project>
+POMEOF
+RUN cd /tmp/maven-warmup && mvn dependency:resolve test-compile -q && rm -rf /tmp/maven-warmup
+
+# Copy docker CLI binary from official image (lighter than docker.io package)
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 
 # Install Go 1.24. Keep multiple download endpoints because TLS to go.dev can
 # be flaky in some build networks.
@@ -113,22 +162,26 @@ RUN echo "/usr/lib/llvm-19/lib" > /etc/ld.so.conf.d/llvm-19.conf && \
     echo "/lib/x86_64-linux-gnu" >> /etc/ld.so.conf.d/llvm-19.conf && \
     ldconfig
 
-# Install Mull 19 (C++ mutation testing) from Cloudsmith
-RUN if [ -n "${UBUNTU_MIRROR}" ]; then \
-      if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
-        sed -i "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources && \
-        sed -i "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources; \
-      fi; \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list && \
-        sed -i "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" /etc/apt/sources.list; \
-      fi; \
-    fi && \
-    curl -1sLf 'https://dl.cloudsmith.io/public/mull-project/mull-stable/setup.deb.sh' | bash && \
-    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update && \
-    apt-get install -y --fix-missing mull-19 && \
-    ldconfig && \
-    rm -rf /var/lib/apt/lists/*
+# Install Mull (C++ mutation testing) from GitHub releases
+# Package naming: Mull-{LLVM_VER}-{MULL_VER}-LLVM-{FULL_LLVM}-ubuntu-amd64-{UBUNTU_VER}.deb
+ARG MULL_VERSION=0.33.0
+ARG LLVM_MAJOR=19
+RUN set -eux; \
+    ARCH=$(dpkg --print-architecture); \
+    UBUNTU_VER=$(lsb_release -rs); \
+    BASE_URL="https://github.com/mull-project/mull/releases/download/${MULL_VERSION}"; \
+    for ubu in "${UBUNTU_VER}" "24.04" "26.04"; do \
+      for llvm_full in "19.1.1" "19.1.7" "19.1.6" "19.1.0"; do \
+        name="Mull-${LLVM_MAJOR}-${MULL_VERSION}-LLVM-${llvm_full}-ubuntu-${ARCH}-${ubu}.deb"; \
+        echo "Trying: ${BASE_URL}/${name}"; \
+        if curl -fL --retry 3 --connect-timeout 10 "${BASE_URL}/${name}" -o /tmp/mull.deb 2>/dev/null; then \
+          dpkg -i /tmp/mull.deb && rm /tmp/mull.deb && ldconfig; \
+          exit 0; \
+        fi; \
+      done; \
+    done; \
+    echo "ERROR: Could not download Mull ${MULL_VERSION} for LLVM ${LLVM_MAJOR} on Ubuntu ${UBUNTU_VER}"; \
+    exit 1
 
 # Install Python testing tools - use venv for mutmut to avoid conflicts
 RUN python3 -m venv /opt/venv && \

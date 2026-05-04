@@ -544,8 +544,10 @@ func classifySampleClass(sampleID string, relPath string) contracts.DatasetClass
 	if strings.Contains(lower, "repo_level") {
 		return contracts.DatasetClassRepoLevel
 	}
-	if strings.Contains(lower, "complex_dependency") || strings.Contains(lower, "interface_mock") || strings.Contains(lower, "boundary") || strings.Contains(lower, "simple_function") {
-		return contracts.DatasetClassSelfContained
+	for _, scenario := range contracts.SupportedScenarios {
+		if strings.Contains(lower, scenario) {
+			return contracts.DatasetClassSelfContained
+		}
 	}
 	return contracts.DatasetClassSelfContained
 }
@@ -555,7 +557,7 @@ func classifySampleClass(sampleID string, relPath string) contracts.DatasetClass
 func classifySampleScenario(sampleID string, relPath string) string {
 	lower := strings.ToLower(sampleID + "|" + relPath)
 	lower = strings.ReplaceAll(lower, "\\", "/")
-	for _, scenario := range []string{"boundary", "simple_function", "complex_dependency", "interface_mock"} {
+	for _, scenario := range contracts.SupportedScenarios {
 		if strings.Contains(lower, scenario) {
 			return scenario
 		}
@@ -567,12 +569,14 @@ func classifySampleScenario(sampleID string, relPath string) string {
 // 返回有效的场景名称，无效输入返回空字符串
 func normalizeScenario(raw string) string {
 	val := strings.ToLower(strings.TrimSpace(raw))
-	switch val {
-	case "boundary", "simple_function", "complex_dependency", "interface_mock", "unknown":
-		return val
-	default:
-		return ""
+	valid := map[string]bool{"unknown": true}
+	for _, s := range contracts.SupportedScenarios {
+		valid[s] = true
 	}
+	if valid[val] {
+		return val
+	}
+	return ""
 }
 
 // matchDatasetClassFilter 检查样本类别是否匹配过滤条件

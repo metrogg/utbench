@@ -7,10 +7,13 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"time"
 )
 
-func runCommandWithProcessGroupKill(ctx context.Context, name string, args []string, workdir string, env []string) ([]byte, error) {
+// runCommandLocal 在宿主机本地执行命令（Windows 实现）。
+// Windows 不支持进程组，使用 taskkill /T /F /PID 杀掉整个进程树。
+func runCommandLocal(ctx context.Context, name string, args []string, workdir string, env []string) ([]byte, error) {
 	logMutation("DEBUG-3", "run_command_start", "name", name, "args", args, "workdir", workdir)
 
 	cmd := exec.Command(name, args...)
@@ -19,8 +22,6 @@ func runCommandWithProcessGroupKill(ctx context.Context, name string, args []str
 		cmd.Env = env
 	}
 
-	// Windows 不支持进程组，使用 CommandContext 进行超时控制
-	// 注意：这可能无法杀死子进程
 	type result struct {
 		out []byte
 		err error
@@ -40,8 +41,11 @@ func runCommandWithProcessGroupKill(ctx context.Context, name string, args []str
 		logMutation("WARN", "run_command_timeout_windows", "ctx_err", ctx.Err())
 		fmt.Printf("        [MUTATION-WARN] Windows 进程超时 (context cancelled)\n")
 		if cmd.Process != nil {
-			cmd.Process.Kill()
-			logMutation("INFO", "run_command_killed_windows", "pid", cmd.Process.Pid)
+			// 使用 taskkill /T 杀掉整个进程树（包括子进程）
+			pid := strconv.Itoa(cmd.Process.Pid)
+			killCmd := exec.Command("taskkill", "/T", "/F", "/PID", pid)
+			_ = killCmd.Run()
+			logMutation("INFO", "run_command_killed_windows_tree", "pid", pid)
 		}
 		return nil, ctx.Err()
 	case r := <-done:

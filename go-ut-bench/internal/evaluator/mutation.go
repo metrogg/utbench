@@ -60,7 +60,7 @@ func collectPythonMutation(ctx context.Context, workdir, testName string, mutati
 		return 0, mutationStats{}, "missing mutation targets"
 	}
 	if timeoutSeconds <= 0 {
-		timeoutSeconds = 120
+		timeoutSeconds = MutationTimeoutSeconds
 	}
 
 	fmt.Printf("        [MUTATION] Python mutmut 开始 | 目标: %v | 超时: %ds | 测试文件: %s\n", mutationTargets, timeoutSeconds, testName)

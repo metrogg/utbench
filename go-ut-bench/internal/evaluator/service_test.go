@@ -205,6 +205,7 @@ func TestClassifyFailureOriginTreatsGoMutestingNoResultsAsTool(t *testing.T) {
 }
 
 func TestShouldRunMutationAfterSampleTestsRequiresSamplePass(t *testing.T) {
+	// test_pass_rate=1.0 时应信任解析结果，即使退出码为非零（gcov 等工具干扰）
 	testPass := false
 	rate := 1.0
 	row := contracts.EvaluationResult{
@@ -212,9 +213,28 @@ func TestShouldRunMutationAfterSampleTestsRequiresSamplePass(t *testing.T) {
 		TestPass:     &testPass,
 		TestPassRate: &rate,
 	}
+	if !shouldRunMutationAfterSampleTests(row) {
+		t.Fatal("expected mutation to proceed when parsed pass rate is 1.0 even if exit code indicates failure")
+	}
 
-	if shouldRunMutationAfterSampleTests(row) {
-		t.Fatal("expected mutation to be skipped when sample-level tests failed even if parsed pass rate is 1.0")
+	// test_pass_rate < 1.0 时应跳过变异
+	rateLow := 0.5
+	row2 := contracts.EvaluationResult{
+		CompilePass:  true,
+		TestPass:     &testPass,
+		TestPassRate: &rateLow,
+	}
+	if shouldRunMutationAfterSampleTests(row2) {
+		t.Fatal("expected mutation to be skipped when pass rate < 1.0")
+	}
+
+	// 无 pass_rate 数据时回退到退出码判断
+	row3 := contracts.EvaluationResult{
+		CompilePass: true,
+		TestPass:    &testPass,
+	}
+	if shouldRunMutationAfterSampleTests(row3) {
+		t.Fatal("expected mutation to be skipped when test_pass=false and no pass_rate data")
 	}
 }
 

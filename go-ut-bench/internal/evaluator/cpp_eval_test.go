@@ -13,7 +13,7 @@ import (
 func TestMullInstallation(t *testing.T) {
 	runner := findMullRunner()
 	if runner == "" {
-		t.Skip("Mull 未安装，跳过测试。安装命令: curl -1sLf 'https://dl.cloudsmith.io/public/mull-project/mull-stable/setup.deb.sh' | bash && apt-get install -y mull-19")
+		t.Skip("Mull 未安装，跳过测试。请通过 GitHub Releases 安装: https://github.com/mull-project/mull/releases 或使用 Docker 镜像。")
 	}
 	t.Logf("✅ 找到 Mull runner: %s", runner)
 

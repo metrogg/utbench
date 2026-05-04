@@ -22,7 +22,6 @@ import (
 	"go-ut-bench/internal/contracts"
 	"go-ut-bench/internal/ctrl"
 	"go-ut-bench/internal/obs"
-	"go-ut-bench/internal/store"
 )
 
 // Service 测试生成服务结构
@@ -44,6 +43,7 @@ type Output struct {
 type task struct {
 	subject subjectTarget       // 被测对象配置
 	sample  contracts.SampleRef // 样本引用
+	plan    *generationTaskPlan
 }
 
 type subjectTarget struct {
@@ -78,7 +78,7 @@ func NewService(logger *obs.Logger) *Service {
 //  4. 使用worker池并行调用LLM API生成测试
 //  5. 保存测试文件和元数据
 //  6. 生成清单文件
-func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples []contracts.SampleRef) (Output, error) {
+func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples []contracts.SampleRef, reuseStore GenerationReuseStore) (Output, error) {
 	modelConfigs, err := loadModelConfigs(spec.ConfigPath, spec.Models)
 	if err != nil {
 		return Output{}, err
@@ -86,20 +86,6 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	subjects, err := loadSubjectTargets(spec, modelConfigs)
 	if err != nil {
 		return Output{}, err
-	}
-	var reuseStore *store.SQLiteStore
-	if spec.ReuseGenerated && strings.TrimSpace(spec.DBPath) != "" && !spec.DryRun {
-		if db, openErr := store.OpenSQLite(spec.DBPath); openErr == nil {
-			if initErr := db.Init(ctx); initErr == nil {
-				reuseStore = db
-				defer reuseStore.Close()
-			} else {
-				_ = db.Close()
-				s.logger.Warn("reuse generated disabled", "reason", initErr.Error())
-			}
-		} else {
-			s.logger.Warn("reuse generated disabled", "reason", openErr.Error())
-		}
 	}
 
 	// 创建输出目录结构
@@ -118,6 +104,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	if err != nil {
 		return Output{}, err
 	}
+	reusePlan := prepareGenerationReusePlan(ctx, spec, subjects, samples, promptRoot, promptCatalog.VersionID, reuseStore)
 
 	// 处理checkpoint
 	checkpointPath := buildCheckpointPath(spec, subjects)
@@ -138,7 +125,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 	if workerCount <= 0 {
 		workerCount = min(16, max(2, runtime.NumCPU()))
 	}
-	progress := obs.NewProgressReporter(totalTasks, "generate")
+	progress := obs.NewProgressReporterWithWriter(totalTasks, "generate", s.logger.Writer())
 	// 构建 subject 列表详情
 	subjectLines := ""
 	for _, sub := range subjects {
@@ -152,8 +139,11 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 		}
 		subjectLines += fmt.Sprintf("   [%s] %s | model=%s | skill=%s\n", kind, sub.subject.Spec.ID, sub.subject.Spec.Model, skill)
 	}
-	progress.PrintStageStart("生成测试", fmt.Sprintf("%d 样本 × %d 被测对象 = %d 任务 | Workers: %d\n%s",
-		len(samples), len(subjects), totalTasks, workerCount, subjectLines))
+	stageHeader := fmt.Sprintf("%d 样本 × %d 被测对象 = %d 任务 | Workers: %d", len(samples), len(subjects), totalTasks, workerCount)
+	if reusePlan.ReusableHits > 0 {
+		stageHeader += fmt.Sprintf(" | 预判可复用: %d", reusePlan.ReusableHits)
+	}
+	progress.PrintStageStart("生成测试", fmt.Sprintf("%s\n%s", stageHeader, subjectLines))
 
 	// 创建worker池
 	tasks := make(chan task)
@@ -169,7 +159,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 				if err := ctrl.Wait(ctx); err != nil {
 					return
 				}
-				item := s.generateOne(ctx, spec, testRoot, metaRoot, promptRoot, promptCatalog.VersionID, reuseStore, t.subject, t.sample)
+				item := s.generateOne(ctx, spec, testRoot, metaRoot, promptRoot, promptCatalog.VersionID, reuseStore, t.plan, t.subject, t.sample)
 				select {
 				case <-ctx.Done():
 					return
@@ -220,10 +210,15 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 					}
 
 					// 发送任务
+					var plan *generationTaskPlan
+					if planned, ok := reusePlan.ByTaskKey[taskKey(it.subject.subject.Spec.ID, sample.Language, sample.ID)]; ok {
+						planCopy := planned
+						plan = &planCopy
+					}
 					select {
 					case <-ctx.Done():
 						return
-					case tasks <- task{subject: it.subject, sample: sample}:
+					case tasks <- task{subject: it.subject, sample: sample, plan: plan}:
 					}
 					activeSubjects++
 					break // 每个模型每次只发送一个任务
@@ -380,7 +375,7 @@ func (s *Service) Generate(ctx context.Context, spec contracts.RunSpec, samples 
 //
 // 返回值:
 //   - GeneratedCase: 生成结果
-func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testRoot, metaRoot, promptRoot, promptVersionID string, reuseStore *store.SQLiteStore, target subjectTarget, sample contracts.SampleRef) contracts.GeneratedCase {
+func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testRoot, metaRoot, promptRoot, promptVersionID string, reuseStore GenerationReuseStore, plan *generationTaskPlan, target subjectTarget, sample contracts.SampleRef) contracts.GeneratedCase {
 	subject := target.subject.Spec
 	model := subject.ID
 	started := time.Now()
@@ -462,12 +457,19 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 	trace := subjectTrace{}
 	var agentSummary agentTraceSummary
 	identity := generationIdentity{}
+	sourceSHA := ""
 
 	if spec.DryRun {
 		content = buildPlaceholderTest(sample.Language, sample.ID)
 	} else {
-		sourceCode, readErr := os.ReadFile(sample.Path)
-		if readErr != nil {
+		if plan != nil {
+			promptMode = plan.PromptMode
+			promptPath = plan.PromptPath
+			renderedPrompt = plan.RenderedPrompt
+			identity = plan.Identity
+			sourceSHA = plan.Identity.SourceSHA256
+		}
+		if plan != nil && plan.ReadError != nil {
 			return contracts.GeneratedCase{
 				Model:             model,
 				SubjectID:         subject.ID,
@@ -486,22 +488,49 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				Success:           false,
 				Error: &contracts.ErrorInfo{
 					Kind:      "sample_read_error",
-					Message:   readErr.Error(),
+					Message:   plan.ReadError.Error(),
 					Retryable: false,
 				},
 			}
 		}
-		renderedPrompt = buildPrompt(sample.Language, sample.Path, string(sourceCode))
-		if err := os.MkdirAll(filepath.Dir(promptPathCandidate), 0o755); err == nil {
-			if err := os.WriteFile(promptPathCandidate, []byte(renderedPrompt), 0o644); err == nil {
-				promptPath = promptPathCandidate
+		if renderedPrompt == "" || identity.SubjectVersionID == "" {
+			sourceCode, readErr := os.ReadFile(sample.Path)
+			if readErr != nil {
+				return contracts.GeneratedCase{
+					Model:             model,
+					SubjectID:         subject.ID,
+					SubjectKind:       subject.Kind,
+					AgentFramework:    subject.Framework,
+					AgentModel:        subject.Model,
+					SkillName:         subject.Skill,
+					SkillVersion:      skillVersion,
+					Language:          sample.Language,
+					SampleID:          sample.ID,
+					SamplePath:        sample.Path,
+					PromptVersionID:   promptVersionID,
+					PromptMode:        promptMode,
+					GeneratedTestPath: testPath,
+					GeneratedAtUTC:    time.Now().UTC(),
+					Success:           false,
+					Error: &contracts.ErrorInfo{
+						Kind:      "sample_read_error",
+						Message:   readErr.Error(),
+						Retryable: false,
+					},
+				}
 			}
+			renderedPrompt = buildPrompt(sample.Language, sample.Path, string(sourceCode))
+			if err := os.MkdirAll(filepath.Dir(promptPathCandidate), 0o755); err == nil {
+				if err := os.WriteFile(promptPathCandidate, []byte(renderedPrompt), 0o644); err == nil {
+					promptPath = promptPathCandidate
+				}
+			}
+			identity = buildGenerationIdentity(target, target.model, sample, sourceCode, renderedPrompt, promptVersionID)
+			sourceSHA = identity.SourceSHA256
 		}
-
-		sourceSHA := sha256Bytes(sourceCode)
-		identity = buildGenerationIdentity(target, target.model, sample, sourceCode, renderedPrompt, promptVersionID)
 		if reuseStore != nil {
-			if reused, ok, reuseErr := reuseStore.FindReusableGeneratedAsset(ctx, identity.GenerationKey); reuseErr == nil && ok {
+			if plan != nil && plan.Reused != nil {
+				reused := *plan.Reused
 				if copyErr := copyFile(reused.GeneratedTestPath, testPath); copyErr == nil {
 					metadataPath := filepath.Join(metaRoot, fmt.Sprintf("%s_%s_%s.metadata.json", model, sample.Language, sample.ID))
 					metadata := map[string]any{
@@ -526,6 +555,13 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 						"source_md5":                   sample.SourceMD5,
 						"source_sha256":                sourceSHA,
 						"subject_version_id":           identity.SubjectVersionID,
+						"framework_config_sha256":      identity.VersionDetails.FrameworkConfigSHA256,
+						"skill_sha256":                 identity.VersionDetails.SkillSHA256,
+						"agent_command_sha256":         identity.VersionDetails.AgentCommandSHA256,
+						"docker_image":                 identity.VersionDetails.DockerImage,
+						"docker_image_digest":          identity.VersionDetails.DockerImageDigest,
+						"sandbox_provider":             frameworkSandboxProvider(target.subject.Framework),
+						"env_contract_sha256":          identity.VersionDetails.EnvContractSHA256,
 						"generation_key":               identity.GenerationKey,
 						"dependency_fingerprint":       identity.DependencyFingerprint,
 						"generation_env_fingerprint":   identity.GenerationEnvFingerprint,
@@ -561,8 +597,111 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 						MetadataPath:             metadataPath,
 						TracePath:                reused.TracePath,
 						WorkspaceDiffPath:        reused.WorkspaceDiffPath,
+						SandboxProvider:          frameworkSandboxProvider(target.subject.Framework),
 						SandboxFingerprint:       reused.SandboxFingerprint,
 						SubjectVersionID:         identity.SubjectVersionID,
+						FrameworkConfigSHA256:    identity.VersionDetails.FrameworkConfigSHA256,
+						SkillSHA256:              identity.VersionDetails.SkillSHA256,
+						AgentCommandSHA256:       identity.VersionDetails.AgentCommandSHA256,
+						DockerImage:              identity.VersionDetails.DockerImage,
+						DockerImageDigest:        identity.VersionDetails.DockerImageDigest,
+						EnvContractSHA256:        identity.VersionDetails.EnvContractSHA256,
+						GenerationKey:            identity.GenerationKey,
+						DependencyFingerprint:    identity.DependencyFingerprint,
+						GenerationEnvFingerprint: identity.GenerationEnvFingerprint,
+						Reused:                   true,
+						ReuseStage:               "generation",
+						ReuseKey:                 identity.GenerationKey,
+						ReuseReason:              "generation_key_match",
+						ReusedFromRunID:          reused.RunID,
+						ReusedFromCaseID:         reused.GeneratedCaseID,
+						LatencyMS:                int(time.Since(started).Milliseconds()),
+						PromptTokens:             reused.PromptTokens,
+						CompletionTokens:         reused.CompletionTokens,
+						TotalTokens:              reused.TotalTokens,
+						TokenSource:              reused.TokenSource,
+						EstimatedCostUSD:         reused.EstimatedCostUSD,
+						CostSource:               reused.CostSource,
+						GeneratedAtUTC:           time.Now().UTC(),
+						Success:                  true,
+					}
+				}
+			} else if reused, ok, reuseErr := reuseStore.FindReusableGeneratedAsset(ctx, identity.GenerationKey); reuseErr == nil && ok {
+				if copyErr := copyFile(reused.GeneratedTestPath, testPath); copyErr == nil {
+					metadataPath := filepath.Join(metaRoot, fmt.Sprintf("%s_%s_%s.metadata.json", model, sample.Language, sample.ID))
+					metadata := map[string]any{
+						"model":                        model,
+						"subject_id":                   subject.ID,
+						"subject_kind":                 subject.Kind,
+						"agent_framework":              subject.Framework,
+						"agent_model":                  subject.Model,
+						"skill_name":                   subject.Skill,
+						"skill_version":                skillVersion,
+						"language":                     sample.Language,
+						"sample_id":                    sample.ID,
+						"sample_uid":                   identity.SampleUID,
+						"sample_path":                  sample.Path,
+						"prompt_strategy":              PromptStrategy(),
+						"prompt_version_id":            promptVersionID,
+						"prompt_mode":                  promptMode,
+						"prompt_path":                  promptPath,
+						"scenario":                     sample.Scenario,
+						"generated_test_path":          testPath,
+						"dataset_class":                sample.Category,
+						"source_md5":                   sample.SourceMD5,
+						"source_sha256":                sourceSHA,
+						"subject_version_id":           identity.SubjectVersionID,
+						"framework_config_sha256":      identity.VersionDetails.FrameworkConfigSHA256,
+						"skill_sha256":                 identity.VersionDetails.SkillSHA256,
+						"agent_command_sha256":         identity.VersionDetails.AgentCommandSHA256,
+						"docker_image":                 identity.VersionDetails.DockerImage,
+						"docker_image_digest":          identity.VersionDetails.DockerImageDigest,
+						"sandbox_provider":             frameworkSandboxProvider(target.subject.Framework),
+						"env_contract_sha256":          identity.VersionDetails.EnvContractSHA256,
+						"generation_key":               identity.GenerationKey,
+						"dependency_fingerprint":       identity.DependencyFingerprint,
+						"generation_env_fingerprint":   identity.GenerationEnvFingerprint,
+						"reused":                       true,
+						"reuse_stage":                  "generation",
+						"reuse_key":                    identity.GenerationKey,
+						"reuse_reason":                 "generation_key_match",
+						"reused_from_run_id":           reused.RunID,
+						"reused_from_case_id":          reused.GeneratedCaseID,
+						"reused_generated_test_sha256": reused.GeneratedTestSHA256,
+						"created_at_utc":               time.Now().UTC(),
+						"success":                      true,
+					}
+					_ = contracts.WriteJSON(metadataPath, metadata)
+					s.logger.Info("reuse generated test", "subject", model, "language", sample.Language, "sample_id", sample.ID, "from_run", reused.RunID)
+					return contracts.GeneratedCase{
+						Model:                    model,
+						SubjectID:                subject.ID,
+						SubjectKind:              subject.Kind,
+						AgentFramework:           subject.Framework,
+						AgentModel:               subject.Model,
+						SkillName:                subject.Skill,
+						SkillVersion:             skillVersion,
+						Language:                 sample.Language,
+						SampleID:                 sample.ID,
+						SampleUID:                identity.SampleUID,
+						SamplePath:               sample.Path,
+						PromptVersionID:          promptVersionID,
+						PromptMode:               promptMode,
+						PromptPath:               promptPath,
+						GeneratedTestPath:        testPath,
+						ResponsePath:             reused.ResponsePath,
+						MetadataPath:             metadataPath,
+						TracePath:                reused.TracePath,
+						WorkspaceDiffPath:        reused.WorkspaceDiffPath,
+						SandboxProvider:          frameworkSandboxProvider(target.subject.Framework),
+						SandboxFingerprint:       reused.SandboxFingerprint,
+						SubjectVersionID:         identity.SubjectVersionID,
+						FrameworkConfigSHA256:    identity.VersionDetails.FrameworkConfigSHA256,
+						SkillSHA256:              identity.VersionDetails.SkillSHA256,
+						AgentCommandSHA256:       identity.VersionDetails.AgentCommandSHA256,
+						DockerImage:              identity.VersionDetails.DockerImage,
+						DockerImageDigest:        identity.VersionDetails.DockerImageDigest,
+						EnvContractSHA256:        identity.VersionDetails.EnvContractSHA256,
 						GenerationKey:            identity.GenerationKey,
 						DependencyFingerprint:    identity.DependencyFingerprint,
 						GenerationEnvFingerprint: identity.GenerationEnvFingerprint,
@@ -620,8 +759,15 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 				CostSource:               trace.CostSource,
 				TracePath:                trace.TracePath,
 				WorkspaceDiffPath:        trace.WorkspaceDiffPath,
+				SandboxProvider:          trace.SandboxProvider,
 				SandboxFingerprint:       trace.SandboxFingerprint,
 				SubjectVersionID:         identity.SubjectVersionID,
+				FrameworkConfigSHA256:    identity.VersionDetails.FrameworkConfigSHA256,
+				SkillSHA256:              identity.VersionDetails.SkillSHA256,
+				AgentCommandSHA256:       identity.VersionDetails.AgentCommandSHA256,
+				DockerImage:              identity.VersionDetails.DockerImage,
+				DockerImageDigest:        identity.VersionDetails.DockerImageDigest,
+				EnvContractSHA256:        identity.VersionDetails.EnvContractSHA256,
 				GenerationKey:            identity.GenerationKey,
 				DependencyFingerprint:    identity.DependencyFingerprint,
 				GenerationEnvFingerprint: identity.GenerationEnvFingerprint,
@@ -654,6 +800,7 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 			GeneratedTestPath:  testPath,
 			TracePath:          trace.TracePath,
 			WorkspaceDiffPath:  trace.WorkspaceDiffPath,
+			SandboxProvider:    trace.SandboxProvider,
 			SandboxFingerprint: trace.SandboxFingerprint,
 			GeneratedAtUTC:     time.Now().UTC(),
 			Success:            false,
@@ -692,10 +839,18 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		"response_path":              respPath,
 		"trace_path":                 trace.TracePath,
 		"workspace_diff_path":        trace.WorkspaceDiffPath,
+		"sandbox_provider":           trace.SandboxProvider,
 		"sandbox_fingerprint":        trace.SandboxFingerprint,
 		"dataset_class":              sample.Category,
 		"source_md5":                 sample.SourceMD5,
+		"source_sha256":              sourceSHA,
 		"subject_version_id":         identity.SubjectVersionID,
+		"framework_config_sha256":    identity.VersionDetails.FrameworkConfigSHA256,
+		"skill_sha256":               identity.VersionDetails.SkillSHA256,
+		"agent_command_sha256":       identity.VersionDetails.AgentCommandSHA256,
+		"docker_image":               identity.VersionDetails.DockerImage,
+		"docker_image_digest":        identity.VersionDetails.DockerImageDigest,
+		"env_contract_sha256":        identity.VersionDetails.EnvContractSHA256,
 		"generation_key":             identity.GenerationKey,
 		"dependency_fingerprint":     identity.DependencyFingerprint,
 		"generation_env_fingerprint": identity.GenerationEnvFingerprint,
@@ -745,8 +900,15 @@ func (s *Service) generateOne(ctx context.Context, spec contracts.RunSpec, testR
 		CostSource:               trace.CostSource,
 		TracePath:                trace.TracePath,
 		WorkspaceDiffPath:        trace.WorkspaceDiffPath,
+		SandboxProvider:          trace.SandboxProvider,
 		SandboxFingerprint:       trace.SandboxFingerprint,
 		SubjectVersionID:         identity.SubjectVersionID,
+		FrameworkConfigSHA256:    identity.VersionDetails.FrameworkConfigSHA256,
+		SkillSHA256:              identity.VersionDetails.SkillSHA256,
+		AgentCommandSHA256:       identity.VersionDetails.AgentCommandSHA256,
+		DockerImage:              identity.VersionDetails.DockerImage,
+		DockerImageDigest:        identity.VersionDetails.DockerImageDigest,
+		EnvContractSHA256:        identity.VersionDetails.EnvContractSHA256,
 		GenerationKey:            identity.GenerationKey,
 		DependencyFingerprint:    identity.DependencyFingerprint,
 		GenerationEnvFingerprint: identity.GenerationEnvFingerprint,
@@ -1016,7 +1178,7 @@ func getLanguagesFromSamples(samples []contracts.SampleRef) string {
 		langs[s.Language]++
 	}
 	var parts []string
-	for _, l := range []string{"python", "go", "java", "cpp"} {
+	for _, l := range contracts.SupportedLanguages {
 		if langs[l] > 0 {
 			parts = append(parts, fmt.Sprintf("%s:%d", l, langs[l]))
 		}

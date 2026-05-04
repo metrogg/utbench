@@ -132,6 +132,8 @@ UT-Bench 现在会把生成结果和评测结果索引到本地 SQLite。生成�
 
 生成复用按 `subject_version_id + sample_uid + prompt + dependency + sandbox/env fingerprint` 判断，不会跨 subject、skill、framework 或环境复用。命中复用时，当前 run 仍会写出完整 manifest，并标注来源 run/case。
 
+当前 generation 和 evaluation 都会在阶段开始前先批量扫描可复用资产，进度头会显示 `预判可复用: N`，然后再把剩余任务下发给 worker。
+
 评测复用目前需要显式开启：
 
 ```bash
@@ -139,6 +141,8 @@ UT-Bench 现在会把生成结果和评测结果索引到本地 SQLite。生成�
 ```
 
 建议在 evaluator 环境和 mutation 配置稳定后再打开。
+
+`evaluation_key` 现在已经包含 `evaluation_env_fingerprint`。这个 fingerprint 会记录本地工具链版本或 Docker digest，因此不同评测环境不会直接复用同一条评测结果。
 
 ### 查询资产
 
@@ -152,6 +156,22 @@ UT-Bench 现在会把生成结果和评测结果索引到本地 SQLite。生成�
 `explain-reuse` 会输出当前数据库里最新的可复用生成候选、`generation_key`、来源 run 和 artifact 路径。
 如果要手工比对当前环境，可以额外传 `--generation-key`、`--dependency-fingerprint`、`--generation-env-fingerprint`。
 
+### Web 资产管理
+
+启动 Web UI 后：
+
+- “新建任务”页支持**自由组合** Framework × Model × Skill，每行可独立选择，可添加多行，无需预定义 subject。
+- `--agents-config` 会自动从 `--config` 目录探测，通常无需手动指定。
+- “任务列表”和”任务详情”都以 `subject` 为主展示，不再只看模型名。
+- “注册表”页会同时展示 `models / frameworks / skills / subjects`。
+- 进入”资产管理 → 资产审计”，可以直接查看：
+  - `subject` 资产列表
+  - `subject_versions`
+  - 生成资产历史
+  - 评测资产历史
+  - `subject -> language -> sample` 树形历史视图
+  - 单个 `subject + language + sample` 的复用解释
+
 ### 分步命令
 
 - `utbench generate --manifest` 不存在，`generate` 会直接产出 `generated_manifest.json`
@@ -162,16 +182,16 @@ UT-Bench 现在会把生成结果和评测结果索引到本地 SQLite。生成�
 
 示例见 [configs/agents.example.yaml](/C:/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/go-ut-bench/configs/agents.example.yaml)。
 
-如果使用当前仓库提供的 `OpenCode` 示例，还要先构建对应的内层 Agent 镜像：
+如果使用当前仓库提供的 `OpenCode` 示例，还要先构建对应的 Agent 沙箱镜像（详见 [DOCKER_GUIDE.md](./DOCKER_GUIDE.md)）：
 
 ```bash
-docker build -t utbench-agent-opencode-python:latest -f ./docker/agents/opencode/python.Dockerfile .
-docker build -t utbench-agent-opencode-go:latest -f ./docker/agents/opencode/go.Dockerfile .
-docker build -t utbench-agent-opencode-java:latest -f ./docker/agents/opencode/java.Dockerfile .
-docker build -t utbench-agent-opencode-cpp:latest -f ./docker/agents/opencode/cpp.Dockerfile .
+docker build -t utbench-agent-opencode-python:latest -f docker/agents/opencode/python.Dockerfile docker/agents/opencode/
+docker build -t utbench-agent-opencode-go:latest -f docker/agents/opencode/go.Dockerfile docker/agents/opencode/
+docker build -t utbench-agent-opencode-java:latest -f docker/agents/opencode/java.Dockerfile docker/agents/opencode/
+docker build -t utbench-agent-opencode-cpp:latest -f docker/agents/opencode/cpp.Dockerfile docker/agents/opencode/
 ```
 
-核心结构：
+核心结构（新版 sandbox 配置块）：
 
 ```yaml
 models:
@@ -180,14 +200,18 @@ models:
 frameworks:
   opencode:
     kind: cli_agent
-    sandbox_mode: docker
-    docker_images:
-      python: utbench-agent-opencode-python:latest
-      go: utbench-agent-opencode-go:latest
-    timeout_seconds: 600
-    network_disabled: false
-    cpu: "2"
-    memory: 2g
+    sandbox:
+      provider: docker
+      mode: docker
+      images:
+        python: utbench-agent-opencode-python:latest
+        go: utbench-agent-opencode-go:latest
+        java: utbench-agent-opencode-java:latest
+        cpp: utbench-agent-opencode-cpp:latest
+      timeout_seconds: 600
+      network_disabled: false
+      cpu: "2"
+      memory: 2g
     preflight:
       python:
         - python3 --version
@@ -203,40 +227,51 @@ frameworks:
     env_from_host:
       - DEEPSEEK_API_KEY
     command: >
-      PROMPT="$(cat {{.ContainerPrompt}})" && opencode run --print-logs --dangerously-skip-permissions --model utbench/{{.ModelID}} "$PROMPT"
+      mkdir -p "$XDG_CONFIG_HOME/opencode" "$XDG_DATA_HOME" "{{.ContainerWorkdir}}/.utbench/opencode" &&
+      printf '%s' "$OPENCODE_CONFIG_CONTENT" > "$XDG_CONFIG_HOME/opencode/config.json" &&
+      PROMPT="$(cat {{.ContainerPrompt}})" &&
+      opencode run --print-logs --dangerously-skip-permissions --model utbench/{{.ModelID}} "$PROMPT"
     compatible_models:
       - deepseek-v4-flash
     compatible_languages:
       - python
       - go
+      - java
+      - cpp
     output_globs:
       - "test_*.py"
       - "*_test.go"
+      - "*Test.java"
+      - "*test*.cpp"
 
 skills:
   unit_test_skill:
-    version: "1"
+    version: "2"
     inject_mode: prompt_append
-    instruction_path: ./skills/unit_test_skill.md
+    instruction_path: ./skills/unit_test_skill/instructions.md
     compatible_frameworks:
       - opencode
-
-subjects:
-  - framework: opencode
-    model: deepseek-v4-flash
-    skill: unit_test_skill
+    compatible_languages:
+      - python
+      - go
+      - java
+      - cpp
 ```
+
+旧写法（`sandbox_mode` + `docker_images`）仍然兼容，但建议迁移到 `sandbox.*` 块。
 
 ### framework 字段
 
 | 字段 | 说明 |
 |------|------|
-| `kind` | 目前主要是 `cli_agent` |
-| `command` | 命令模板 |
-| `sandbox_mode` | `docker` 或 `local` |
-| `docker_image` | 内层 Agent 沙箱镜像 |
-| `docker_images` | 按语言选择的内层 Agent 沙箱镜像，优先级高于 `docker_image` |
-| `timeout_seconds` | 单样本 Agent 超时 |
+| `kind` | `model_api`（纯 API）或 `cli_agent`（Agent 框架） |
+| `command` | 命令模板（仅 `cli_agent`） |
+| `sandbox.provider` | `local` 或 `docker`（后续支持 `e2b`、`firecracker`） |
+| `sandbox.mode` | `local` 或 `docker` |
+| `sandbox.images` | 按语言选择的 Agent 沙箱镜像 |
+| `sandbox.timeout_seconds` | 单样本 Agent 超时 |
+| `sandbox.cpu` / `sandbox.memory` | 资源限制 |
+| `sandbox.network_disabled` | 是否禁网 |
 | `preflight` | 按语言定义的执行前环境检查命令 |
 | `forbidden_command_patterns` | 识别环境漂移的命令模式，如 `apt-get install` |
 | `output_globs` | 测试文件发现规则 |
@@ -244,8 +279,6 @@ subjects:
 | `env_from_host` | 从宿主环境透传进 Agent 进程或容器的变量名 |
 | `compatible_models` | 允许的模型列表 |
 | `compatible_languages` | 允许的语言列表 |
-| `network_disabled` | 是否禁网 |
-| `cpu` / `memory` | 资源限制 |
 
 ### skill 字段
 
@@ -330,56 +363,57 @@ UT-Bench 也会检查环境漂移命令。默认会拦截这类操作：
 
 ## 8. Docker 与沙箱的边界
 
-很多人会把这两件事混在一起：
+UT-Bench 的 Docker 体系分为三种镜像（详见 [DOCKER_GUIDE.md](./DOCKER_GUIDE.md)）：
 
-### 外层 Docker
+| 镜像 | 用途 |
+|:---|:---|
+| `utbench:latest` | **评测镜像**：compile / test / coverage / mutation |
+| `utbench-control:latest` | **控制面镜像**：Web / CLI / 编排（不含评测工具链） |
+| `utbench-agent-{fw}-{lang}:latest` | **Agent 沙箱镜像**：Agent CLI + 语言运行时 |
+
+### 外层 Docker（评测镜像）
 
 ```text
 docker run utbench:latest ...
 ```
 
-这是 UT-Bench 自己的运行环境，不等于 Agent 沙箱。
+这是 UT-Bench 的评测执行环境，包含全部语言工具链。
+
+### 控制面 Docker
+
+```text
+docker run utbench-control:latest web ...
+```
+
+只包含 utbench 二进制 + docker CLI，用于 Web UI 编排场景。
 
 ### 内层 Agent 沙箱
 
-当 framework 配置为：
-
-```yaml
-sandbox_mode: docker
-```
-
-UT-Bench 会对每个 `subject × sample`：
+当 framework 配置为 `sandbox.provider: docker` 时，UT-Bench 会对每个 `subject × sample`：
 
 1. 创建独立工作区
-2. 启动独立容器
+2. 启动独立容器（使用 `sandbox.images.{lang}` 指定的镜像）
 3. 只挂载该工作区到 `/workspace`
 4. 可选禁网
 5. 设置 CPU / memory / timeout
 6. 回收容器
 
-所以最终正确的隔离粒度，确实就是：
-
-```text
-一个 Agent 执行一个样本，对应一个独立工作区，最好再对应一个独立容器
-```
-
-这既是安全边界，也是公平边界。
+隔离粒度：一个 Agent 执行一个样本，对应一个独立工作区，对应一个独立容器。这既是安全边界，也是公平边界。
 
 ### 当前状态
 
-当前代码已经支持这个方向的第一版：
+当前代码已支持：
 
 - 工作区按 `subject × sample` 拆分
-- `sandbox_mode: docker` 时按样本起内层容器
+- `sandbox.provider: docker` 时按样本起内层容器
 - 记录 trace、diff、sandbox fingerprint
+- 三种镜像独立版本化和构建
 
-但还不能说“沙箱体系已经做完”，因为还缺：
+后续演进方向：
 
-- 更严格的镜像供应和固定 digest
-- 更明确的只读挂载策略
-- 更系统的网络、syscall、权限收敛
-- 语言专用基础镜像
-- 更强的隔离层，例如 gVisor / Firecracker / E2B
+- 更强的隔离层（gVisor / Firecracker / E2B）
+- Evaluator backend 独立抽象
+- 远程 sandbox provider
 
 ## 9. 报告新增内容
 

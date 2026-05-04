@@ -2,7 +2,10 @@ package reporter
 
 import (
 	_ "embed"
+	"encoding/json"
 	"strings"
+
+	"go-ut-bench/internal/contracts"
 )
 
 // 嵌入静态资源文件
@@ -23,5 +26,12 @@ func BuildChartsJS(topModelsJSON, rowsJSON string) string {
 	js := chartsJSTemplate
 	js = strings.Replace(js, "__TOP_MODELS_JSON_PLACEHOLDER__", topModelsJSON, 1)
 	js = strings.Replace(js, "__ROWS_JSON_PLACEHOLDER__", rowsJSON, 1)
+
+	// 注入场景数据，保持与 contracts 单一来源同步
+	scenariosJSON, _ := json.Marshal(contracts.SupportedScenarios)
+	labelsJSON, _ := json.Marshal(contracts.ScenarioLabels)
+	js = strings.Replace(js, "__SUPPORTED_SCENARIOS_JSON__", string(scenariosJSON), 1)
+	js = strings.Replace(js, "__SCENARIO_LABELS_JSON__", string(labelsJSON), 1)
+
 	return js
 }

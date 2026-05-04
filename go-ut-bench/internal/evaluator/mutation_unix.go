@@ -11,7 +11,9 @@ import (
 	"time"
 )
 
-func runCommandWithProcessGroupKill(ctx context.Context, name string, args []string, workdir string, env []string) ([]byte, error) {
+// runCommandLocal 在宿主机本地执行命令（Unix 实现）。
+// 使用 Setpgid 创建进程组，超时后通过 Kill(-pid) 清理整个进程树。
+func runCommandLocal(ctx context.Context, name string, args []string, workdir string, env []string) ([]byte, error) {
 	logMutation("DEBUG-3", "run_command_start", "name", name, "args", args, "workdir", workdir)
 
 	cmd := exec.Command(name, args...)

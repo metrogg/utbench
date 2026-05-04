@@ -98,6 +98,7 @@ CREATE TABLE subject_versions (
   skill_sha256 TEXT,
   agent_command_sha256 TEXT,
   docker_image TEXT,
+  docker_image_digest TEXT,
   sandbox_fingerprint TEXT,
   env_contract_sha256 TEXT,
   created_at_utc TEXT NOT NULL
@@ -126,6 +127,7 @@ reused_from_case_id
 
 ```text
 sample_uid
+evaluation_env_fingerprint
 evaluation_key
 evaluator_version
 mutation_config_sha256
@@ -733,7 +735,7 @@ ingest 阶段必须做这些校验：
 - `utbench db list-results`
 - `utbench db report`
 
-`run --ingest --db-path ...` 已改为写入 v2 schema，会补录当前 run 目录中的 manifest、evaluation、report 和关联 artifact。`run --reuse-generated --db-path ...` 会在同模型、同源码 SHA256、同 prompt version 命中时复用历史 generated test，避免重复调用模型，但仍在当前环境重新评测。Web 当前支持数据库概览、运行列表、样本级评测结果、artifact 索引、已有 run 补录，以及在“跨运行对比报告”中多选 run/model/language 生成数据库报告。`utbench db report` 支持从数据库选择 run/model/language 后复用现有 reporter 生成可视化对比报告；UI 会展示环境一致性提示，跨环境报告默认只作为参考。
+`run --ingest --db-path ...` 已改为写入 v2 schema，会补录当前 run 目录中的 manifest、evaluation、report 和关联 artifact。`run --reuse-generated --db-path ...` 会在同模型、同源码 SHA256、同 prompt version 命中时复用历史 generated test，避免重复调用模型，但仍在当前环境重新评测。Web 当前除数据库概览、运行列表、样本级评测结果、artifact 索引、已有 run 补录、跨运行对比报告外，还支持在“资产审计”页查看 subject 列表、subject_versions、生成资产、评测资产和复用解释。`utbench db report` 支持从数据库选择 run/model/language 后复用现有 reporter 生成可视化对比报告；UI 会展示环境一致性提示，跨环境报告默认只作为参考。
 
 ## 仍需最终确认
 

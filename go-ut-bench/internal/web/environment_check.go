@@ -87,7 +87,27 @@ func (s *Server) handleEnvironmentCheck(w http.ResponseWriter, r *http.Request) 
 		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.buildEnvironmentCheck())
+	writeJSON(w, http.StatusOK, s.buildEnvironmentCheckCached())
+}
+
+// buildEnvironmentCheckCached 带缓存的环境检测，10秒内复用。
+func (s *Server) buildEnvironmentCheckCached() environmentCheckResponse {
+	const cacheTTL = 10 * time.Second
+
+	s.cacheMu.RLock()
+	if s.envCheckCache != nil && time.Since(s.envCheckCache.loadedAt) < cacheTTL {
+		data := s.envCheckCache.data
+		s.cacheMu.RUnlock()
+		return data
+	}
+	s.cacheMu.RUnlock()
+
+	data := s.buildEnvironmentCheck()
+
+	s.cacheMu.Lock()
+	s.envCheckCache = &envCheckCacheEntry{data: data, loadedAt: time.Now()}
+	s.cacheMu.Unlock()
+	return data
 }
 
 func (s *Server) handleEnvironmentCheckOne(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +193,7 @@ func (s *Server) buildEnvironmentCheck() environmentCheckResponse {
 				checkExecutable("java", "Java", "basic", []string{"java"}, []string{"-version"}, false, "Java/JDK 17+ 用于 Java 样本评测。", "java"),
 				checkExecutable("javac", "Javac", "basic", []string{"javac"}, []string{"-version"}, false, "Java 样本编译需要 JDK，而不仅是 JRE。", "jdk"),
 				checkExecutable("maven", "Maven", "basic", []string{"mvn"}, []string{"-version"}, false, "Java 样本评测和 PITest 需要 Maven。", "maven"),
-				checkDocker(s.dockerCfg.ImageName),
+				checkDocker(s.dockerCfg.EffectiveEvalImage()),
 			},
 		},
 		{

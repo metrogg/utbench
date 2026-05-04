@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -15,8 +16,29 @@ func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	st := DetectEnv(s.dockerCfg.ImageName, s.dockerCfg.ProjectRoot, s.dockerCfg.EnvFile)
+	force := strings.TrimSpace(r.URL.Query().Get("refresh")) == "1"
+	st := detectEnvCached(s.dockerCfg, force)
 	writeJSON(w, http.StatusOK, st)
+}
+
+// envCacheEntry caches DetectEnv results to avoid spawning subprocesses on every poll.
+var (
+	envCacheMu    sync.Mutex
+	envCacheEntry *EnvStatus
+	envCacheTime  time.Time
+	envCacheTTL   = 15 * time.Second
+)
+
+func detectEnvCached(cfg DockerConfig, force bool) EnvStatus {
+	envCacheMu.Lock()
+	defer envCacheMu.Unlock()
+	if !force && envCacheEntry != nil && time.Since(envCacheTime) < envCacheTTL {
+		return *envCacheEntry
+	}
+	st := DetectEnv(cfg)
+	envCacheEntry = &st
+	envCacheTime = time.Now()
+	return st
 }
 
 // handleBuildImage handles:
@@ -39,10 +61,17 @@ func (s *Server) handleBuildImage(w http.ResponseWriter, r *http.Request) {
 			errJSON(w, http.StatusPreconditionFailed, "docker daemon is not available on the host")
 			return
 		}
-		job := s.bld.Submit(s.dockerCfg.ImageName)
+		target := strings.TrimSpace(r.URL.Query().Get("target"))
+		profile, err := defaultBuildProfile(target, s.dockerCfg)
+		if err != nil {
+			errJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		job := s.bld.Submit(profile)
 		writeJSON(w, http.StatusCreated, map[string]string{
 			"build_id":   job.BuildID,
 			"image_name": job.ImageName,
+			"target":     job.Target,
 			"status":     string(job.Status),
 		})
 	case http.MethodGet:
@@ -157,6 +186,8 @@ func buildJobSnapshot(job *BuildJob) map[string]any {
 	defer job.mu.RUnlock()
 	m := map[string]any{
 		"build_id":   job.BuildID,
+		"target":     job.Target,
+		"dockerfile": job.Dockerfile,
 		"image_name": job.ImageName,
 		"status":     string(job.Status),
 		"started_at": job.StartedAt.Format(time.RFC3339Nano),
@@ -172,5 +203,5 @@ func buildJobSnapshot(job *BuildJob) map[string]any {
 // light-weight check; we reuse DetectEnv so failure modes stay consistent
 // with the /api/env endpoint.
 func isDockerReady(cfg DockerConfig) bool {
-	return DetectEnv(cfg.ImageName, cfg.ProjectRoot, cfg.EnvFile).DockerAvailable
+	return detectEnvCached(cfg, false).DockerAvailable
 }

@@ -83,6 +83,7 @@ type AgentTrace struct {
 	WorkspaceDiff []string `json:"workspace_diff"` // workspace 文件变更列表
 
 	// 沙箱与产物路径
+	SandboxProvider    string `json:"sandbox_provider,omitempty"`
 	SandboxImage       string `json:"sandbox_image,omitempty"`
 	SandboxFingerprint string `json:"sandbox_fingerprint"`
 	SessionID          string `json:"session_id,omitempty"`

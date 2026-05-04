@@ -24,8 +24,10 @@ type EnvironmentFingerprint struct {
 	CoverageVersion string            `json:"coverage_version,omitempty"`
 	JavaVersion     string            `json:"java_version,omitempty"`
 	JavacVersion    string            `json:"javac_version,omitempty"`
+	MavenVersion    string            `json:"maven_version,omitempty"`
 	CPPVersion      string            `json:"cpp_version,omitempty"`
 	GCCVersion      string            `json:"gcc_version,omitempty"`
+	CMakeVersion    string            `json:"cmake_version,omitempty"`
 	MullVersion     string            `json:"mull_version,omitempty"`
 	GremlinsVersion string            `json:"gremlins_version,omitempty"`
 	DockerDigest    string            `json:"docker_digest,omitempty"`
@@ -37,11 +39,11 @@ type EnvironmentFingerprint struct {
 // CaptureEnvironmentFingerprint 采集当前评测环境指纹
 func CaptureEnvironmentFingerprint(ctx context.Context, useDocker bool, dockerImage string) EnvironmentFingerprint {
 	fp := EnvironmentFingerprint{
-		OS:        runtime.GOOS + "/" + runtime.GOARCH,
-		Arch:      runtime.GOARCH,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		OS:         runtime.GOOS + "/" + runtime.GOARCH,
+		Arch:       runtime.GOARCH,
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
 		DockerUsed: useDocker,
-		Extra:     make(map[string]string),
+		Extra:      make(map[string]string),
 	}
 
 	// 如果使用Docker，获取镜像digest
@@ -56,7 +58,9 @@ func CaptureEnvironmentFingerprint(ctx context.Context, useDocker bool, dockerIm
 		fp.CoverageVersion = getToolVersion(ctx, "coverage", "--version")
 		fp.JavaVersion = getToolVersion(ctx, "java", "-version")
 		fp.JavacVersion = getToolVersion(ctx, "javac", "-version")
+		fp.MavenVersion = getToolVersion(ctx, "mvn", "-version")
 		fp.GCCVersion = getToolVersion(ctx, "gcc", "--version")
+		fp.CMakeVersion = getToolVersion(ctx, "cmake", "--version")
 		fp.MullVersion = getToolVersion(ctx, "mull", "--version")
 		fp.GremlinsVersion = getToolVersion(ctx, "gremlins", "version")
 	}
@@ -78,9 +82,12 @@ func (fp EnvironmentFingerprint) FingerprintHash() string {
 		fp.PythonVersion,
 		fp.PytestVersion,
 		fp.MutmutVersion,
+		fp.CoverageVersion,
 		fp.JavaVersion,
 		fp.JavacVersion,
+		fp.MavenVersion,
 		fp.GCCVersion,
+		fp.CMakeVersion,
 		fp.MullVersion,
 		fp.GremlinsVersion,
 		fp.DockerDigest,

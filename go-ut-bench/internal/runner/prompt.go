@@ -13,17 +13,18 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"go-ut-bench/internal/contracts"
 )
 
-// PromptMode 提示词模式类型
-// 定义三种不同的提示词构建方式
-type PromptMode string
+// PromptMode 提示词模式类型（别名，实际定义在 contracts 包）
+type PromptMode = contracts.PromptMode
 
-// 三种提示词模式常量
+// 三种提示词模式常量（引用 contracts 统一定义）
 const (
-	PromptModeFullFile   PromptMode = "full_file"  // 完整文件模式：提供完整源码，用于 self_contained 类型样本
-	PromptModeCompletion PromptMode = "completion" // 续写模式：基于已生成内容继续补全，用于截断后续写
-	PromptModeRepoLevel  PromptMode = "repo_level" // 仓库级模式：包含 workspace 和 module_import 上下文，用于 repo_level 类型样本
+	PromptModeFullFile   = contracts.PromptModeFullFile
+	PromptModeCompletion = contracts.PromptModeCompletion
+	PromptModeRepoLevel  = contracts.PromptModeRepoLevel
 )
 
 // systemMessage 系统消息，强调只生成可运行的测试代码
@@ -34,18 +35,11 @@ const systemMessage = "You are a senior unit test generation model. " +
 // promptStrategy 提示词策略名称
 const promptStrategy = "structured-v1"
 
-// promptLanguages 支持提示词的语言列表
-var promptLanguages = []string{"python", "go", "java", "cpp"}
+// promptLanguages 支持提示词的语言列表（引用 contracts 统一定义）
+var promptLanguages = contracts.SupportedLanguages
 
-// PromptCatalog 提示词目录
-// 包含版本信息、系统消息和各语言各模式的提示词模板
-type PromptCatalog struct {
-	Strategy      string                           `json:"strategy"`       // 提示词策略名称
-	VersionID     string                           `json:"version_id"`     // 版本ID，由 SHA1 哈希生成
-	SystemMessage string                           `json:"system_message"` // 系统消息
-	Modes         []PromptMode                     `json:"modes"`          // 支持的提示词模式列表
-	Templates     map[string]map[PromptMode]string `json:"templates"`      // 各语言各模式的模板内容
-}
+// PromptCatalog 提示词目录（别名，实际定义在 contracts 包）
+type PromptCatalog = contracts.PromptCatalog
 
 // PromptRequest 提示词构建请求参数
 // 包含构建提示词所需的所有输入信息
@@ -188,25 +182,9 @@ func WritePromptCatalog(dir string) (PromptCatalog, error) {
 	return catalog, nil
 }
 
-// LoadPromptCatalog 从目录加载提示词目录
-// 读取 prompt_catalog.json 文件
-//
-// 参数:
-//   - dir: 目录路径
-//
-// 返回值:
-//   - PromptCatalog: 加载的目录内容
-//   - error: 加载过程中的错误
+// LoadPromptCatalog 从目录加载提示词目录（委托给 contracts 包）
 func LoadPromptCatalog(dir string) (PromptCatalog, error) {
-	var catalog PromptCatalog
-	raw, err := os.ReadFile(filepath.Join(dir, "prompt_catalog.json"))
-	if err != nil {
-		return PromptCatalog{}, err
-	}
-	if err := json.Unmarshal(raw, &catalog); err != nil {
-		return PromptCatalog{}, err
-	}
-	return catalog, nil
+	return contracts.LoadPromptCatalog(dir)
 }
 
 // PromptTemplatePreview 返回指定语言的完整文件模式提示词模板预览

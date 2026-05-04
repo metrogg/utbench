@@ -65,6 +65,7 @@ type Logger struct {
 	fileHandlers    map[string]slog.Handler
 	context         map[string]any
 	level           Level
+	writer          io.Writer // terminal output writer, exposed via Writer()
 	mu              sync.Mutex
 }
 
@@ -105,6 +106,7 @@ func NewLogger(verbose bool, logDir string) *Logger {
 		fileHandlers:    fileHandlers,
 		context:         make(map[string]any),
 		level:           level,
+		writer:          os.Stderr,
 	}
 }
 
@@ -125,7 +127,16 @@ func NewLoggerWithWriter(verbose bool, w io.Writer) *Logger {
 		fileHandlers: make(map[string]slog.Handler),
 		context:      make(map[string]any),
 		level:        level,
+		writer:       w,
 	}
+}
+
+// Writer returns the terminal output writer used by this logger.
+func (l *Logger) Writer() io.Writer {
+	if l.writer != nil {
+		return l.writer
+	}
+	return os.Stderr
 }
 
 // log 内部日志方法

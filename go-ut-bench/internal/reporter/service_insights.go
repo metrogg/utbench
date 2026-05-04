@@ -95,7 +95,7 @@ func buildInsights(topModels []contracts.ModelRank, dims contracts.Dimensions, s
 	insights.BenchmarkNotes = append(insights.BenchmarkNotes, contracts.InsightItem{
 		Category: "benchmark_note",
 		Title:    "评分公式说明",
-		Detail:   "综合得分 = 编译通过率×0.3 + 样本测试通过率×0.3 + 行覆盖率×0.2 + 变异分数×0.2。变异分数反映测试检测代码缺陷的能力。",
+		Detail:   "综合得分 = " + contracts.DefaultWeights.String() + "。变异分数反映测试检测代码缺陷的能力。",
 		Icon:     "info",
 		Priority: 4,
 	})

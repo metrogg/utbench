@@ -21,6 +21,7 @@ import (
 type subjectTrace struct {
 	TracePath          string
 	WorkspaceDiffPath  string
+	SandboxProvider    string
 	SandboxFingerprint string
 	TokenSource        string
 	EstimatedCostUSD   *float64
@@ -180,6 +181,7 @@ func (s *Service) generateWithSubject(
 	trace := subjectTrace{
 		TracePath:          result.Trace.TracePath,
 		WorkspaceDiffPath:  result.Trace.WorkspaceDiffPath,
+		SandboxProvider:    result.Trace.SandboxProvider,
 		SandboxFingerprint: result.Trace.SandboxFingerprint,
 		TokenSource:        result.TokenSource,
 		EstimatedCostUSD:   result.EstimatedCostUSD,
@@ -223,6 +225,8 @@ func prepareAgentWorkspace(workRoot string, sample contracts.SampleRef) (string,
 	if err := copyFile(sample.Path, dst); err != nil {
 		return "", err
 	}
+	// 将源文件设为只读，防止 agent 意外截断或修改源代码
+	_ = os.Chmod(dst, 0444)
 	return dst, nil
 }
 
@@ -367,35 +371,110 @@ func buildAgentEnv(fw agentconfig.FrameworkSpec, model modelConfig, data command
 }
 
 func buildSandboxRunRequest(outputRoot string, fw agentconfig.FrameworkSpec, language, workspace, command string, env map[string]string, envFromHost []string) SandboxRunRequest {
+	mode := strings.TrimSpace(fw.Sandbox.Mode)
+	if mode == "" {
+		mode = fw.SandboxMode
+	}
+	// 如果配置要求 docker 模式但当前环境没有 Docker daemon 可用，自动降级为 local。
+	// 典型场景：Web 在 Windows 上运行，启动外层容器执行 utbench run，
+	// 但外层容器没有挂载 docker.sock。
+	if strings.EqualFold(mode, "docker") && !isDockerAvailable() {
+		mode = "local"
+	}
+	provider := strings.TrimSpace(fw.Sandbox.Provider)
+	if provider == "" {
+		if strings.EqualFold(mode, "docker") {
+			provider = "docker"
+		} else {
+			provider = "local"
+		}
+	}
 	return SandboxRunRequest{
-		Mode:                fw.SandboxMode,
+		Provider:            provider,
+		Mode:                mode,
 		Workspace:           workspace,
 		ContainerOutputRoot: outputRoot,
 		Command:             command,
 		Env:                 env,
 		EnvFromHost:         envFromHost,
-		DockerImage:         frameworkDockerImage(fw, language),
-		NetworkDisabled:     fw.NetworkDisabled,
-		CPU:                 fw.CPU,
-		Memory:              fw.Memory,
-		TimeoutSeconds:      fw.TimeoutSeconds,
+		DockerImage:         frameworkSandboxImage(fw, language),
+		NetworkDisabled:     frameworkSandboxNetworkDisabled(fw),
+		CPU:                 frameworkSandboxCPU(fw),
+		Memory:              frameworkSandboxMemory(fw),
+		TimeoutSeconds:      frameworkSandboxTimeout(fw),
 	}
 }
 
-func frameworkDockerImage(fw agentconfig.FrameworkSpec, language string) string {
+func frameworkSandboxImage(fw agentconfig.FrameworkSpec, language string) string {
+	// 优先使用统一镜像（sandbox.image），不再按语言拆分。
+	// 统一镜像包含所有语言运行时，适合仓库级多语言样本。
+	if image := strings.TrimSpace(fw.Sandbox.Image); image != "" {
+		return image
+	}
+	if image := strings.TrimSpace(fw.DockerImage); image != "" {
+		return image
+	}
+	// 向后兼容：按语言查找 sandbox.images.{lang}
 	language = normalizeFrameworkLookupKey(language)
-	if fw.DockerImages != nil {
-		if image := strings.TrimSpace(fw.DockerImages[language]); image != "" {
+	images := fw.Sandbox.Images
+	if len(images) == 0 {
+		images = fw.DockerImages
+	}
+	if images != nil {
+		if image := strings.TrimSpace(images[language]); image != "" {
 			return image
 		}
-		if image := strings.TrimSpace(fw.DockerImages["default"]); image != "" {
+		if image := strings.TrimSpace(images["default"]); image != "" {
 			return image
 		}
-		if image := strings.TrimSpace(fw.DockerImages["*"]); image != "" {
+		if image := strings.TrimSpace(images["*"]); image != "" {
 			return image
 		}
 	}
-	return strings.TrimSpace(fw.DockerImage)
+	return ""
+}
+
+func frameworkDockerImage(fw agentconfig.FrameworkSpec, language string) string {
+	return frameworkSandboxImage(fw, language)
+}
+
+func frameworkSandboxTimeout(fw agentconfig.FrameworkSpec) int {
+	if fw.Sandbox.TimeoutSeconds > 0 {
+		return fw.Sandbox.TimeoutSeconds
+	}
+	return fw.TimeoutSeconds
+}
+
+func frameworkSandboxProvider(fw agentconfig.FrameworkSpec) string {
+	if provider := strings.TrimSpace(fw.Sandbox.Provider); provider != "" {
+		return provider
+	}
+	mode := strings.TrimSpace(fw.SandboxMode)
+	if strings.EqualFold(mode, "docker") {
+		return "docker"
+	}
+	return "local"
+}
+
+func frameworkSandboxNetworkDisabled(fw agentconfig.FrameworkSpec) bool {
+	if fw.Sandbox.Mode != "" || fw.Sandbox.Provider != "" || fw.Sandbox.Image != "" || len(fw.Sandbox.Images) > 0 || fw.Sandbox.TimeoutSeconds > 0 || fw.Sandbox.CPU != "" || fw.Sandbox.Memory != "" || fw.Sandbox.NetworkDisabled != fw.NetworkDisabled {
+		return fw.Sandbox.NetworkDisabled
+	}
+	return fw.NetworkDisabled
+}
+
+func frameworkSandboxCPU(fw agentconfig.FrameworkSpec) string {
+	if strings.TrimSpace(fw.Sandbox.CPU) != "" {
+		return strings.TrimSpace(fw.Sandbox.CPU)
+	}
+	return strings.TrimSpace(fw.CPU)
+}
+
+func frameworkSandboxMemory(fw agentconfig.FrameworkSpec) string {
+	if strings.TrimSpace(fw.Sandbox.Memory) != "" {
+		return strings.TrimSpace(fw.Sandbox.Memory)
+	}
+	return strings.TrimSpace(fw.Memory)
 }
 
 func frameworkPreflightCommands(fw agentconfig.FrameworkSpec, language string) []string {
