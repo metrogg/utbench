@@ -27,3 +27,41 @@
 - 极简主义趋势: mini-swe-agent(100行Python) > 复杂框架
 - 成本和延迟是行业盲区, UT-Bench可做差异化
 - 必关注: SWE-agent(trajectory), OpenHands(Runtime), DeepEval(50+指标), Aider(错误分类), Langfuse(成本追踪)
+
+## Gap Analysis (2026-05-03)
+- 9维评估: 数据集(🔴)、沙箱(🔴)、Trace(🔴)、健壮性(🔴)为最大短板; 指标/公平性/成本/Prompt(🟡); 报告(🟢)
+- Top 5紧急优化: 源码只读挂载(D8) > must_pass_existing(D1/D18) > 交互轮次上限(D9) > 评测重试(D23) > meta.json扩展(D4)
+- UT-Bench独特优势(所有竞品没有): 覆盖率+变异测试+Skill评测
+- 详细分析: UTBENCH_GAP_ANALYSIS.md
+
+## 3D Evaluation Architecture (2026-05-04)
+- 用户核心诉求: Agent×Model×Skill三维评测，控制变量分离各自贡献
+- 例: opencode+deepseek vs deepseek纯API → Agent增益; 同Agent不同Model → 模型差距; 同Model+Agent加Skill → Skill增益
+- 5层架构设计: Sandbox(可插拔) → Harness(YAML配置) → Engine(事件源) → Metrics(可组合) → Dimension(3D聚合)
+- 开源借鉴: SWE-bench(分层Docker缓存+双重验证), SWE-agent(YAML配置+ACI+Guardrail), OpenHands(EventStream+多后端Runtime), DeepEval(Strategy Pattern+统一0-1评分), mini-swe-agent(极简基线)
+- 现有代码基础好: SubjectID=framework__model__skill已编码三维, GeneratedCase/EvaluationResult已有AgentFramework/SkillName字段
+- 主要改动: 报告聚合层需3D交叉表, EventStream维度标签, Metric Interface统一化, 新增ByAgent/BySkill/ByAgentModelSkill聚合
+
+## Anthropic Eval方法论优化 (2026-05-04)
+- 来源: Anthropic "Demystifying Evals for AI Agents" (2026-01-09)
+- 关键洞察导致架构从5层→6层,核心新增2层:
+  - Layer 4: Multi-Grader Composition (Code+LLM+Human三层Grader,取代原Metrics层)
+  - Layer 6: Eval Lifecycle & Saturation (Capability vs Regression双轨,饱和度监控,"毕业"机制)
+- 原有4层增强:
+  - Layer 1 Sandbox: +Trial隔离校验(pre-run hash验证)
+  - Layer 2 Harness: +Reference Solution验证+Balanced Dataset(难度分级+正负样本)
+  - Layer 3 Engine: +Outcome/Process分离+Partial Credit+trial维度
+  - Layer 5 Aggregation: +pass@k/pass^k三维切片
+- 7大关键差距(Anthropic视角): Multi-Grader🔴、pass@k🔴、Partial Credit🔴、Lifecycle🔴、Balanced Dataset🔴、Reference Solution🟡、Swiss Cheese🔴
+- 工作量重估: 15天(原10.5天+4.5天新增),详细: ANTHROPIC_EVAL_OPTIMIZATION.md
+- Anthropic验证了UT-Bench独特优势: Coverage+Mutation+Skill+3D Matrix,且pass@k三维切片是全行业独有
+
+## Repo-Level评测调研 (2026-05-04)
+- 调研了13个行业项目,报告: REPO_LEVEL_EVALUATION_RESEARCH.md
+- 最接近UT-Bench的项目: TestGenEval(同为测试生成,有@pass指标和变异得分)
+- 环境构建方案: SWE-Bench++的模板+LLM修正(5轮),构建失败后降级到RepoST沙盒模式
+- 数据集构建5阶段Pipeline: 仓库采集验证→目标函数提取→环境构建→黄金测试收集→质量保证
+- meta.json扩展5维度: source(base_commit/license/stars) + target(files/functions/classes) + context(relevant_files/cross_deps) + environment(pinned_deps/dockerfile_template) + evaluation(existing_tests_expected_pass/must_pass_existing)
+- 关键借鉴: SWE-bench FAIL/PASS契约, TestGenEval @pass指标, FEA-Bench仓库选择策略, CrossCodeEval跨文件依赖提取, SWE-Bench++ 4层AutoQA
+- 实施路线: Phase1(1-2周,5仓库)→Phase2(2-4周,30-50仓库+模板)→Phase3(1-2月,100+仓库+4语言)→Phase4(2-3月,Leaderboard+论文)
+- UT-Bench vs 竞品差异: 任务不是"修Bug"而是"为覆盖不足的函数生成测试",评测指标是覆盖率+变异得分提升

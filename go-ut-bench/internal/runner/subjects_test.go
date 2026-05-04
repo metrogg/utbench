@@ -186,6 +186,7 @@ func main() {
 }
 
 func TestFrameworkDockerImageAndPreflightCommands(t *testing.T) {
+	// 新优先级: Sandbox.Image → DockerImage → DockerImages[lang] → images["default"]
 	fw := agentconfig.FrameworkSpec{
 		DockerImage: "fallback:latest",
 		DockerImages: map[string]string{
@@ -196,15 +197,97 @@ func TestFrameworkDockerImageAndPreflightCommands(t *testing.T) {
 			"python": {"python3 --version", "pytest --version"},
 		},
 	}
-	if got := frameworkDockerImage(fw, "python"); got != "python:latest" {
-		t.Fatalf("unexpected python image: %q", got)
+	// DockerImage 优先于 DockerImages
+	if got := frameworkDockerImage(fw, "python"); got != "fallback:latest" {
+		t.Fatalf("unexpected python image: %q (expected DockerImage to take priority)", got)
 	}
-	if got := frameworkDockerImage(fw, "go"); got != "default:latest" {
-		t.Fatalf("unexpected fallback image: %q", got)
+	if got := frameworkDockerImage(fw, "go"); got != "fallback:latest" {
+		t.Fatalf("unexpected fallback image: %q (expected DockerImage to take priority)", got)
+	}
+	// 仅当 DockerImage 为空时才回退到 DockerImages
+	fw2 := agentconfig.FrameworkSpec{
+		DockerImages: map[string]string{
+			"python":  "python:latest",
+			"default": "default:latest",
+		},
+	}
+	if got := frameworkDockerImage(fw2, "python"); got != "python:latest" {
+		t.Fatalf("unexpected python image without DockerImage: %q", got)
+	}
+	if got := frameworkDockerImage(fw2, "go"); got != "default:latest" {
+		t.Fatalf("unexpected fallback image without DockerImage: %q", got)
 	}
 	commands := frameworkPreflightCommands(fw, "python")
 	if len(commands) != 2 || commands[0] != "pytest --version" || commands[1] != "python3 --version" {
 		t.Fatalf("unexpected preflight commands: %+v", commands)
+	}
+}
+
+func TestBuildSandboxRunRequestUsesSandboxBlock(t *testing.T) {
+	// 新优先级: Sandbox.Image 统一镜像 > DockerImage > Sandbox.Images[lang]
+	fw := agentconfig.FrameworkSpec{
+		Sandbox: agentconfig.SandboxSpec{
+			Provider:        "docker",
+			Mode:            "docker",
+			Image:           "unified:latest",
+			Images:          map[string]string{"python": "python:v2"},
+			TimeoutSeconds:  777,
+			NetworkDisabled: false,
+			CPU:             "3",
+			Memory:          "3g",
+		},
+		DockerImage:     "legacy:latest",
+		SandboxMode:     "local",
+		TimeoutSeconds:  100,
+		NetworkDisabled: true,
+		CPU:             "1",
+		Memory:          "1g",
+	}
+	req := buildSandboxRunRequest("C:\\out", fw, "python", "C:\\ws", "echo ok", nil, nil)
+	if req.Provider != "docker" {
+		t.Fatalf("unexpected provider: %q", req.Provider)
+	}
+	// Sandbox.Image 优先
+	if req.DockerImage != "unified:latest" {
+		t.Fatalf("unexpected image: %q (expected Sandbox.Image to take priority)", req.DockerImage)
+	}
+	if req.TimeoutSeconds != 777 {
+		t.Fatalf("unexpected timeout: %d", req.TimeoutSeconds)
+	}
+	if req.NetworkDisabled {
+		t.Fatalf("expected nested sandbox config to override network_disabled")
+	}
+	if req.CPU != "3" || req.Memory != "3g" {
+		t.Fatalf("unexpected resources: cpu=%q memory=%q", req.CPU, req.Memory)
+	}
+
+	// 无 Sandbox.Image 时回退到 DockerImage
+	fw2 := agentconfig.FrameworkSpec{
+		Sandbox: agentconfig.SandboxSpec{
+			Provider:       "docker",
+			Mode:           "docker",
+			Images:         map[string]string{"python": "python:v2"},
+			TimeoutSeconds: 500,
+		},
+		DockerImage: "legacy:latest",
+	}
+	req2 := buildSandboxRunRequest("C:\\out", fw2, "python", "C:\\ws", "echo ok", nil, nil)
+	if req2.DockerImage != "legacy:latest" {
+		t.Fatalf("unexpected image fallback: %q (expected DockerImage)", req2.DockerImage)
+	}
+
+	// 无 Sandbox.Image 也无 DockerImage 时回退到 Sandbox.Images[lang]
+	fw3 := agentconfig.FrameworkSpec{
+		Sandbox: agentconfig.SandboxSpec{
+			Provider:       "docker",
+			Mode:           "docker",
+			Images:         map[string]string{"python": "python:v2"},
+			TimeoutSeconds: 500,
+		},
+	}
+	req3 := buildSandboxRunRequest("C:\\out", fw3, "python", "C:\\ws", "echo ok", nil, nil)
+	if req3.DockerImage != "python:v2" {
+		t.Fatalf("unexpected per-language fallback: %q (expected Sandbox.Images[lang])", req3.DockerImage)
 	}
 }
 

@@ -34,6 +34,7 @@ type Service struct {
 var cleanupSemaphore = make(chan struct{}, 2)
 
 const evaluatorVersion = "utbench-evaluator.v1"
+const defaultScorePolicyVersion = "default-v2"
 
 // Output 评测操作的输出结果
 // 包含评测结果集和结果文件路径
@@ -45,8 +46,10 @@ type Output struct {
 // evalTask 评测任务结构
 // 用于 worker 之间传递任务
 type evalTask struct {
-	index int                     // 任务序号
-	item  contracts.GeneratedCase // 待评测的生成结果
+	index   int                     // 任务序号
+	item    contracts.GeneratedCase // 待评测的生成结果
+	reused  *store.ReusableEvaluationResult
+	envHash string
 }
 
 // evalResultItem 评测结果项
@@ -54,6 +57,11 @@ type evalTask struct {
 type evalResultItem struct {
 	index int                        // 任务序号
 	row   contracts.EvaluationResult // 评测结果
+}
+
+type evaluationReusePlan struct {
+	ByTaskKey    map[string]store.ReusableEvaluationResult
+	ReusableHits int
 }
 
 // NewService 创建新的评测服务实例
@@ -96,9 +104,41 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		return Output{}, err
 	}
 
+	// 规范化路径分隔符：manifest 可能在 Windows 上生成（反斜杠），
+	// 但评测可能在 Linux 容器内执行（需要正斜杠）。
+	// 注意：filepath.ToSlash 在 Linux 上是 no-op（不会转换反斜杠），
+	// 必须用 strings.ReplaceAll 确保跨平台一致。
+	for i := range manifest.Cases {
+		c := &manifest.Cases[i]
+		c.SamplePath = toSlashCrossPlatform(c.SamplePath)
+		c.PromptPath = toSlashCrossPlatform(c.PromptPath)
+		c.GeneratedTestPath = toSlashCrossPlatform(c.GeneratedTestPath)
+		c.ResponsePath = toSlashCrossPlatform(c.ResponsePath)
+		c.MetadataPath = toSlashCrossPlatform(c.MetadataPath)
+		c.TracePath = toSlashCrossPlatform(c.TracePath)
+		c.WorkspaceDiffPath = toSlashCrossPlatform(c.WorkspaceDiffPath)
+	}
+
 	// 采集评测环境指纹
 	envFingerprint := CaptureEnvironmentFingerprint(ctx, false, "")
-	s.logger.Debug("environment fingerprint captured", "fingerprint", envFingerprint.FingerprintHash())
+	envFingerprintHash := envFingerprint.FingerprintHash()
+	s.logger.Debug("environment fingerprint captured", "fingerprint", envFingerprintHash)
+
+	var reuseStore *store.SQLiteStore
+	if spec.ReuseEvaluation && strings.TrimSpace(spec.DBPath) != "" {
+		if db, openErr := store.OpenSQLite(spec.DBPath); openErr == nil {
+			if initErr := db.Init(ctx); initErr == nil {
+				reuseStore = db
+				defer reuseStore.Close()
+			} else {
+				_ = db.Close()
+				s.logger.Warn("reuse evaluation disabled", "reason", initErr.Error())
+			}
+		} else {
+			s.logger.Warn("reuse evaluation disabled", "reason", openErr.Error())
+		}
+	}
+	reusePlan := prepareEvaluationReusePlan(ctx, spec, manifest.Cases, envFingerprintHash, reuseStore)
 
 	// 计算worker数量
 	workerCount := spec.Workers
@@ -108,9 +148,12 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 
 	// 输出评测配置信息
 	total := len(manifest.Cases)
-	progress := obs.NewProgressReporter(total, "evaluate")
-	progress.PrintStageStart("评测测试", fmt.Sprintf("样本: %d | 变异: %v | Workers: %d",
-		total, spec.MutationEnabled, workerCount))
+	progress := obs.NewProgressReporterWithWriter(total, "evaluate", s.logger.Writer())
+	stageHeader := fmt.Sprintf("样本: %d | 变异: %v | Workers: %d", total, spec.MutationEnabled, workerCount)
+	if reusePlan.ReusableHits > 0 {
+		stageHeader += fmt.Sprintf(" | 预判可复用: %d", reusePlan.ReusableHits)
+	}
+	progress.PrintStageStart("评测测试", stageHeader)
 
 	// 鍒涘缓杈撳嚭鐩綍
 	runRoot := filepath.Join(spec.OutputRoot, "runs", spec.RunID)
@@ -151,7 +194,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 			for t := range tasks {
 				key, setPhase, done := tracker.start(t.item)
 				_ = key
-				res := s.evaluateOne(ctx, spec, t.item, setPhase)
+				res := s.evaluateOne(ctx, spec, t.item, t.envHash, t.reused, setPhase)
 				done()
 				select {
 				case <-ctx.Done():
@@ -165,7 +208,13 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 	go func() {
 		defer close(tasks)
 		for i, item := range manifest.Cases {
-			tasks <- evalTask{index: i, item: item}
+			taskKey := evaluationTaskKey(item)
+			var reused *store.ReusableEvaluationResult
+			if row, ok := reusePlan.ByTaskKey[taskKey]; ok {
+				copyRow := row
+				reused = &copyRow
+			}
+			tasks <- evalTask{index: i, item: item, reused: reused, envHash: envFingerprintHash}
 		}
 	}()
 
@@ -254,7 +303,7 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 		EvaluatedAtUTC:         time.Now().UTC(),
 		ManifestPath:           manifestPath,
 		Results:                rows,
-		EnvironmentFingerprint: envFingerprint.FingerprintHash(),
+		EnvironmentFingerprint: envFingerprintHash,
 		EnvironmentJSON:        envFingerprint.ToJSON(),
 	}
 	resultPath := filepath.Join(evalRoot, "evaluation_result.json")
@@ -279,35 +328,37 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 	return Output{Result: set, ResultPath: resultPath}, nil
 }
 
-func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item contracts.GeneratedCase, setPhase func(string)) (result contracts.EvaluationResult) {
+func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item contracts.GeneratedCase, evaluationEnvFingerprint string, reused *store.ReusableEvaluationResult, setPhase func(string)) (result contracts.EvaluationResult) {
 	start := time.Now()
 	row := contracts.EvaluationResult{
-		Model:                item.Model,
-		SubjectID:            item.SubjectID,
-		SubjectKind:          item.SubjectKind,
-		AgentFramework:       item.AgentFramework,
-		AgentModel:           item.AgentModel,
-		SkillName:            item.SkillName,
-		SkillVersion:         item.SkillVersion,
-		Language:             item.Language,
-		SampleID:             item.SampleID,
-		SampleUID:            item.SampleUID,
-		GeneratedTestPath:    item.GeneratedTestPath,
-		SourcePath:           item.SamplePath,
-		PromptTokens:         item.PromptTokens,
-		CompletionTokens:     item.CompletionTokens,
-		TotalTokens:          item.TotalTokens,
-		TokenSource:          item.TokenSource,
-		EstimatedCostUSD:     item.EstimatedCostUSD,
-		CostSource:           item.CostSource,
-		Truncated:            item.Truncated,
-		TracePath:            item.TracePath,
-		WorkspaceDiffPath:    item.WorkspaceDiffPath,
-		SandboxFingerprint:   item.SandboxFingerprint,
-		EvaluatorVersion:     evaluatorVersion,
-		MutationConfigSHA256: mutationConfigSHA256(spec),
+		Model:                    item.Model,
+		SubjectID:                item.SubjectID,
+		SubjectKind:              item.SubjectKind,
+		AgentFramework:           item.AgentFramework,
+		AgentModel:               item.AgentModel,
+		SkillName:                item.SkillName,
+		SkillVersion:             item.SkillVersion,
+		Language:                 item.Language,
+		SampleID:                 item.SampleID,
+		SampleUID:                item.SampleUID,
+		GeneratedTestPath:        item.GeneratedTestPath,
+		SourcePath:               item.SamplePath,
+		PromptTokens:             item.PromptTokens,
+		CompletionTokens:         item.CompletionTokens,
+		TotalTokens:              item.TotalTokens,
+		TokenSource:              item.TokenSource,
+		EstimatedCostUSD:         item.EstimatedCostUSD,
+		CostSource:               item.CostSource,
+		Truncated:                item.Truncated,
+		TracePath:                item.TracePath,
+		WorkspaceDiffPath:        item.WorkspaceDiffPath,
+		SandboxProvider:          item.SandboxProvider,
+		SandboxFingerprint:       item.SandboxFingerprint,
+		EvaluationEnvFingerprint: evaluationEnvFingerprint,
+		EvaluatorVersion:         evaluatorVersion,
+		MutationConfigSHA256:     mutationConfigSHA256(spec),
 	}
-	row.EvaluationKey = evaluationKeyForItem(spec, item, row.MutationConfigSHA256)
+	row.EvaluationKey = evaluationKeyForItem(spec, item, row.MutationConfigSHA256, evaluationEnvFingerprint)
 	if item.LatencyMS > 0 {
 		row.LatencyMS = &item.LatencyMS
 	}
@@ -326,524 +377,26 @@ func (s *Service) evaluateOne(ctx context.Context, spec contracts.RunSpec, item 
 		return row
 	}
 
-	if spec.ReuseEvaluation && strings.TrimSpace(spec.DBPath) != "" {
+	if reused != nil {
 		setPhase("evaluation.reuse_lookup")
-		if reused, ok := s.findReusableEvaluation(ctx, spec.DBPath, row.EvaluationKey); ok {
-			applyReusableEvaluation(&row, reused)
-			return row
-		}
+		applyReusableEvaluation(&row, *reused)
+		return row
 	}
 
 	s.logger.Debug("evaluating", "model", item.Model, "lang", item.Language, "sample", item.SampleID)
 
-	if strings.EqualFold(item.Language, "python") {
-		setPhase("python.prepare")
-		var workdir, testName, sourceBase, sourceStem, packageName, targetFile string
-		var prepErr string
-		isRepoLevel := isRepoLevelSample(item.SamplePath)
-		if isRepoLevel {
-			workdir, testName, packageName, targetFile, prepErr = preparePythonRepoLevelWorkspace(item.GeneratedTestPath, item.SamplePath)
-		} else {
-			workdir, testName, sourceBase, sourceStem, prepErr = preparePythonWorkspace(item.GeneratedTestPath, item.SamplePath)
-		}
-		if prepErr != "" {
-			row.CompilePass = false
-			row.CompileError = prepErr
-			rt := int(time.Since(start).Milliseconds())
-			row.RuntimeMS = &rt
-			return row
-		}
-		if !isRepoLevel {
-			defer cleanupWorkspaceAsync(workdir, item.Model, item.Language, item.SampleID, s.logger)
-		}
-
-		setPhase("python.compile")
-		compilePass, compileErr := pythonCompileCheck(filepath.Join(workdir, testName))
-		row.CompilePass = compilePass
-		if !compilePass {
-			row.CompileError = compileErr
-			rt := int(time.Since(start).Milliseconds())
-			row.RuntimeMS = &rt
-			return row
-		}
-
-		testTimeout := spec.TestTimeout
-		if testTimeout <= 0 {
-			testTimeout = defaultTestTimeoutSeconds
-		}
-
-		var pass bool
-		var testErr string
-		var runtimeMs int
-		setPhase("python.test")
-		if isRepoLevel {
-			pass, testErr, runtimeMs = executePythonTestsInWorkspace(workdir, testName, packageName, testTimeout)
-		} else {
-			pass, testErr, runtimeMs = executePythonTests(workdir, testName, testTimeout)
-		}
-		row.TestPass = &pass
-		if !pass && testErr != "" {
-			row.TestError = testErr
-		}
-		if runtimeMs > 0 {
-			row.RuntimeMS = &runtimeMs
-		}
-		passCnt, totalCnt := parsePytestCounts(testErr)
-		if passCnt != nil {
-			row.TestPassCount = passCnt
-		}
-		if totalCnt != nil {
-			row.TestTotalCount = totalCnt
-		}
-		if passCnt != nil && totalCnt != nil && *totalCnt > 0 {
-			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
-			row.TestPassRate = &rate
-		}
-		ensureTestCountsFromPass(&row)
-
-		assertCnt, testCnt, density := estimateAssertionDensity(filepath.Join(workdir, testName), item.Language)
-		row.AssertionCount = &assertCnt
-		row.TestCaseCount = &testCnt
-		row.AssertionDensity = &density
-
-		var targets []string
-		if isRepoLevel {
-			if targetFile != "" {
-				targets = []string{targetFile}
-			}
-		} else {
-			targets = inferMutationTargets(workdir, testName, sourceBase)
-		}
-
-		if isRepoLevel {
-			if packageName != "" {
-				setPhase("python.coverage")
-				lineCov, branchCov, covErr := collectPythonCoverageInWorkspace(workdir, testName, packageName, targetFile, testTimeout)
-				if covErr != "" && pass {
-					row.CoverageError = covErr
-				} else if covErr == "" {
-					row.LineCoverage = &lineCov
-					row.BranchCoverage = &branchCov
-				}
-			}
-		} else if sourceBase != "" {
-			setPhase("python.coverage")
-			lineCov, branchCov, covErr := collectPythonCoverage(workdir, testName, sourceBase, sourceStem, targets, testTimeout)
-			if covErr != "" && pass {
-				row.CoverageError = covErr
-			} else if covErr == "" {
-				row.LineCoverage = &lineCov
-				row.BranchCoverage = &branchCov
-			}
-		}
-
-		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
-			mutationTargets := targets
-			if len(mutationTargets) == 0 && sourceBase != "" {
-				mutationTargets = []string{sourceBase}
-			}
-			testPassed := 0
-			if row.TestPassCount != nil {
-				testPassed = *row.TestPassCount
-			}
-			testTotal := 0
-			if row.TestTotalCount != nil {
-				testTotal = *row.TestTotalCount
-			}
-			mutationSkipReason := ""
-			if !shouldRunMutationAfterSampleTests(row) {
-				mutationSkipReason = "mutmut: baseline tests failed, skipping mutation"
-			} else if !isRepoLevel && !pythonTestImportsAnyMutationTarget(workdir, testName, mutationTargets) {
-				mutationSkipReason = "mutmut: generated tests do not import mutation target, skipping mutation"
-			}
-			if mutationSkipReason != "" {
-				zero := 0.0
-				row.MutationScore = &zero
-				row.MutationError = mutationSkipReason
-				row.MutationTool = "mutmut"
-			} else {
-				checkResult := CheckTestPassRate(testPassed, testTotal, "mutmut", GetMinPassRateForTool("mutmut"))
-				if !checkResult.ShouldRun {
-					zero := 0.0
-					row.MutationScore = &zero
-					row.MutationError = checkResult.Message
-					row.MutationTool = "mutmut"
-				} else {
-					setPhase("python.mutation")
-					mutationStart := time.Now()
-					mutationScore, mutationStats, mutationErr := collectPythonMutation(ctx, workdir, testName, mutationTargets, spec.MutationTimeout, testErr)
-					mutationElapsed := time.Since(mutationStart)
-					s.logger.ToFile("evaluator").Trace("mutation_result",
-						"model", item.Model,
-						"language", item.Language,
-						"sample_id", item.SampleID,
-						"tool", "mutmut",
-						"score", mutationScore,
-						"total", mutationStats.Total,
-						"killed", mutationStats.Killed,
-						"survived", mutationStats.Survived,
-						"elapsed_seconds", int(mutationElapsed.Seconds()),
-						"error", mutationErr,
-					)
-					if mutationErr != "" {
-						row.MutationError = mutationErr
-					} else {
-						row.MutationScore = &mutationScore
-					}
-					if mutationStats.Total > 0 {
-						total := mutationStats.Total
-						killed := mutationStats.Killed
-						survived := mutationStats.Survived
-						noTests := mutationStats.NoTests
-						timeouts := mutationStats.Timeout
-						skipped := mutationStats.Skipped
-						suspicious := mutationStats.Suspicious
-						row.MutationTotal = &total
-						row.MutationKilled = &killed
-						row.MutationSurvived = &survived
-						row.MutationNoTests = &noTests
-						row.MutationTimeouts = &timeouts
-						row.MutationSkipped = &skipped
-						row.MutationSuspicious = &suspicious
-					}
-					row.MutationTool = "mutmut"
-				}
-			}
-		}
-	} else if strings.EqualFold(item.Language, "go") {
-		setPhase("go.prepare")
-		workdir, testName, sourceBase, _ := prepareGoWorkspace(item.GeneratedTestPath, item.SamplePath)
-		if workdir == "" {
-			row.CompilePass = false
-			row.CompileError = testName // prepErr stored in testName
-			rt := int(time.Since(start).Milliseconds())
-			row.RuntimeMS = &rt
-			return row
-		}
-		defer cleanupWorkspaceAsync(workdir, item.Model, item.Language, item.SampleID, s.logger)
-
-		setPhase("go.compile")
-		compilePass, compileErr := goCompileCheck(workdir, testName)
-		row.CompilePass = compilePass
-		if !compilePass {
-			row.CompileError = compileErr
-			rt := int(time.Since(start).Milliseconds())
-			row.RuntimeMS = &rt
-			return row
-		}
-
-		setPhase("go.test")
-		pass, testErr, runtimeMs := executeGoTests(workdir, testName, sourceBase)
-		row.TestPass = &pass
-		if !pass && testErr != "" {
-			row.TestError = testErr
-		}
-		if runtimeMs > 0 {
-			row.RuntimeMS = &runtimeMs
-		}
-
-		passCnt, totalCnt := parseGoTestCounts(testErr)
-		if passCnt != nil {
-			row.TestPassCount = passCnt
-		}
-		if totalCnt != nil {
-			row.TestTotalCount = totalCnt
-		}
-		if passCnt != nil && totalCnt != nil && *totalCnt > 0 {
-			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
-			row.TestPassRate = &rate
-		}
-		ensureTestCountsFromPass(&row)
-
-		assertCnt, testCnt, density := estimateAssertionDensity(filepath.Join(workdir, testName), item.Language)
-		row.AssertionCount = &assertCnt
-		row.TestCaseCount = &testCnt
-		row.AssertionDensity = &density
-
-		if sourceBase != "" {
-			setPhase("go.coverage")
-			lineCov, branchCov, covErr := collectGoCoverage(workdir, testName, sourceBase)
-			if covErr != "" && pass {
-				row.CoverageError = covErr
-			} else if covErr == "" {
-				row.LineCoverage = &lineCov
-				row.BranchCoverage = &branchCov
-			}
-		}
-
-		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
-			setPhase("go.mutation")
-			mutationStart := time.Now()
-			mutationScore := 0.0
-			mutationStats := mutationStats{}
-			mutationErr := ""
-			if !shouldRunMutationAfterSampleTests(row) {
-				mutationErr = "go-mutesting: baseline tests failed, skipping mutation"
-			} else {
-				testPassed := 0
-				if row.TestPassCount != nil {
-					testPassed = *row.TestPassCount
-				}
-				testTotal := 0
-				if row.TestTotalCount != nil {
-					testTotal = *row.TestTotalCount
-				}
-				mutationScore, mutationStats, mutationErr = collectGoMutation(ctx, workdir, testName, sourceBase, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
-			}
-			mutationElapsed := time.Since(mutationStart)
-			s.logger.ToFile("evaluator").Trace("mutation_result",
-				"model", item.Model,
-				"language", item.Language,
-				"sample_id", item.SampleID,
-				"tool", "go-mutesting",
-				"score", mutationScore,
-				"total", mutationStats.Total,
-				"killed", mutationStats.Killed,
-				"survived", mutationStats.Survived,
-				"elapsed_seconds", int(mutationElapsed.Seconds()),
-				"error", mutationErr,
-			)
-			row.MutationScore = &mutationScore
-			row.MutationTotal = &mutationStats.Total
-			row.MutationKilled = &mutationStats.Killed
-			row.MutationSurvived = &mutationStats.Survived
-			row.MutationNoTests = &mutationStats.NoTests
-			row.MutationTimeouts = &mutationStats.Timeout
-			row.MutationSkipped = &mutationStats.Skipped
-			row.MutationSuspicious = &mutationStats.Suspicious
-			if mutationErr != "" {
-				row.MutationError = mutationErr
-			}
-			row.MutationTool = "go-mutesting"
-		}
-
-	} else if strings.EqualFold(item.Language, "java") {
-		setPhase("java.prepare")
-		workdir, testName, _, className := prepareJavaWorkspace(item.GeneratedTestPath, item.SamplePath)
-		if workdir == "" {
-			row.CompilePass = false
-			row.CompileError = testName // prepErr stored in testName
-			rt := int(time.Since(start).Milliseconds())
-			row.RuntimeMS = &rt
-			return row
-		}
-		defer cleanupWorkspaceAsync(workdir, item.Model, item.Language, item.SampleID, s.logger)
-
-		setPhase("java.compile")
-		compilePass, compileErr := javaCompileCheck(workdir)
-		row.CompilePass = compilePass
-		if !compilePass {
-			row.CompileError = compileErr
-			rt := int(time.Since(start).Milliseconds())
-			row.RuntimeMS = &rt
-			return row
-		}
-
-		testTimeout := spec.TestTimeout
-		if testTimeout <= 0 {
-			testTimeout = 120
-		}
-		setPhase("java.test")
-		pass, testErr, runtimeMs := executeJavaTestsWithTimeout(workdir, testTimeout)
-		row.TestPass = &pass
-		if !pass && testErr != "" {
-			row.TestError = testErr
-		}
-		if runtimeMs > 0 {
-			row.RuntimeMS = &runtimeMs
-		}
-
-		passCnt, totalCnt := parseJavaTestCounts(testErr)
-		if passCnt != nil {
-			row.TestPassCount = passCnt
-		}
-		if totalCnt != nil {
-			row.TestTotalCount = totalCnt
-		}
-		if passCnt != nil && totalCnt != nil && *totalCnt > 0 {
-			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
-			row.TestPassRate = &rate
-		}
-		ensureTestCountsFromPass(&row)
-
-		assertCnt, testCnt, density := estimateAssertionDensity(filepath.Join(workdir, "src", "test", "java", testName), item.Language)
-		row.AssertionCount = &assertCnt
-		row.TestCaseCount = &testCnt
-		row.AssertionDensity = &density
-
-		if className != "" {
-			setPhase("java.coverage")
-			lineCov, branchCov, covErr := collectJavaCoverage(workdir, className)
-			if covErr != "" && pass {
-				row.CoverageError = covErr
-			} else if covErr == "" {
-				row.LineCoverage = &lineCov
-				row.BranchCoverage = &branchCov
-			}
-		}
-
-		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
-			setPhase("java.mutation")
-			mutationStart := time.Now()
-			testPassed := 0
-			if row.TestPassCount != nil {
-				testPassed = *row.TestPassCount
-			}
-			testTotal := 0
-			if row.TestTotalCount != nil {
-				testTotal = *row.TestTotalCount
-			}
-			mutationScore := 0.0
-			mutationStats := mutationStats{}
-			mutationErr := ""
-			if !shouldRunMutationAfterSampleTests(row) {
-				mutationErr = "PITest: baseline tests failed, skipping mutation"
-			} else {
-				mutationScore, mutationStats, mutationErr = collectJavaMutation(ctx, workdir, className, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
-			}
-			mutationElapsed := time.Since(mutationStart)
-			s.logger.ToFile("evaluator").Trace("mutation_result",
-				"model", item.Model,
-				"language", item.Language,
-				"sample_id", item.SampleID,
-				"tool", "pitest",
-				"score", mutationScore,
-				"total", mutationStats.Total,
-				"killed", mutationStats.Killed,
-				"survived", mutationStats.Survived,
-				"elapsed_seconds", int(mutationElapsed.Seconds()),
-				"error", mutationErr,
-			)
-			row.MutationScore = &mutationScore
-			row.MutationTotal = &mutationStats.Total
-			row.MutationKilled = &mutationStats.Killed
-			row.MutationSurvived = &mutationStats.Survived
-			row.MutationNoTests = &mutationStats.NoTests
-			row.MutationTimeouts = &mutationStats.Timeout
-			row.MutationSkipped = &mutationStats.Skipped
-			row.MutationSuspicious = &mutationStats.Suspicious
-			if mutationErr != "" {
-				row.MutationError = mutationErr
-			}
-			row.MutationTool = "pitest"
-		}
-
-	} else if strings.EqualFold(item.Language, "cpp") {
-		setPhase("cpp.prepare")
-		workdir, testName, sourceBase, _, prepErr := prepareCppWorkspace(item.GeneratedTestPath, item.SamplePath)
-		if workdir == "" {
-			row.CompilePass = false
-			row.CompileError = prepErr
-			rt := int(time.Since(start).Milliseconds())
-			row.RuntimeMS = &rt
-			return row
-		}
-		defer cleanupWorkspaceAsync(workdir, item.Model, item.Language, item.SampleID, s.logger)
-
-		setPhase("cpp.compile")
-		compilePass, compileErr := cppCompileCheck(workdir)
-		row.CompilePass = compilePass
-		if !compilePass {
-			row.CompileError = compileErr
-			rt := int(time.Since(start).Milliseconds())
-			row.RuntimeMS = &rt
-			return row
-		}
-
-		setPhase("cpp.test")
-		pass, testErr, runtimeMs := executeCppTests(workdir)
-		row.TestPass = &pass
-		if !pass && testErr != "" {
-			row.TestError = testErr
-		}
-		if runtimeMs > 0 {
-			row.RuntimeMS = &runtimeMs
-		}
-
-		passCnt, totalCnt := parseCppTestCounts(testErr)
-		if passCnt != nil {
-			row.TestPassCount = passCnt
-		}
-		if totalCnt != nil {
-			row.TestTotalCount = totalCnt
-		}
-		if passCnt != nil && totalCnt != nil && *totalCnt > 0 {
-			rate := round(float64(*passCnt)/float64(*totalCnt), 6)
-			row.TestPassRate = &rate
-		}
-		ensureTestCountsFromPass(&row)
-
-		assertCnt, testCnt, density := estimateCppAssertionDensity(filepath.Join(workdir, testName))
-		row.AssertionCount = &assertCnt
-		row.TestCaseCount = &testCnt
-		row.AssertionDensity = &density
-
-		if testName != "" {
-			setPhase("cpp.coverage")
-			lineCov, branchCov, covErr := collectCppCoverage(workdir, testName)
-			if covErr != "" && pass {
-				row.CoverageError = covErr
-			} else if covErr == "" {
-				row.LineCoverage = &lineCov
-				row.BranchCoverage = &branchCov
-			}
-		}
-
-		if spec.MutationEnabled && !strings.EqualFold(strings.TrimSpace(spec.MutationPolicy), "skip") {
-			setPhase("cpp.mutation")
-			mutationStart := time.Now()
-			testPassed := 0
-			if row.TestPassCount != nil {
-				testPassed = *row.TestPassCount
-			}
-			testTotal := 0
-			if row.TestTotalCount != nil {
-				testTotal = *row.TestTotalCount
-			}
-			mutationScore := 0.0
-			mutationStats := mutationStats{}
-			mutationErr := ""
-			if !shouldRunMutationAfterSampleTests(row) {
-				mutationErr = "Mull: baseline tests failed, skipping mutation"
-			} else {
-				mutationScore, mutationStats, mutationErr = collectCppMutation(ctx, workdir, sourceBase, spec.MutationTimeout, row.TestPassRate, testPassed, testTotal)
-			}
-			mutationElapsed := time.Since(mutationStart)
-			s.logger.ToFile("evaluator").Trace("mutation_result",
-				"model", item.Model,
-				"language", item.Language,
-				"sample_id", item.SampleID,
-				"tool", "mull",
-				"score", mutationScore,
-				"total", mutationStats.Total,
-				"killed", mutationStats.Killed,
-				"survived", mutationStats.Survived,
-				"elapsed_seconds", int(mutationElapsed.Seconds()),
-				"error", mutationErr,
-			)
-			row.MutationScore = &mutationScore
-			row.MutationTotal = &mutationStats.Total
-			row.MutationKilled = &mutationStats.Killed
-			row.MutationSurvived = &mutationStats.Survived
-			row.MutationNoTests = &mutationStats.NoTests
-			row.MutationTimeouts = &mutationStats.Timeout
-			row.MutationSkipped = &mutationStats.Skipped
-			row.MutationSuspicious = &mutationStats.Suspicious
-			if mutationErr != "" {
-				row.MutationError = mutationErr
-			}
-			row.MutationTool = "mull"
-		}
-
+	langEval := getLanguageEvaluator(item.Language)
+	if langEval != nil {
+		s.evalWithLanguageEvaluator(ctx, spec, item, &row, start, setPhase, langEval)
 	} else {
-		compilePass := true
+		// 未知语言：设置默认值
 		pass := true
 		lineCov := 0.0
 		branchCov := 0.0
 		mutation := 0.0
 		assertCnt, testCnt, density := estimateAssertionDensity(item.GeneratedTestPath, item.Language)
 
-		row.CompilePass = compilePass
+		row.CompilePass = true
 		row.TestPass = &pass
 		row.LineCoverage = &lineCov
 		row.BranchCoverage = &branchCov
@@ -904,25 +457,6 @@ func countSuccessfulResults(items []evalResultItem) int {
 	return count
 }
 
-func (s *Service) findReusableEvaluation(ctx context.Context, dbPath, evaluationKey string) (store.ReusableEvaluationResult, bool) {
-	sqliteStore, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		s.logger.Warn("evaluation reuse disabled", "reason", err.Error())
-		return store.ReusableEvaluationResult{}, false
-	}
-	defer sqliteStore.Close()
-	if err := sqliteStore.Init(ctx); err != nil {
-		s.logger.Warn("evaluation reuse disabled", "reason", err.Error())
-		return store.ReusableEvaluationResult{}, false
-	}
-	reused, ok, err := sqliteStore.FindReusableEvaluationAsset(ctx, evaluationKey)
-	if err != nil {
-		s.logger.Warn("evaluation reuse lookup failed", "evaluation_key", evaluationKey, "error", err.Error())
-		return store.ReusableEvaluationResult{}, false
-	}
-	return reused, ok
-}
-
 func applyReusableEvaluation(row *contracts.EvaluationResult, reused store.ReusableEvaluationResult) {
 	current := *row
 	reusedRow := reused.Result
@@ -945,6 +479,7 @@ func applyReusableEvaluation(row *contracts.EvaluationResult, reused store.Reusa
 	reusedRow.EstimatedCostUSD = current.EstimatedCostUSD
 	reusedRow.CostSource = current.CostSource
 	reusedRow.LatencyMS = current.LatencyMS
+	reusedRow.EvaluationEnvFingerprint = current.EvaluationEnvFingerprint
 	reusedRow.EvaluationKey = current.EvaluationKey
 	reusedRow.EvaluatorVersion = current.EvaluatorVersion
 	reusedRow.MutationConfigSHA256 = current.MutationConfigSHA256
@@ -996,7 +531,9 @@ func ensureTestCountsFromPass(row *contracts.EvaluationResult) {
 }
 
 // shouldRunMutationAfterSampleTests 检查是否应该在样本测试后运行变异测试
-// 基线测试失败时跳过变异测试
+// 基线测试失败时跳过变异测试。
+// 优先使用 test_pass_rate（解析自测试框架输出）判断，因为进程退出码
+// 可能被覆盖率工具（如 gcov）等非测试因素干扰。
 //
 // 参数:
 //   - row: 评测结果
@@ -1004,6 +541,15 @@ func ensureTestCountsFromPass(row *contracts.EvaluationResult) {
 // 返回值:
 //   - bool: 是否应该运行变异测试
 func shouldRunMutationAfterSampleTests(row contracts.EvaluationResult) bool {
+	// 优先使用 test_pass_rate：如果解析到 100% 通过率，说明所有测试用例都通过了
+	if row.TestPassRate != nil && *row.TestPassRate >= 1.0 {
+		return true
+	}
+	// 有通过率但未达 100%，跳过变异
+	if row.TestPassRate != nil && *row.TestPassRate < 1.0 {
+		return false
+	}
+	// 没有 pass_rate 数据时，回退到退出码判断
 	if row.TestPass != nil && !*row.TestPass {
 		return false
 	}
@@ -1481,11 +1027,11 @@ func pythonCompileCheck(path string) (bool, string) {
 		return false, "empty test file"
 	}
 	py := pythonExecutable()
-	runCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	runCtx, cancel := context.WithTimeout(context.Background(), PythonCompileTimeoutSeconds*time.Second)
 	defer cancel()
 	output, err := runCommandWithProcessGroupKill(runCtx, py, []string{"-m", "py_compile", path}, "", nil)
 	if runCtx.Err() != nil {
-		return false, "python compile timed out after 30s"
+		return false, fmt.Sprintf("python compile timed out after %ds", PythonCompileTimeoutSeconds)
 	}
 	if err != nil {
 		msg := strings.TrimSpace(string(output))
@@ -1494,7 +1040,7 @@ func pythonCompileCheck(path string) (bool, string) {
 		}
 		return false, msg
 	}
-	if !strings.Contains(text, "def test_") && !strings.Contains(text, "import pytest") {
+	if !strings.Contains(text, "def test_") && !strings.Contains(text, "import pytest") && !strings.Contains(text, "unittest.TestCase") {
 		return false, "invalid python test structure"
 	}
 	return true, ""
@@ -1997,7 +1543,12 @@ func trimErr(v string, max int) string {
 	if len(v) <= max {
 		return v
 	}
-	return v[:max]
+	// 保留头尾各一半，中间用省略号连接，确保错误信息（通常在末尾）不被丢弃
+	half := max/2 - 20
+	if half < 100 {
+		half = 100
+	}
+	return v[:half] + " ... [truncated] ... " + v[len(v)-half:]
 }
 
 func pythonExecutable() string {
@@ -2011,13 +1562,6 @@ func pythonExecutable() string {
 		return "python"
 	}
 	return "python3"
-}
-
-func normalizedTimeout(seconds int) time.Duration {
-	if seconds <= 0 {
-		seconds = defaultTestTimeoutSeconds
-	}
-	return time.Duration(seconds) * time.Second
 }
 
 func round(v float64, digits int) float64 {
@@ -2051,7 +1595,7 @@ func getLanguagesSummary(cases []contracts.GeneratedCase) string {
 		langs[c.Language]++
 	}
 	var parts []string
-	for _, l := range []string{"python", "go", "java", "cpp"} {
+	for _, l := range contracts.SupportedLanguages {
 		if langs[l] > 0 {
 			parts = append(parts, fmt.Sprintf("%s:%d", l, langs[l]))
 		}
@@ -2073,7 +1617,7 @@ func getCoverageValue(v *float64) float64 {
 	return *v
 }
 
-func evaluationKeyForItem(spec contracts.RunSpec, item contracts.GeneratedCase, mutationConfigSHA string) string {
+func evaluationKeyForItem(spec contracts.RunSpec, item contracts.GeneratedCase, mutationConfigSHA, evaluationEnvFingerprint string) string {
 	generatedTestSHA := hashExistingFile(item.GeneratedTestPath)
 	sampleUID := item.SampleUID
 	if sampleUID == "" {
@@ -2082,12 +1626,40 @@ func evaluationKeyForItem(spec contracts.RunSpec, item contracts.GeneratedCase, 
 	payload := strings.Join([]string{
 		generatedTestSHA,
 		sampleUID,
+		item.Language,
+		evaluationEnvFingerprint,
 		evaluatorVersion,
+		defaultScorePolicyVersion,
 		mutationConfigSHA,
 		fmt.Sprintf("test-timeout=%d", spec.TestTimeout),
 		item.DependencyFingerprint,
 	}, "\x00")
 	return "evaluation_" + sha256String(payload)[:16]
+}
+
+func evaluationTaskKey(item contracts.GeneratedCase) string {
+	return strings.Join([]string{item.Model, item.Language, item.SampleID}, "\x00")
+}
+
+func prepareEvaluationReusePlan(ctx context.Context, spec contracts.RunSpec, items []contracts.GeneratedCase, evaluationEnvFingerprint string, reuseStore *store.SQLiteStore) evaluationReusePlan {
+	out := evaluationReusePlan{ByTaskKey: make(map[string]store.ReusableEvaluationResult)}
+	if reuseStore == nil || !spec.ReuseEvaluation {
+		return out
+	}
+	mutationSHA := mutationConfigSHA256(spec)
+	for _, item := range items {
+		evaluationKey := evaluationKeyForItem(spec, item, mutationSHA, evaluationEnvFingerprint)
+		reused, ok, err := reuseStore.FindReusableEvaluationAsset(ctx, evaluationKey)
+		if err != nil {
+			continue
+		}
+		if !ok {
+			continue
+		}
+		out.ByTaskKey[evaluationTaskKey(item)] = reused
+		out.ReusableHits++
+	}
+	return out
 }
 
 func mutationConfigSHA256(spec contracts.RunSpec) string {
@@ -2111,4 +1683,11 @@ func hashExistingFile(path string) string {
 func sha256String(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+// toSlashCrossPlatform 将路径中的反斜杠统一替换为正斜杠。
+// filepath.ToSlash 在 Linux 上是 no-op（不会转换 Windows 反斜杠），
+// 因此需要显式替换以确保跨平台一致性。
+func toSlashCrossPlatform(path string) string {
+	return strings.ReplaceAll(path, `\`, "/")
 }

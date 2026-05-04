@@ -5,23 +5,25 @@
 # UT-Bench will still add model_api__<model>__no_skill automatically
 # as the pure-model baseline.
 
-models:
-  - deepseek-v4-flash
+# models 限制 agent subject 使用的模型范围。
+# 省略或留空时使用 models.yaml 中所有已启用的模型。
+# models:
+#   - deepseek-v4-flash
 
 frameworks:
   opencode:
     enabled: true
     kind: cli_agent
-    sandbox_mode: docker
-    docker_images:
-      python: utbench-agent-opencode-python:latest
-      go: utbench-agent-opencode-go:latest
-      java: utbench-agent-opencode-java:latest
-      cpp: utbench-agent-opencode-cpp:latest
-    timeout_seconds: 600
-    network_disabled: false
-    memory: 2g
-    cpu: "2"
+    sandbox:
+      provider: docker
+      mode: docker
+      # 统一沙箱镜像，包含所有语言运行时（Python/Go/Java/C++）。
+      # 不再按语言拆分，适合仓库级多语言样本。
+      image: utbench-agent-opencode:latest
+      timeout_seconds: 600
+      network_disabled: false
+      memory: 2g
+      cpu: "2"
     preflight:
       python:
         - python3 --version
@@ -88,8 +90,12 @@ frameworks:
       printf '%s' "$OPENCODE_CONFIG_CONTENT" > "$XDG_CONFIG_HOME/opencode/config.json" &&
       PROMPT="$(cat {{.ContainerPrompt}})" &&
       opencode run --print-logs --dangerously-skip-permissions --model utbench/{{.ModelID}} "$PROMPT"
-    compatible_models:
-      - deepseek-v4-flash
+    # compatible_models 省略时允许所有已配置的模型。
+    # 如需限制可取消注释：
+    # compatible_models:
+    #   - deepseek-v4-flash
+    #   - qwen3.6-flash
+    #   - MiniMax-M2.5
     compatible_languages:
       - python
       - go

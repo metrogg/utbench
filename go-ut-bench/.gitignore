@@ -1,9 +1,8 @@
 # Build artifacts
-<<<<<<< HEAD
 utbench
-=======
-/utbench
->>>>>>> origin/feat/go
+
+# Go module cache
+.gomodcache/
 
 # Runtime artifacts
 artifacts/*

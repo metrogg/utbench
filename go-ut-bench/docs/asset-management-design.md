@@ -47,6 +47,7 @@ framework_config_sha256
 skill_sha256
 agent_command_sha256
 docker_image
+docker_image_digest
 sandbox_fingerprint
 env_contract_sha256
 created_at_utc
@@ -178,7 +179,7 @@ test_command_sha256
 dependency_fingerprint
 ```
 
-第一阶段已经记录 `evaluation_key`、`evaluator_version`、`mutation_config_sha256`，并支持 `--reuse-evaluation=true` 的保守复用；默认仍关闭。原因是评测环境 fingerprint 还需要继续收紧，避免误跳过重评测。
+当前实现已经把 `evaluation_env_fingerprint` 纳入 `evaluation_key`，fingerprint 会记录本地工具链版本或 Docker digest，并与 `evaluator_version`、`mutation_config_sha256` 一起决定是否可复用。`--reuse-evaluation=true` 仍默认关闭，原因是正式横评前还需要继续观察不同语言 evaluator 指纹是否还有遗漏项。
 
 评测复用的规则：
 
@@ -229,13 +230,15 @@ ingest run artifacts
 - DB schema 增加 `subjects`、`subject_versions`、generation/evaluation key 字段和索引。
 - 生成阶段默认开启 `--reuse-generated=true`。
 - `FindReusableGeneratedAsset(generation_key)` 校验 artifact 存在和 sha256。
+- `subject_versions` 已落库存储 `framework_config_sha256`、`skill_sha256`、`agent_command_sha256`、`docker_image_digest`、`env_contract_sha256`。
 - manifest、metadata、DB 中保存复用来源和 key。
 - 评测阶段记录 `evaluation_key`，并支持 `--reuse-evaluation=true` 的保守复用；默认仍为 `false`。
+- generation/evaluation 都会在阶段开始前批量预判可复用资产，优先命中最新成功结果，再下发 worker。
 - CLI 查询入口：`utbench assets subjects|generations|evaluations|explain-reuse`。
+- Web “数据管理 → 资产审计” 已增加 subject 列表、subject version、生成资产、评测资产、复用解释。
 
 后置增强：
 
-- Web 树形管理页。
-- 更精确的 docker image digest 和 evaluator env fingerprint。
+- 更完整的 Web 树形管理页和历史展开视图。
 - evaluation reuse 默认开启前的失败类型白名单。
 - artifact 软删除、归档、引用计数和垃圾回收。

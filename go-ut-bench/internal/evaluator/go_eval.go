@@ -152,11 +152,6 @@ func parseGoTestCounts(output string) (*int, *int) {
 		total := passed + failed
 		return &passed, &total
 	}
-	if strings.Contains(output, "PASS") && !strings.Contains(output, "FAIL") {
-		passed = 1
-		total := 1
-		return &passed, &total
-	}
 	return nil, nil
 }
 
@@ -308,7 +303,7 @@ func estimateGoStmtCount(rangeStr string) int {
 //   - string: 错误信息（成功时为空）
 func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string, timeoutSeconds int, testPassRate *float64, testPassed, testTotal int) (float64, mutationStats, string) {
 	if timeoutSeconds <= 0 {
-		timeoutSeconds = 120
+		timeoutSeconds = MutationTimeoutSeconds
 	}
 
 	fmt.Printf("        [MUTATION] Go go-mutesting 开始 | 目标: %s | 超时: %ds\n", sourceBase, timeoutSeconds)
@@ -323,9 +318,6 @@ func collectGoMutation(ctx context.Context, workdir, testFile, sourceBase string
 	} else if testPassRate != nil {
 		total = 100
 		passed = int(math.Round(*testPassRate * float64(total)))
-		if passed == 0 && *testPassRate > 0 {
-			passed = 1
-		}
 	}
 
 	checkResult := CheckTestPassRate(passed, total, "go-mutesting", minPassRate)

@@ -45,10 +45,15 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 	}
 
 	// 4. 构建容器内路径提示
+	// 注意：如果 sandbox_mode=docker 但当前环境没有 Docker daemon，会降级为 local。
+	effectiveSandboxMode := framework.SandboxMode
+	if strings.EqualFold(effectiveSandboxMode, "docker") && !isDockerAvailable() {
+		effectiveSandboxMode = "local"
+	}
 	outputHint := outputFile
 	sourceHint := sourceFile
 	skillHint := skillDir
-	if !strings.EqualFold(framework.SandboxMode, "local") {
+	if !strings.EqualFold(effectiveSandboxMode, "local") {
 		outputHint = "/workspace/generated_test" + languageExt(sample.Language)
 		sourceHint = "/workspace/" + filepath.ToSlash(mustRel(workRoot, sourceFile))
 		if skillDir != "" {
@@ -91,10 +96,10 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 		Language:          sample.Language,
 		SampleID:          sample.ID,
 		SourceFile:        sourceFile,
-		ContainerWorkdir:  "/workspace",
-		ContainerPrompt:   "/workspace/utbench_agent_prompt.md",
-		ContainerOutput:   "/workspace/generated_test" + languageExt(sample.Language),
-		ContainerSkillDir: "/workspace/.utbench/skills/" + safePathName(skill.Name),
+		ContainerWorkdir:  containerPath("/workspace", workRoot, effectiveSandboxMode),
+		ContainerPrompt:   containerPath("/workspace/utbench_agent_prompt.md", promptFile, effectiveSandboxMode),
+		ContainerOutput:   containerPath("/workspace/generated_test"+languageExt(sample.Language), outputFile, effectiveSandboxMode),
+		ContainerSkillDir: containerPath("/workspace/.utbench/skills/"+safePathName(skill.Name), skillDir, effectiveSandboxMode),
 	}
 	cmdText, err := renderTemplateText("agent-command", framework.Command, templateData)
 	if err != nil {
@@ -107,9 +112,15 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 	if err != nil {
 		return agentError("agent_env_error", err)
 	}
+	// 注入 run ID 以便 sandbox 容器能被 label 标记和清理
+	envMap["UTBENCH_RUN_ID"] = req.RunID
 
 	// 9. 平台托管的样本依赖准备
 	sandboxReq := buildSandboxRunRequest(req.OutputRoot, framework, sample.Language, workRoot, cmdText, envMap, envFromHost)
+	// 将源文件加入只读挂载，防止 Agent 意外修改被测源码
+	if sourceFile != "" {
+		sandboxReq.ReadOnlyMounts = append(sandboxReq.ReadOnlyMounts, sourceFile)
+	}
 	environmentSetup, setupErr := runSandboxPreflight(ctx, sandboxRunner, sandboxReq, buildSampleEnvironmentSetupCommands(sample, workRoot))
 	if setupErr != nil {
 		trace := AgentTrace{
@@ -123,6 +134,7 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 			StartedAt:          time.Now().UTC(),
 			FinishedAt:         time.Now().UTC(),
 			EnvironmentSetup:   environmentSetup,
+			SandboxProvider:    sandboxReq.Provider,
 			SandboxImage:       sandboxReq.DockerImage,
 			SandboxFingerprint: sandboxFingerprintForRequest(sandboxReq),
 			TracePath:          tracePath,
@@ -138,6 +150,7 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 				"skill":               req.Subject.Spec.Skill,
 				"command":             cmdText,
 				"environment_setup":   environmentSetup,
+				"sandbox_provider":    sandboxReq.Provider,
 				"sandbox_image":       sandboxReq.DockerImage,
 				"sandbox_mode":        sandboxReq.Mode,
 				"sandbox_workspace":   workRoot,
@@ -167,6 +180,7 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 			FinishedAt:         time.Now().UTC(),
 			EnvironmentSetup:   environmentSetup,
 			PreflightChecks:    preflightChecks,
+			SandboxProvider:    sandboxReq.Provider,
 			SandboxImage:       sandboxReq.DockerImage,
 			SandboxFingerprint: sandboxFingerprintForRequest(sandboxReq),
 			TracePath:          tracePath,
@@ -183,6 +197,7 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 				"command":             cmdText,
 				"environment_setup":   environmentSetup,
 				"preflight_checks":    preflightChecks,
+				"sandbox_provider":    sandboxReq.Provider,
 				"sandbox_image":       sandboxReq.DockerImage,
 				"sandbox_mode":        sandboxReq.Mode,
 				"sandbox_workspace":   workRoot,
@@ -225,6 +240,7 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 		WorkspaceDiff:      changes,
 		EnvironmentSetup:   environmentSetup,
 		PreflightChecks:    preflightChecks,
+		SandboxProvider:    sandboxReq.Provider,
 		SandboxImage:       sandboxReq.DockerImage,
 		SandboxFingerprint: sandboxFingerprintForRequest(sandboxReq),
 		TracePath:          tracePath,
@@ -265,6 +281,7 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 		"commands_executed":   trace.CommandsExecuted,
 		"environment_setup":   environmentSetup,
 		"preflight_checks":    preflightChecks,
+		"sandbox_provider":    sandboxReq.Provider,
 		"sandbox_image":       sandboxReq.DockerImage,
 		"sandbox_fingerprint": trace.SandboxFingerprint,
 		"token_source":        trace.TokenSource,
@@ -1031,4 +1048,13 @@ func intPtr(v int) *int {
 
 func floatPtr(v float64) *float64 {
 	return &v
+}
+
+// containerPath 根据沙箱模式返回路径。
+// docker 模式返回容器内路径（如 /workspace/...），local 模式返回实际本地路径。
+func containerPath(dockerPath, localPath, mode string) string {
+	if strings.EqualFold(mode, "local") {
+		return localPath
+	}
+	return dockerPath
 }

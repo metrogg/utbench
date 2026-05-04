@@ -5,9 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"go-ut-bench/internal/agentconfig"
 	"go-ut-bench/internal/contracts"
@@ -16,11 +18,26 @@ import (
 type generationIdentity struct {
 	SampleUID                string
 	SubjectVersionID         string
+	VersionDetails           subjectVersionDetails
 	GenerationKey            string
 	DependencyFingerprint    string
 	GenerationEnvFingerprint string
 	PromptRenderingSHA256    string
+	SourceSHA256             string
 }
+
+type subjectVersionDetails struct {
+	SubjectVersionID      string
+	FrameworkConfigSHA256 string
+	SkillSHA256           string
+	AgentCommandSHA256    string
+	DockerImage           string
+	DockerImageDigest     string
+	SandboxFingerprint    string
+	EnvContractSHA256     string
+}
+
+var dockerImageDigestCache sync.Map
 
 func buildGenerationIdentity(target subjectTarget, model modelConfig, sample contracts.SampleRef, sourceCode []byte, renderedPrompt, promptVersionID string) generationIdentity {
 	sourceSHA := sha256Bytes(sourceCode)
@@ -38,7 +55,7 @@ func buildGenerationIdentity(target subjectTarget, model modelConfig, sample con
 	}
 
 	dependencyFingerprint := dependencyFingerprintForSample(sample)
-	subjectVersionID := subjectVersionIDForTarget(target, model, sample.Language)
+	versionDetails := buildSubjectVersionDetails(target, model, sample.Language)
 	generationEnvFingerprint := generationEnvFingerprintForTarget(target, sample.Language)
 	promptSHA := sha256String(renderedPrompt)
 	sampleUID := assetStableID(
@@ -52,7 +69,7 @@ func buildGenerationIdentity(target subjectTarget, model modelConfig, sample con
 	)
 	generationKey := assetStableID(
 		"generation",
-		subjectVersionID,
+		versionDetails.SubjectVersionID,
 		sampleUID,
 		promptSHA,
 		promptVersionID,
@@ -63,24 +80,58 @@ func buildGenerationIdentity(target subjectTarget, model modelConfig, sample con
 	)
 	return generationIdentity{
 		SampleUID:                sampleUID,
-		SubjectVersionID:         subjectVersionID,
+		SubjectVersionID:         versionDetails.SubjectVersionID,
+		VersionDetails:           versionDetails,
 		GenerationKey:            generationKey,
 		DependencyFingerprint:    dependencyFingerprint,
 		GenerationEnvFingerprint: generationEnvFingerprint,
 		PromptRenderingSHA256:    promptSHA,
+		SourceSHA256:             sourceSHA,
 	}
 }
 
-func subjectVersionIDForTarget(target subjectTarget, model modelConfig, language string) string {
-	payload := map[string]any{
-		"subject":             target.subject.Spec,
-		"model":               modelVersionPayload(model),
-		"framework":           frameworkVersionPayload(target.subject.Framework, language),
-		"skill":               skillVersionPayload(target.subject.Skill),
-		"docker_image":        frameworkDockerImage(target.subject.Framework, language),
-		"sandbox_fingerprint": generationEnvFingerprintForTarget(target, language),
+func buildSubjectVersionDetails(target subjectTarget, model modelConfig, language string) subjectVersionDetails {
+	frameworkPayload := frameworkVersionPayload(target.subject.Framework, language)
+	skillPayload := skillVersionPayload(target.subject.Skill)
+	frameworkConfigSHA := sha256JSON(frameworkPayload)
+	skillSHA := sha256JSON(skillPayload)
+	agentCommandSHA := sha256String(target.subject.Framework.Command)
+	dockerImage := frameworkDockerImage(target.subject.Framework, language)
+	dockerDigest := dockerImageDigest(dockerImage)
+	sandboxFingerprint := generationEnvFingerprintForTarget(target, language)
+	envContractSHA := sha256JSON(map[string]any{
+		"sandbox_mode":               target.subject.Framework.SandboxMode,
+		"docker_image":               dockerImage,
+		"docker_image_digest":        dockerDigest,
+		"network_disabled":           target.subject.Framework.NetworkDisabled,
+		"cpu":                        target.subject.Framework.CPU,
+		"memory":                     target.subject.Framework.Memory,
+		"env_keys":                   sortedStringMapKeys(target.subject.Framework.Env),
+		"env_from_host":              uniqueSortedStrings(target.subject.Framework.EnvFromHost),
+		"preflight":                  target.subject.Framework.Preflight,
+		"forbidden_command_patterns": target.subject.Framework.ForbiddenCommandPatterns,
+	})
+	subjectVersionID := assetStableID("subject_version", sha256JSON(map[string]any{
+		"subject":                 target.subject.Spec,
+		"model":                   modelVersionPayload(model),
+		"framework_config_sha256": frameworkConfigSHA,
+		"skill_sha256":            skillSHA,
+		"agent_command_sha256":    agentCommandSHA,
+		"docker_image":            dockerImage,
+		"docker_image_digest":     dockerDigest,
+		"sandbox_fingerprint":     sandboxFingerprint,
+		"env_contract_sha256":     envContractSHA,
+	}))
+	return subjectVersionDetails{
+		SubjectVersionID:      subjectVersionID,
+		FrameworkConfigSHA256: frameworkConfigSHA,
+		SkillSHA256:           skillSHA,
+		AgentCommandSHA256:    agentCommandSHA,
+		DockerImage:           dockerImage,
+		DockerImageDigest:     dockerDigest,
+		SandboxFingerprint:    sandboxFingerprint,
+		EnvContractSHA256:     envContractSHA,
 	}
-	return assetStableID("subject_version", sha256JSON(payload))
 }
 
 func generationEnvFingerprintForTarget(target subjectTarget, language string) string {
@@ -253,4 +304,23 @@ func sortedStringMapKeys(values map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func dockerImageDigest(image string) string {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return ""
+	}
+	if cached, ok := dockerImageDigestCache.Load(image); ok {
+		return cached.(string)
+	}
+	cmd := exec.Command("docker", "inspect", "--format", "{{.Id}}", image)
+	output, err := cmd.Output()
+	if err != nil {
+		dockerImageDigestCache.Store(image, "")
+		return ""
+	}
+	digest := strings.TrimSpace(string(output))
+	dockerImageDigestCache.Store(image, digest)
+	return digest
 }

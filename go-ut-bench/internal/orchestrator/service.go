@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"go-ut-bench/internal/contracts"
@@ -131,7 +132,22 @@ func (s *Service) Run(ctx context.Context, spec contracts.RunSpec, opts Options)
 		if err != nil {
 			return Result{}, err
 		}
-		genOut, err := s.runner.Generate(ctx, spec, samples)
+		var reuseStore runner.GenerationReuseStore
+		if spec.ReuseGenerated && strings.TrimSpace(spec.DBPath) != "" && !spec.DryRun {
+			if db, openErr := store.OpenSQLite(spec.DBPath); openErr == nil {
+				if initErr := db.Init(ctx); initErr == nil {
+					reuseStore = db
+				} else {
+					_ = db.Close()
+				}
+			}
+		}
+		genOut, err := s.runner.Generate(ctx, spec, samples, reuseStore)
+		if reuseStore != nil {
+			if closer, ok := reuseStore.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		}
 		if err != nil {
 			return Result{}, err
 		}

@@ -217,9 +217,10 @@ func TestExtractFinishReason_OpenAIFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractFinishReason(tt.response, tt.provider)
+			p := resolveProvider(modelConfig{Provider: tt.provider})
+			got := p.ExtractFinishReason(tt.response)
 			if got != tt.want {
-				t.Errorf("extractFinishReason() = %v, want %v", got, tt.want)
+				t.Errorf("ExtractFinishReason() = %v, want %v", got, tt.want)
 			}
 		})
 	}

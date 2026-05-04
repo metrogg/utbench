@@ -155,3 +155,63 @@ frameworks:
 		t.Fatalf("unexpected forbidden command patterns: %+v", got)
 	}
 }
+
+func TestLoadPrefersNestedSandboxBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents.yaml")
+	raw := `
+models: [deepseek]
+frameworks:
+  opencode:
+    kind: cli_agent
+    command: "opencode run {{.ContainerPrompt}}"
+    sandbox:
+      provider: docker
+      mode: docker
+      images:
+        python: utbench-agent-opencode-python:v2
+      timeout_seconds: 900
+      network_disabled: false
+      cpu: "3"
+      memory: 3g
+    docker_images:
+      python: legacy-ignored:latest
+    timeout_seconds: 120
+    network_disabled: true
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subjects, err := Load(path, []string{"deepseek"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var opencode ResolvedSubject
+	for _, subject := range subjects {
+		if subject.Spec.Framework == "opencode" {
+			opencode = subject
+			break
+		}
+	}
+	if opencode.Spec.ID == "" {
+		t.Fatalf("expected opencode subject in %+v", subjects)
+	}
+	if got := opencode.Framework.Sandbox.Provider; got != "docker" {
+		t.Fatalf("unexpected sandbox provider: %q", got)
+	}
+	if got := opencode.Framework.Sandbox.Images["python"]; got != "utbench-agent-opencode-python:v2" {
+		t.Fatalf("unexpected sandbox image: %q", got)
+	}
+	if got := opencode.Framework.TimeoutSeconds; got != 900 {
+		t.Fatalf("unexpected timeout seconds: %d", got)
+	}
+	if got := opencode.Framework.NetworkDisabled; got {
+		t.Fatalf("expected nested sandbox config to override network_disabled")
+	}
+	if got := opencode.Framework.CPU; got != "3" {
+		t.Fatalf("unexpected cpu: %q", got)
+	}
+	if got := opencode.Framework.Memory; got != "3g" {
+		t.Fatalf("unexpected memory: %q", got)
+	}
+}

@@ -25,9 +25,11 @@ go build -o utbench.exe ./cmd/utbench
 # 指定端口和配置
 ./utbench.exe web -addr :9090 -config ./configs/models.yaml -dataset-root ./datasets
 
-# 指定 Docker 镜像构建参数
-./utbench.exe web -config ./configs/models.yaml -dockerfile ./Dockerfile -docker-image utbench:latest -docker-context .
+# 指定 agent 配置与 Docker 运行参数
+./utbench.exe web -config ./configs/models.yaml -agents-config ./configs/agents.example.yaml -docker-image utbench:latest -project-root .
 ```
+
+> **注意**：`--agents-config` 会自动从 `--config` 所在目录探测 `agents.yaml` 或 `agents.example.yaml`，通常无需手动指定。
 
 打开浏览器访问 `http://localhost:8080` 即可进入管理界面。
 
@@ -38,15 +40,20 @@ go build -o utbench.exe ./cmd/utbench
 ```
 utbench web [flags]
 
-  -addr            HTTP 监听地址，默认 :8080
-  -config          模型配置文件路径，默认 ./configs/models.yaml
-  -dataset-root    数据集根目录，默认 ./datasets
-  -output-root     产物根目录，默认 ./artifacts
-  -db-path         SQLite 数据库路径，默认 ./storage/utbench.db
-  -dockerfile      Dockerfile 路径，默认 ./Dockerfile
-  -docker-image    目标镜像名，默认 utbench:latest
-  -docker-context  Docker 构建上下文目录，默认 .
+  -addr                  HTTP 监听地址，默认 :8080
+  -config                模型配置文件路径，默认 ./configs/models.yaml
+  -dataset-root          数据集根目录，默认 ./datasets
+  -output-root           产物根目录，默认 ./artifacts
+  -db-path               SQLite 数据库路径，默认 ./storage/utbench.db
+  -agents-config         Agent/skill 配置路径，默认自动从 --config 目录探测
+  -docker-image          评测镜像名，默认 utbench:latest
+  -docker-control-image  控制面镜像名，默认 utbench-control:latest
+  -docker-eval-image     评测镜像名（优先于 --docker-image）
+  -project-root          Docker 挂载的项目根目录，默认 .
+  -env-file              Docker 运行时传入的 .env 文件，默认 ./.env
 ```
+
+`--agents-config` 探测顺序：`<config-dir>/agents.yaml` → `<config-dir>/agents.example.yaml`，找到第一个即停止。若都不存在，Web UI 仅支持 model_api（纯 API）模式，新建任务页会显示提示。
 
 ---
 
@@ -60,13 +67,14 @@ utbench web [flags]
 
 ### 新建任务
 
-交互式表单，完整覆盖 CLI 的所有运行参数：
+交互式表单，完整覆盖 CLI 的主要运行参数。被测对象（Subject）支持**自由组合**：每行可独立选择 Framework × Model × Skill，可添加多行。
 
 | 参数 | 控件 | 说明 |
 |------|------|------|
 | 任务 ID | 文本输入 | 留空自动生成 |
 | 模式 | 下拉选择 | `full`（全量）/ `incremental`（增量） |
-| 模型 | 多选卡片 | 从 `configs/models.yaml` 读取，仅显示 `enabled: true` 的模型 |
+| Subject（自由组合） | 动态下拉行 | 每行三个下拉框：Framework（含 `model_api`）、Model、Skill（含 `no_skill`），可添加/删除多行，右侧实时显示生成的 Subject ID |
+| 模型 Baseline | 多选卡片 | baseline / 兼容回退入口；未选 subject 时仍可按纯模型运行 |
 | 语言 | 多选卡片 | python / go / java / cpp |
 | 类型 | 下拉选择 | `self_contained` / `repo_level` |
 | 场景 | 下拉选择 | `boundary` / `simple_function` / `complex_dependency` / `interface_mock` |
@@ -77,29 +85,40 @@ utbench web [flags]
 | 变异测试 | 复选框 | 开启 mutmut/go-mutesting/pitest/mull |
 | 变异超时 | 数字输入 | 秒数，默认 1800 |
 | 入库保存 | 复选框 | 完成后自动写入 v2 SQLite 数据库 |
-| 复用历史生成 | 复选框 | 同模型、同源码 SHA256、同 prompt version 时复用数据库里的 generated test，避免重复调用模型 |
+| 复用历史生成 | 复选框 | 同 `subject_version + sample_uid + prompt` 时复用数据库里的 generated test，避免重复调用模型 |
+| 复用历史评测 | 复选框 | 同 `generated_test + evaluation_env_fingerprint + mutation_config` 时复用评测结果 |
 | Docker 执行 | 复选框 | 在 `utbench:latest` 容器中运行（Windows 下 mutmut/mull 必需） |
 
-提交后自动跳转到任务详情页，开始实时跟踪日志。
+Framework 下拉框会根据 `agents.yaml` 中的 `compatible_models` 自动过滤可用 Model；Skill 下拉框会根据 `compatible_frameworks` 自动过滤。未加载 `agents.yaml` 时仅显示 `model_api`，页面会提示原因。
+
+提交前页面会显示当前选中的 `subject / framework / skill` 规模和预计任务量。提交后自动跳转到任务详情页，开始实时跟踪日志。
 
 ### 任务列表
 
 - 完整任务历史列表（合并内存中的活跃任务 + `artifacts/runs/*/run_summary.json` 扫描）
-- 支持按 **任务 ID / 模型名 / 语言** 文本过滤
+- 支持按 **任务 ID / subject / 模型名 / 语言** 文本过滤
 - 支持按 **状态** 过滤：等待中 / 运行中 / 已完成 / 失败
-- 显示模型、语言、场景、样本上限、开始时间、耗时
+- 显示被测对象、语言、场景、样本上限、开始时间、耗时
 
 ### 数据管理
 
 面向可复现评测和横向对比的数据管理入口：
 
 - 查看当前 SQLite 数据库路径和核心计数：生成运行、评测运行、生成样本、评测结果、artifact、报告
+- 以 `subject -> language -> sample` 树形方式浏览历史资产
 - 列出数据库中的运行记录，点击某个 run 可联动筛选评测结果和 artifact
 - 查看评测结果表：模型、语言、样本、编译、测试、覆盖率、变异分
 - 查看 artifact 索引：`generated_manifest`、`generated_test`、`model_response`、`generation_metadata`、`evaluation_result`、`report_summary`、`report_html` 等
 - 输入已有 `run_id` 可补录 `artifacts/runs/<run_id>` 中的 manifest、evaluation、report 和关联 artifact
 - 在“跨运行对比报告”中多选历史运行、模型和语言，生成新的数据库报告，用于把多个历史运行中的模型结果放到同一份报告中比较
 - 对所选运行展示环境一致性提示：同一 `eval_env_id` 下的排名可作为正式横向比较；跨环境或环境指纹缺失时报告仅供参考
+
+### 注册表
+
+- 在“注册表”页统一查看 `models / frameworks / skills / subjects`
+- `models.yaml` 仍负责模型连接配置
+- `agents.yaml` 负责 framework、skill 和 subject 的组合注册
+- 这个页面的目标是让“模型”和“agent 被测对象”不再混在同一层语义里
 
 数据库 schema 见 [database-design.md](database-design.md)。Web 仍会保留基于 `artifacts/runs` 的任务列表，数据库页负责长期保存和跨运行查询。
 
@@ -128,14 +147,36 @@ HTML 报告页采用可视化评测报告结构：
 - 图表分析区支持综合、语言、场景和模型详情切换
 - 语言/场景统计、失败分析、计分剔除、零变异体、原始数据和 prompt 快照作为下钻区域
 
-### Docker 镜像构建
+### 运行时拓扑与镜像构建
 
-页面顶部状态栏显示 Docker 和镜像状态：
+页面顶部状态栏显示 Docker 环境和三种镜像的状态：
 
-- **Docker 就绪**：Docker daemon 可用
-- **镜像就绪**：`utbench:latest` 镜像已存在
-- **镜像缺失**：可点击「构建镜像」按钮打开构建弹窗，实时查看 `docker build` 日志流
-- 构建完成后页面自动刷新环境状态
+- **Docker 就绪**：Docker daemon 可用（含版本号）
+- **拓扑模式**：`host_control` / `container_control` / `container_control+nested_docker` 等
+- **控制镜像**：`utbench-control:latest` 是否就绪
+- **评测镜像**：`utbench:latest` 是否就绪
+
+点击「构建镜像」打开构建弹窗，可选择构建目标：
+
+- **评测镜像**（`Dockerfile`）：含全部语言工具链，用于 run / evaluate / doctor
+- **控制镜像**（`Dockerfile.control`）：仅含 utbench 二进制 + docker CLI，用于 web 编排
+
+环境检查页（`/environment`）显示完整的运行时拓扑卡片，包括拓扑模式、Docker 状态、镜像状态、嵌套沙箱就绪状态、Host Output Root 等。
+
+任务详情页头部在运行完成后会显示本次运行的沙箱 provider、Agent 框架和评测环境指纹。
+
+---
+
+## 性能策略
+
+Web UI 采用以下策略避免系统卡顿：
+
+- **按页面轮询**：`loadRuns`（4s）仅在总览/任务列表/任务详情页生效；`loadDatabase`（12s）仅在资产管理页生效；`loadEnv`（30s）仅在新建任务/注册表页生效。切换页面时自动跳过无关轮询。
+- **环境检测缓存**：`/api/env` 后端对 `DetectEnv` 结果缓存 15 秒，避免每次轮询都 spawn Docker 子进程。
+- **任务列表缓存**：`/api/runs` 磁盘扫描缓存 10 秒，减少 `filepath.Glob` + JSON 解析频率。
+- **日志非响应式**：运行日志通过 rAF 批处理直接写 DOM，计数器不触发 Alpine.js 响应式更新。
+- **日志上限**：服务端 `RunEntry.logs` 上限 10000 行，前端 DOM 上限 5000 行。
+- **资产页懒加载**：资产管理页首次进入时加载核心数据（subjects/generations/evaluations），次要数据延迟加载不阻塞 UI。
 
 ---
 
@@ -206,13 +247,26 @@ HTML 报告页采用可视化评测报告结构：
   "models": [
     { "name": "deepseek", "provider": "deepseek", "model_id": "deepseek-chat", "enabled": true }
   ],
+  "frameworks": [
+    { "name": "opencode", "kind": "cli_agent", "sandbox_mode": "docker", "compatible_models": ["deepseek-v4-flash"], "compatible_languages": ["python", "go", "java", "cpp"] }
+  ],
+  "skills": [
+    { "name": "unit_test_skill", "version": "2", "inject_mode": "prompt_append", "compatible_frameworks": ["opencode", "claude_code"], "compatible_languages": ["python", "go", "java", "cpp"] }
+  ],
+  "subjects": [
+    { "id": "opencode__deepseek-v4-flash__no_skill", "kind": "cli_agent", "framework": "opencode", "model": "deepseek-v4-flash", "skill": "no_skill" }
+  ],
   "languages": ["python", "go", "java", "cpp"],
   "scenarios": ["boundary", "simple_function", "complex_dependency", "interface_mock"],
   "classes": ["self_contained", "repo_level"],
   "dataset_root": "./datasets",
-  "config_path": "./configs/models.yaml"
+  "config_path": "./configs/models.yaml",
+  "agents_config_path": "./configs/agents.example.yaml",
+  "agents_config_error": ""
 }
 ```
+
+`agents_config_error` 在 agents config 加载失败时返回错误信息（如文件不存在、模型交集为空等），前端会据此显示提示。`frameworks`、`skills`、`subjects` 仅在 agents config 加载成功时有值。
 
 ### GET /api/env
 

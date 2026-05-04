@@ -122,10 +122,18 @@ func (s *Server) handleTestAllModels(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := extractEntries(root)
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-	results := make([]modelTestResult, 0, len(entries))
-	for _, entry := range entries {
-		results = append(results, testModelConnection(r.Context(), entry))
+
+	// 并发测试所有模型
+	results := make([]modelTestResult, len(entries))
+	var wg sync.WaitGroup
+	for i, entry := range entries {
+		wg.Add(1)
+		go func(idx int, e modelEntry) {
+			defer wg.Done()
+			results[idx] = testModelConnection(r.Context(), e)
+		}(i, entry)
 	}
+	wg.Wait()
 	writeJSON(w, http.StatusOK, results)
 }
 

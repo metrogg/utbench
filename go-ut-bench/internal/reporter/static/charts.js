@@ -65,9 +65,13 @@ function metricCell(value) {
   return '<div class="metric"><div class="bar"><span class="' + fillClass + '" style="width:' + width + '%"></span></div><span class="val">' + width + '%</span></div>';
 }
 
+// 场景列表和标签由 Go 端注入，保持与后端单一来源同步
+const SUPPORTED_SCENARIOS = __SUPPORTED_SCENARIOS_JSON__;
+const SCENARIO_LABELS = __SCENARIO_LABELS_JSON__;
+
 function getScenarioFromSample(sampleID) {
   if (!sampleID) return 'unknown';
-  for (const prefix of ['complex_dependency', 'interface_mock', 'simple_function', 'boundary']) {
+  for (const prefix of SUPPORTED_SCENARIOS) {
     if (sampleID === prefix || sampleID.startsWith(prefix + '_')) return prefix;
   }
   const idx = sampleID.indexOf('_');
@@ -75,14 +79,7 @@ function getScenarioFromSample(sampleID) {
 }
 
 function scenarioLabel(value) {
-  const labels = {
-    boundary: '边界值 / Boundary',
-    simple_function: '简单函数 / Simple',
-    complex_dependency: '复杂依赖 / Complex',
-    interface_mock: '接口 Mock / Interface',
-    unknown: '未知 / Unknown'
-  };
-  return labels[value] || value || '未知 / Unknown';
+  return SCENARIO_LABELS[value] || value || SCENARIO_LABELS['unknown'] || '未知 / Unknown';
 }
 
 function stageLabel(value) {

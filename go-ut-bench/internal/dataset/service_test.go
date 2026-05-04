@@ -218,7 +218,7 @@ func TestValidateReadinessFindsCountsErrorsAndRiskWarnings(t *testing.T) {
 
 	report := NewService().ValidateReadiness(ValidateOptions{
 		DatasetRoot: datasetRoot,
-		Languages:   []string{"python", "go", "java", "cpp"},
+		Languages:   contracts.SupportedLanguages,
 		Classes:     []string{"self_contained"},
 	})
 	if report.Total != 3 {

@@ -69,8 +69,22 @@ go test -v ./internal/evaluator/... -run TestPythonEval
 
 ```bash
 cd go-ut-bench
-docker build -t utbench:latest .
 
+# Build all images (one command)
+./build.sh all          # Linux/WSL
+.\build.ps1 all         # Windows PowerShell
+./build.sh all --cn     # 国内网络加速
+
+# Or build just the eval image
+./build.sh eval
+
+# Verify image status
+./build.sh verify
+```
+
+Run evaluation in Docker:
+
+```bash
 # Linux/macOS
 docker run --rm --env-file .env \
   -v "$(pwd)/datasets:/app/datasets" \

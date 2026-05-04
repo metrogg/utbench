@@ -17,6 +17,7 @@ import (
 )
 
 type SandboxRunRequest struct {
+	Provider            string
 	Mode                string
 	Workspace           string
 	ContainerOutputRoot string
@@ -28,6 +29,9 @@ type SandboxRunRequest struct {
 	CPU                 string
 	Memory              string
 	TimeoutSeconds      int
+	// ReadOnlyMounts 挂载为只读的宿主路径列表（Docker 模式下挂载 :ro）。
+	// 用于源码文件保护，防止 Agent 意外修改被测源码。
+	ReadOnlyMounts []string
 }
 
 type SandboxRunResult struct {
@@ -64,7 +68,19 @@ func runDockerSandbox(ctx context.Context, req SandboxRunRequest, timeout int) (
 	if err != nil {
 		return SandboxRunResult{}, err
 	}
+	// Docker 要求绝对路径作为 volume mount 源
+	if !filepath.IsAbs(mountSource) {
+		if absPath, err := filepath.Abs(mountSource); err == nil {
+			fmt.Fprintf(os.Stderr, "[sandbox] workspace mount: converted relative %q to absolute %q\n", mountSource, absPath)
+			mountSource = absPath
+		}
+	}
 	args := []string{"run", "--rm"}
+	// 添加 label 以便取消时能定位和清理孤儿容器
+	runID := req.Env["UTBENCH_RUN_ID"]
+	if runID != "" {
+		args = append(args, "--label", "utbench-run="+runID)
+	}
 	if req.NetworkDisabled {
 		args = append(args, "--network", "none")
 	}
@@ -91,7 +107,25 @@ func runDockerSandbox(ctx context.Context, req SandboxRunRequest, timeout int) (
 	if image == "" {
 		image = "utbench-agent:latest"
 	}
-	args = append(args, "-v", mountSource+":/workspace", "-w", "/workspace", image, "/bin/sh", "-c", req.Command)
+	// 挂载 workspace（读写，Agent 需要写入测试文件）
+	args = append(args, "-v", mountSource+":/workspace", "-w", "/workspace")
+	// 只读挂载源码文件，防止 Agent 意外修改被测源码
+	for _, roPath := range req.ReadOnlyMounts {
+		roPath = strings.TrimSpace(roPath)
+		if roPath == "" {
+			continue
+		}
+		// 将相对路径转换为绝对路径，Docker 要求绝对路径
+		if !filepath.IsAbs(roPath) {
+			if absPath, err := filepath.Abs(roPath); err == nil {
+				fmt.Fprintf(os.Stderr, "[sandbox] ReadOnlyMount: converted relative %q to absolute %q\n", roPath, absPath)
+				roPath = absPath
+			}
+		}
+		containerRO := "/workspace/readonly_sources/" + filepath.Base(roPath)
+		args = append(args, "-v", roPath+":"+containerRO+":ro")
+	}
+	args = append(args, image, sandboxShell(), "-c", req.Command)
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Stdout = &stdout
@@ -117,6 +151,8 @@ func resolveDockerWorkspaceMount(req SandboxRunRequest) (string, error) {
 	}
 	hostOutputRoot := strings.TrimSpace(os.Getenv("UTBENCH_SANDBOX_HOST_OUTPUT_ROOT"))
 	containerOutputRoot := strings.TrimSpace(os.Getenv("UTBENCH_SANDBOX_CONTAINER_OUTPUT_ROOT"))
+	fmt.Fprintf(os.Stderr, "[sandbox] resolveDockerWorkspaceMount: workspace=%q hostOutputRoot=%q containerOutputRoot=%q containerOutputRoot_fallback=%q\n",
+		workspace, hostOutputRoot, containerOutputRoot, strings.TrimSpace(req.ContainerOutputRoot))
 	if containerOutputRoot == "" {
 		containerOutputRoot = strings.TrimSpace(req.ContainerOutputRoot)
 	}
@@ -125,14 +161,24 @@ func resolveDockerWorkspaceMount(req SandboxRunRequest) (string, error) {
 	}
 	if hostOutputRoot != "" {
 		rel, err := filepath.Rel(containerOutputRoot, workspace)
+		fmt.Fprintf(os.Stderr, "[sandbox] filepath.Rel(%q, %q) = %q, err=%v\n", containerOutputRoot, workspace, rel, err)
 		if err == nil {
 			if rel == "." {
-				return hostOutputRoot, nil
+				result := filepath.ToSlash(hostOutputRoot)
+				fmt.Fprintf(os.Stderr, "[sandbox] resolved to hostOutputRoot: %q\n", result)
+				return result, nil
 			}
 			if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				return filepath.Join(hostOutputRoot, rel), nil
+				result := filepath.ToSlash(filepath.Join(hostOutputRoot, rel))
+				fmt.Fprintf(os.Stderr, "[sandbox] resolved to joined path: %q\n", result)
+				return result, nil
 			}
+			fmt.Fprintf(os.Stderr, "[sandbox] rel path rejected: %q (starts with ..)\n", rel)
+		} else {
+			fmt.Fprintf(os.Stderr, "[sandbox] filepath.Rel failed: %v\n", err)
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[sandbox] hostOutputRoot is empty, returning workspace as-is\n")
 	}
 	if strings.HasPrefix(filepath.ToSlash(workspace), "/app/") {
 		return "", fmt.Errorf("docker sandbox workspace %s looks container-local; set UTBENCH_SANDBOX_HOST_OUTPUT_ROOT to the host artifacts path when using DOOD", workspace)
@@ -147,7 +193,7 @@ func runLocalSandbox(ctx context.Context, req SandboxRunRequest) (SandboxRunResu
 		name = "powershell"
 		args = []string{"-NoProfile", "-Command", req.Command}
 	} else {
-		name = "/bin/sh"
+		name = sandboxShell()
 		args = []string{"-c", req.Command}
 	}
 	var stdout, stderr bytes.Buffer
@@ -185,8 +231,31 @@ func runLocalSandbox(ctx context.Context, req SandboxRunRequest) (SandboxRunResu
 	return result, err
 }
 
+// isDockerAvailable 检测当前环境是否有可用的 Docker daemon。
+// Linux/macOS 检查 /var/run/docker.sock 是否存在；
+// Windows 检查 docker 命令是否可用（Docker Desktop 使用命名管道而非 Unix socket）。
+func isDockerAvailable() bool {
+	if runtime.GOOS == "windows" {
+		_, err := exec.LookPath("docker")
+		return err == nil
+	}
+	_, err := os.Stat("/var/run/docker.sock")
+	return err == nil
+}
+
+// sandboxShell 返回沙箱内执行命令用的 shell 路径。
+// Windows 上 Git Bash 的 MSYS 会把 "/bin/sh" 自动转换成 "C:/Program Files/Git/usr/bin/sh"，
+// 导致 Docker daemon 收到无效路径。用 "//bin/sh"（双斜杠）可以绕过 MSYS 路径转换。
+func sandboxShell() string {
+	if runtime.GOOS == "windows" {
+		return "//bin/sh"
+	}
+	return "/bin/sh"
+}
+
 func sandboxFingerprintForRequest(req SandboxRunRequest) string {
 	payload := map[string]any{
+		"provider":         req.Provider,
 		"mode":             req.Mode,
 		"docker_image":     req.DockerImage,
 		"network_disabled": req.NetworkDisabled,
@@ -194,6 +263,7 @@ func sandboxFingerprintForRequest(req SandboxRunRequest) string {
 		"memory":           req.Memory,
 		"env_keys":         sortedMapKeys(req.Env),
 		"env_from_host":    uniqueSortedStrings(req.EnvFromHost),
+		"readonly_mounts":  uniqueSortedStrings(req.ReadOnlyMounts),
 	}
 	raw, _ := json.Marshal(payload)
 	sum := sha256.Sum256(raw)

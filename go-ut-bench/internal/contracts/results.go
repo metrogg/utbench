@@ -37,8 +37,15 @@ type GeneratedCase struct {
 	CostSource               string     `json:"cost_source,omitempty"`                // actual_tokens+configured_pricing / estimated_tokens+configured_pricing / unavailable
 	TracePath                string     `json:"trace_path,omitempty"`                 // Agent操作轨迹JSONL路径
 	WorkspaceDiffPath        string     `json:"workspace_diff_path,omitempty"`        // Agent工作区diff/文件变更路径
+	SandboxProvider          string     `json:"sandbox_provider,omitempty"`           // 沙箱提供方：local / docker / remote / e2b
 	SandboxFingerprint       string     `json:"sandbox_fingerprint,omitempty"`        // 沙箱环境指纹
 	SubjectVersionID         string     `json:"subject_version_id,omitempty"`         // subject 精确配置版本ID
+	FrameworkConfigSHA256    string     `json:"framework_config_sha256,omitempty"`    // framework配置指纹
+	SkillSHA256              string     `json:"skill_sha256,omitempty"`               // skill内容指纹
+	AgentCommandSHA256       string     `json:"agent_command_sha256,omitempty"`       // agent命令模板指纹
+	DockerImage              string     `json:"docker_image,omitempty"`               // subject使用的镜像名
+	DockerImageDigest        string     `json:"docker_image_digest,omitempty"`        // 镜像digest/镜像ID
+	EnvContractSHA256        string     `json:"env_contract_sha256,omitempty"`        // 运行环境契约指纹
 	GenerationKey            string     `json:"generation_key,omitempty"`             // 生成复用键
 	DependencyFingerprint    string     `json:"dependency_fingerprint,omitempty"`     // 样本依赖指纹
 	GenerationEnvFingerprint string     `json:"generation_env_fingerprint,omitempty"` // 生成环境指纹
@@ -77,65 +84,67 @@ type GeneratedManifest struct {
 // EvaluationResult 表示单个测试的评测结果
 // 包含编译、运行、覆盖率、变异测试等全面的评测指标
 type EvaluationResult struct {
-	Model                string   `json:"model"`                            // 评测的模型名称
-	SubjectID            string   `json:"subject_id,omitempty"`             // 被测对象ID
-	SubjectKind          string   `json:"subject_kind,omitempty"`           // model_api / cli_agent / http_agent / swe_agent
-	AgentFramework       string   `json:"agent_framework,omitempty"`        // Agent框架或model_api
-	AgentModel           string   `json:"agent_model,omitempty"`            // 底层模型配置名
-	SkillName            string   `json:"skill_name,omitempty"`             // skill名称
-	SkillVersion         string   `json:"skill_version,omitempty"`          // skill版本
-	Language             string   `json:"language"`                         // 编程语言
-	SampleID             string   `json:"sample_id"`                        // 数据集样本ID
-	SampleUID            string   `json:"sample_uid,omitempty"`             // 数据集样本稳定身份
-	GeneratedTestPath    string   `json:"generated_test_path"`              // 生成的测试文件路径
-	SourcePath           string   `json:"source_path"`                      // 源代码文件路径
-	CompilePass          bool     `json:"compile_pass"`                     // 编译是否通过
-	TestPass             *bool    `json:"test_pass"`                        // 测试是否通过（nil表示未运行）
-	Truncated            bool     `json:"truncated,omitempty"`              // API响应是否因max_tokens截断
-	LineCoverage         *float64 `json:"line_coverage"`                    // 行覆盖率，范围0-100
-	BranchCoverage       *float64 `json:"branch_coverage"`                  // 分支覆盖率，范围0-100
-	MutationScore        *float64 `json:"mutation_score"`                   // 变异测试得分，范围0-100
-	MutationTotal        *int     `json:"mutation_total,omitempty"`         // 变异体总数
-	MutationKilled       *int     `json:"mutation_killed,omitempty"`        // 被杀死的变异体数量
-	MutationSurvived     *int     `json:"mutation_survived,omitempty"`      // 存活的变异体数量
-	MutationNoTests      *int     `json:"mutation_no_tests,omitempty"`      // 无法被测试检测的变异体数
-	MutationTimeouts     *int     `json:"mutation_timeouts,omitempty"`      // 超时的变异体数量
-	MutationSkipped      *int     `json:"mutation_skipped,omitempty"`       // 跳过的变异体数量
-	MutationSuspicious   *int     `json:"mutation_suspicious,omitempty"`    // 可疑的变异体数量
-	AssertionCount       *int     `json:"assertion_count"`                  // 断言数量
-	TestCaseCount        *int     `json:"test_case_count"`                  // 测试用例数量
-	AssertionDensity     *float64 `json:"assertion_density"`                // 断言密度（断言数/测试用例数）
-	TestPassCount        *int     `json:"test_pass_count,omitempty"`        // 通过的测试用例数
-	TestTotalCount       *int     `json:"test_total_count,omitempty"`       // 总测试用例数
-	TestPassRate         *float64 `json:"test_pass_rate,omitempty"`         // 测试通过率
-	RuntimeMS            *int     `json:"runtime_ms"`                       // 评测运行耗时（编译+测试+覆盖率+变异，毫秒）
-	LatencyMS            *int     `json:"latency_ms"`                       // API调用耗时（模型生成代码的时间，毫秒）
-	PromptTokens         *int     `json:"prompt_tokens,omitempty"`          // 提示词token数量
-	CompletionTokens     *int     `json:"completion_tokens,omitempty"`      // 生成token数量
-	TotalTokens          *int     `json:"total_tokens,omitempty"`           // 总token数量
-	TokenSource          string   `json:"token_source,omitempty"`           // actual / estimated / partial / missing
-	EstimatedCostUSD     *float64 `json:"estimated_cost_usd,omitempty"`     // 按模型定价估算的成本
-	CostSource           string   `json:"cost_source,omitempty"`            // actual_tokens+configured_pricing / estimated_tokens+configured_pricing / unavailable
-	CompileError         string   `json:"compile_error,omitempty"`          // 编译错误信息
-	TestError            string   `json:"test_error,omitempty"`             // 测试运行错误信息
-	CoverageError        string   `json:"coverage_error,omitempty"`         // 覆盖率收集错误信息
-	MutationError        string   `json:"mutation_error,omitempty"`         // 变异测试错误信息
-	MutationTool         string   `json:"mutation_tool,omitempty"`          // 使用的变异测试工具名称
-	TracePath            string   `json:"trace_path,omitempty"`             // Agent操作轨迹JSONL路径
-	WorkspaceDiffPath    string   `json:"workspace_diff_path,omitempty"`    // Agent工作区diff/文件变更路径
-	SandboxFingerprint   string   `json:"sandbox_fingerprint,omitempty"`    // 沙箱环境指纹
-	EvaluationKey        string   `json:"evaluation_key,omitempty"`         // 评测复用键
-	EvaluatorVersion     string   `json:"evaluator_version,omitempty"`      // evaluator 版本
-	MutationConfigSHA256 string   `json:"mutation_config_sha256,omitempty"` // mutation 配置指纹
-	Reused               bool     `json:"reused,omitempty"`                 // 是否复用历史评测结果
-	ReuseStage           string   `json:"reuse_stage,omitempty"`            // 复用阶段，如 evaluation
-	ReuseKey             string   `json:"reuse_key,omitempty"`              // 命中的复用键
-	ReuseReason          string   `json:"reuse_reason,omitempty"`           // 复用原因
-	ReusedFromRunID      string   `json:"reused_from_run_id,omitempty"`     // 复用来源 run
-	ReusedFromResultID   string   `json:"reused_from_result_id,omitempty"`  // 复用来源 evaluation_result
-	FailureOrigin        string   `json:"failure_origin,omitempty"`         // 失败归因：model/environment/dataset/tool/none
-	ScoreEligible        *bool    `json:"score_eligible,omitempty"`         // 是否进入模型排名分母；缺省按true兼容旧结果
-	ScoreExclusionReason string   `json:"score_exclusion_reason,omitempty"` // 不进入排名的原因
+	Model                    string   `json:"model"`                                // 评测的模型名称
+	SubjectID                string   `json:"subject_id,omitempty"`                 // 被测对象ID
+	SubjectKind              string   `json:"subject_kind,omitempty"`               // model_api / cli_agent / http_agent / swe_agent
+	AgentFramework           string   `json:"agent_framework,omitempty"`            // Agent框架或model_api
+	AgentModel               string   `json:"agent_model,omitempty"`                // 底层模型配置名
+	SkillName                string   `json:"skill_name,omitempty"`                 // skill名称
+	SkillVersion             string   `json:"skill_version,omitempty"`              // skill版本
+	Language                 string   `json:"language"`                             // 编程语言
+	SampleID                 string   `json:"sample_id"`                            // 数据集样本ID
+	SampleUID                string   `json:"sample_uid,omitempty"`                 // 数据集样本稳定身份
+	GeneratedTestPath        string   `json:"generated_test_path"`                  // 生成的测试文件路径
+	SourcePath               string   `json:"source_path"`                          // 源代码文件路径
+	CompilePass              bool     `json:"compile_pass"`                         // 编译是否通过
+	TestPass                 *bool    `json:"test_pass"`                            // 测试是否通过（nil表示未运行）
+	Truncated                bool     `json:"truncated,omitempty"`                  // API响应是否因max_tokens截断
+	LineCoverage             *float64 `json:"line_coverage"`                        // 行覆盖率，范围0-100
+	BranchCoverage           *float64 `json:"branch_coverage"`                      // 分支覆盖率，范围0-100
+	MutationScore            *float64 `json:"mutation_score"`                       // 变异测试得分，范围0-100
+	MutationTotal            *int     `json:"mutation_total,omitempty"`             // 变异体总数
+	MutationKilled           *int     `json:"mutation_killed,omitempty"`            // 被杀死的变异体数量
+	MutationSurvived         *int     `json:"mutation_survived,omitempty"`          // 存活的变异体数量
+	MutationNoTests          *int     `json:"mutation_no_tests,omitempty"`          // 无法被测试检测的变异体数
+	MutationTimeouts         *int     `json:"mutation_timeouts,omitempty"`          // 超时的变异体数量
+	MutationSkipped          *int     `json:"mutation_skipped,omitempty"`           // 跳过的变异体数量
+	MutationSuspicious       *int     `json:"mutation_suspicious,omitempty"`        // 可疑的变异体数量
+	AssertionCount           *int     `json:"assertion_count"`                      // 断言数量
+	TestCaseCount            *int     `json:"test_case_count"`                      // 测试用例数量
+	AssertionDensity         *float64 `json:"assertion_density"`                    // 断言密度（断言数/测试用例数）
+	TestPassCount            *int     `json:"test_pass_count,omitempty"`            // 通过的测试用例数
+	TestTotalCount           *int     `json:"test_total_count,omitempty"`           // 总测试用例数
+	TestPassRate             *float64 `json:"test_pass_rate,omitempty"`             // 测试通过率
+	RuntimeMS                *int     `json:"runtime_ms"`                           // 评测运行耗时（编译+测试+覆盖率+变异，毫秒）
+	LatencyMS                *int     `json:"latency_ms"`                           // API调用耗时（模型生成代码的时间，毫秒）
+	PromptTokens             *int     `json:"prompt_tokens,omitempty"`              // 提示词token数量
+	CompletionTokens         *int     `json:"completion_tokens,omitempty"`          // 生成token数量
+	TotalTokens              *int     `json:"total_tokens,omitempty"`               // 总token数量
+	TokenSource              string   `json:"token_source,omitempty"`               // actual / estimated / partial / missing
+	EstimatedCostUSD         *float64 `json:"estimated_cost_usd,omitempty"`         // 按模型定价估算的成本
+	CostSource               string   `json:"cost_source,omitempty"`                // actual_tokens+configured_pricing / estimated_tokens+configured_pricing / unavailable
+	CompileError             string   `json:"compile_error,omitempty"`              // 编译错误信息
+	TestError                string   `json:"test_error,omitempty"`                 // 测试运行错误信息
+	CoverageError            string   `json:"coverage_error,omitempty"`             // 覆盖率收集错误信息
+	MutationError            string   `json:"mutation_error,omitempty"`             // 变异测试错误信息
+	MutationTool             string   `json:"mutation_tool,omitempty"`              // 使用的变异测试工具名称
+	TracePath                string   `json:"trace_path,omitempty"`                 // Agent操作轨迹JSONL路径
+	WorkspaceDiffPath        string   `json:"workspace_diff_path,omitempty"`        // Agent工作区diff/文件变更路径
+	SandboxProvider          string   `json:"sandbox_provider,omitempty"`           // 沙箱提供方
+	SandboxFingerprint       string   `json:"sandbox_fingerprint,omitempty"`        // 沙箱环境指纹
+	EvaluationEnvFingerprint string   `json:"evaluation_env_fingerprint,omitempty"` // 评测环境指纹
+	EvaluationKey            string   `json:"evaluation_key,omitempty"`             // 评测复用键
+	EvaluatorVersion         string   `json:"evaluator_version,omitempty"`          // evaluator 版本
+	MutationConfigSHA256     string   `json:"mutation_config_sha256,omitempty"`     // mutation 配置指纹
+	Reused                   bool     `json:"reused,omitempty"`                     // 是否复用历史评测结果
+	ReuseStage               string   `json:"reuse_stage,omitempty"`                // 复用阶段，如 evaluation
+	ReuseKey                 string   `json:"reuse_key,omitempty"`                  // 命中的复用键
+	ReuseReason              string   `json:"reuse_reason,omitempty"`               // 复用原因
+	ReusedFromRunID          string   `json:"reused_from_run_id,omitempty"`         // 复用来源 run
+	ReusedFromResultID       string   `json:"reused_from_result_id,omitempty"`      // 复用来源 evaluation_result
+	FailureOrigin            string   `json:"failure_origin,omitempty"`             // 失败归因：model/environment/dataset/tool/none
+	ScoreEligible            *bool    `json:"score_eligible,omitempty"`             // 是否进入模型排名分母；缺省按true兼容旧结果
+	ScoreExclusionReason     string   `json:"score_exclusion_reason,omitempty"`     // 不进入排名的原因
 }
 
 type EvaluationResultSet struct {
@@ -349,8 +358,19 @@ type ReportPayload struct {
 	EfficiencyStats  EfficiencyStats      `json:"efficiency_stats,omitempty"`  // 效率统计
 	ErrorDiagnosis   ErrorDiagnosis       `json:"error_diagnosis,omitempty"`   // 错误诊断
 	RunConfig        RunConfig            `json:"run_config,omitempty"`        // 运行配置信息
+	RuntimeSummary   RuntimeSummary       `json:"runtime_summary,omitempty"`   // 运行时/镜像/沙箱摘要
 	AgentComparisons []AgentComparisonRow `json:"agent_comparisons,omitempty"` // Agent相对纯模型API的提升
 	SkillUplifts     []SkillUpliftRow     `json:"skill_uplifts,omitempty"`     // Skill相对no_skill的提升
+}
+
+type RuntimeSummary struct {
+	EvaluatorEnvFingerprint string   `json:"evaluator_env_fingerprint,omitempty"`
+	SandboxProviders        []string `json:"sandbox_providers,omitempty"`
+	SandboxImages           []string `json:"sandbox_images,omitempty"`
+	AgentFrameworks         []string `json:"agent_frameworks,omitempty"`
+	DockerBackedSubjects    int      `json:"docker_backed_subjects,omitempty"`
+	LocalBackedSubjects     int      `json:"local_backed_subjects,omitempty"`
+	Notes                   []string `json:"notes,omitempty"`
 }
 
 // Dimensions 多维度分析数据

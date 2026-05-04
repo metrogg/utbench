@@ -9,6 +9,59 @@ import (
 	"go-ut-bench/internal/contracts"
 )
 
+func buildRuntimeSummarySection(summary contracts.RuntimeSummary) string {
+	if summary.EvaluatorEnvFingerprint == "" && len(summary.SandboxProviders) == 0 && len(summary.SandboxImages) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="section" id="runtime-summary">
+  <h2>运行时拓扑 Runtime Topology</h2>
+  <div class="grid-2">`)
+	b.WriteString(fmt.Sprintf(`
+    <div class="panel">
+      <h3>评测执行面</h3>
+      <div style="font-size:13px;line-height:1.7;">
+        <div><strong>环境指纹:</strong> <code>%s</code></div>
+        <div><strong>Agent 框架:</strong> %s</div>
+      </div>
+    </div>`,
+		escapeHTML(defaultDash(summary.EvaluatorEnvFingerprint)),
+		escapeHTML(summarizeList(summary.AgentFrameworks, 8)),
+	))
+	b.WriteString(fmt.Sprintf(`
+    <div class="panel">
+      <h3>Agent 沙箱面</h3>
+      <div style="font-size:13px;line-height:1.7;">
+        <div><strong>Provider:</strong> %s</div>
+        <div><strong>镜像:</strong> %s</div>
+        <div><strong>Docker 沙箱样本:</strong> %d</div>
+        <div><strong>本地沙箱样本:</strong> %d</div>
+      </div>
+    </div>`,
+		escapeHTML(summarizeList(summary.SandboxProviders, 8)),
+		escapeHTML(summarizeList(summary.SandboxImages, 6)),
+		summary.DockerBackedSubjects,
+		summary.LocalBackedSubjects,
+	))
+	b.WriteString(`  </div>`)
+	if len(summary.Notes) > 0 {
+		b.WriteString(`<div class="panel" style="margin-top:16px;"><h3>说明</h3>`)
+		for _, note := range summary.Notes {
+			b.WriteString(`<div style="padding:6px 0;border-bottom:1px dashed #e2e8f0;">` + escapeHTML(note) + `</div>`)
+		}
+		b.WriteString(`</div>`)
+	}
+	b.WriteString(`</div>`)
+	return b.String()
+}
+
+func defaultDash(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "—"
+	}
+	return v
+}
+
 // buildInsightsSection 生成洞察区域HTML
 func buildInsightsSection(insights contracts.Insights) string {
 	if insights.BestModel.Title == "" {
@@ -274,7 +327,7 @@ func buildMetaSection(runID string, specInfo string) string {
     <div><strong>提示词策略:</strong> <span style="color:#64748b;">structured-v1</span></div>
   </div>
   <div style="margin-top:12px;padding:12px;background:#e0e7ff;border-radius:8px;font-size:13px;">
-    <strong>评分规则说明：</strong> 综合得分 = 编译通过率×0.3 + 样本测试通过率×0.3 + 行覆盖率×0.2 + 变异分数×0.2。
+    <strong>评分规则说明：</strong> 综合得分 = `+contracts.DefaultWeights.String()+`。
     其中变异分数反映测试用例检测代码缺陷的能力，通过变异测试工具注入缺陷来验证测试的有效性。
   </div>
 </div>`, escapeHTML(runID), escapeHTML(specInfo))

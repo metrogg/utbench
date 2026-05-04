@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"go-ut-bench/internal/contracts"
@@ -15,9 +16,16 @@ import (
 // DockerConfig captures the static inputs required to execute a run inside
 // the utbench container image on the local docker daemon.
 type DockerConfig struct {
-	ImageName   string // e.g. "utbench:latest"
-	ProjectRoot string // host absolute path of project root (parent of datasets/, artifacts/, configs/)
-	EnvFile     string // optional host path to .env; ignored if empty or missing
+	EvalImageName string // e.g. "utbench:latest"
+	ProjectRoot   string // host absolute path of project root (parent of datasets/, artifacts/, configs/)
+	EnvFile       string // optional host path to .env; ignored if empty or missing
+}
+
+func (c DockerConfig) EffectiveEvalImage() string {
+	if strings.TrimSpace(c.EvalImageName) != "" {
+		return strings.TrimSpace(c.EvalImageName)
+	}
+	return "utbench:latest"
 }
 
 // runInDocker shells out to `docker run ...` and streams the combined output
@@ -38,6 +46,9 @@ func runInDocker(ctx context.Context, entry *RunEntry, spec contracts.RunSpec, o
 	entry.appendLog(fmt.Sprintf("[%s] docker exec → docker %s", logTS(), redactArgs(args)))
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	// Windows Git Bash 的 MSYS 会把 -e 传的路径值自动转换（如 /c/Users → C:/Program Files/Git/c/Users），
+	// 导致容器内环境变量损坏。设置 MSYS_NO_PATHCONV=1 禁止此转换。
+	cmd.Env = append(os.Environ(), "MSYS_NO_PATHCONV=1")
 	// Merge stdout + stderr into the same line-sink so users see everything
 	// (build messages, evaluator logs, mutation output) in order.
 	lw := &lineWriter{run: entry}
@@ -74,7 +85,13 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		"-v", root+`/artifacts:/app/artifacts`,
 		"-v", root+`/configs:/app/configs`,
 		"-v", root+`/storage:/app/storage`,
+		// 持久化 Maven 本地仓库，避免每次容器运行都重新下载依赖。
+		// Docker 镜像已预下载关键依赖，但此 mount 可缓存运行时新增的依赖。
+		"-v", root+`/.m2-cache:/root/.m2/repository`,
 	)
+	// 不挂载 docker.sock — 评测面不需要 Docker daemon。
+	// Agent 沙箱容器由宿主机控制面直接启动（见 executeDockerSplit）。
+	// 评测面自身只负责 compile/test/coverage/mutation。
 
 	// Determine the CLI subcommand based on phase.
 	// Phase "full" (or empty) uses "run" command.
@@ -93,7 +110,7 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		cliCmd = "report"
 	}
 
-	a = append(a, cfg.ImageName, cliCmd)
+	a = append(a, cfg.EffectiveEvalImage(), cliCmd)
 
 	// Common flags for all commands
 	a = append(a,
@@ -116,6 +133,12 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 			"--dataset-root", "/app/datasets",
 			"--config", "/app/configs/models.yaml",
 		)
+		if spec.AgentsConfigPath != "" {
+			a = append(a, "--agents-config", path.Join("/app/configs", filepath.Base(spec.AgentsConfigPath)))
+		}
+		if len(spec.Subjects) > 0 {
+			a = append(a, "--subjects", strings.Join(spec.Subjects, ","))
+		}
 		if len(spec.DatasetClasses) > 0 {
 			a = append(a, "--class", strings.Join(spec.DatasetClasses, ","))
 		}
@@ -140,6 +163,9 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		if spec.ReuseGenerated {
 			a = append(a, "--reuse-generated", "--db-path", "/app/storage/utbench.db")
 		}
+		if spec.ReuseEvaluation {
+			a = append(a, "--reuse-evaluation", "--db-path", "/app/storage/utbench.db")
+		}
 		if spec.MutationEnabled {
 			a = append(a, "--mutation-enabled")
 		}
@@ -148,6 +174,9 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		}
 		if spec.MutationPolicy != "" {
 			a = append(a, "--mutation-policy", spec.MutationPolicy)
+		}
+		if spec.TestTimeout > 0 {
+			a = append(a, "--test-timeout", fmt.Sprintf("%d", spec.TestTimeout))
 		}
 		if opts.Ingest {
 			a = append(a, "--ingest", "--db-path", "/app/storage/utbench.db")
@@ -160,6 +189,12 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 			"--dataset-root", "/app/datasets",
 			"--config", "/app/configs/models.yaml",
 		)
+		if spec.AgentsConfigPath != "" {
+			a = append(a, "--agents-config", path.Join("/app/configs", filepath.Base(spec.AgentsConfigPath)))
+		}
+		if len(spec.Subjects) > 0 {
+			a = append(a, "--subjects", strings.Join(spec.Subjects, ","))
+		}
 		if len(spec.DatasetClasses) > 0 {
 			a = append(a, "--class", strings.Join(spec.DatasetClasses, ","))
 		}
@@ -172,11 +207,17 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		if spec.MaxSamples > 0 {
 			a = append(a, "--max-samples", fmt.Sprintf("%d", spec.MaxSamples))
 		}
+		if spec.Workers > 0 {
+			a = append(a, "--workers", fmt.Sprintf("%d", spec.Workers))
+		}
 		if spec.Mode != "" {
 			a = append(a, "--mode", string(spec.Mode))
 		}
 		if spec.DryRun {
 			a = append(a, "--dry-run")
+		}
+		if spec.ReuseGenerated {
+			a = append(a, "--reuse-generated", "--db-path", "/app/storage/utbench.db")
 		}
 
 	case "evaluate":
@@ -198,6 +239,15 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		}
 		if spec.MutationPolicy != "" {
 			a = append(a, "--mutation-policy", spec.MutationPolicy)
+		}
+		if spec.TestTimeout > 0 {
+			a = append(a, "--test-timeout", fmt.Sprintf("%d", spec.TestTimeout))
+		}
+		if spec.Workers > 0 {
+			a = append(a, "--workers", fmt.Sprintf("%d", spec.Workers))
+		}
+		if spec.ReuseEvaluation {
+			a = append(a, "--reuse-evaluation", "--db-path", "/app/storage/utbench.db")
 		}
 
 	case "report":
@@ -233,7 +283,7 @@ func runEvaluateInDocker(ctx context.Context, runID string, spec contracts.RunSp
 func wrapDockerSourceCommand(args []string, cfg DockerConfig) []string {
 	imageIdx := -1
 	for i, arg := range args {
-		if arg == cfg.ImageName {
+		if arg == cfg.EffectiveEvalImage() {
 			imageIdx = i
 			break
 		}
@@ -241,16 +291,10 @@ func wrapDockerSourceCommand(args []string, cfg DockerConfig) []string {
 	if imageIdx < 0 || imageIdx == len(args)-1 {
 		return args
 	}
-	root := strings.TrimRight(cfg.ProjectRoot, `/\`)
-	cmd := append([]string{"go", "run", "./cmd/utbench"}, args[imageIdx+1:]...)
+	// Dockerfile ENTRYPOINT 已设置为 ["./utbench"]，命令从子命令开始即可
 	out := append([]string{}, args[:imageIdx]...)
-	out = append(out,
-		"-v", root+":/workspace",
-		"-w", "/workspace",
-		"--entrypoint", "/bin/sh",
-		cfg.ImageName,
-		"-lc", shellJoin(cmd),
-	)
+	out = append(out, cfg.EffectiveEvalImage())
+	out = append(out, args[imageIdx+1:]...)
 	return out
 }
 
