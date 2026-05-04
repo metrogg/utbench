@@ -39,9 +39,21 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 
 	// 3. 注入 skill 文件
 	outputFile := filepath.Join(workRoot, "generated_test"+languageExt(sample.Language))
-	skillDir, err := injectSkillWorkspace(workRoot, skill)
-	if err != nil {
-		return agentError("skill_injection_error", err)
+	var skillDir string
+	if strings.EqualFold(defaultString(skill.InjectMode, "prompt_append"), "agent_native") {
+		// agent_native: 写入 Agent 框架原生 skill 目录（CodeBuddy: .codebuddy/skills/, OpenCode: .opencode/skills/）
+		nativeDir, nativeErr := injectAgentNativeSkill(workRoot, framework.Name, skill)
+		if nativeErr != nil {
+			return agentError("skill_injection_error", nativeErr)
+		}
+		skillDir = nativeDir
+	} else {
+		// prompt_append / workspace_mount: 复制到 .utbench/skills/
+		utbenchDir, err := injectSkillWorkspace(workRoot, skill)
+		if err != nil {
+			return agentError("skill_injection_error", err)
+		}
+		skillDir = utbenchDir
 	}
 
 	// 4. 构建容器内路径提示
@@ -394,14 +406,18 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 }
 
 // parseAgentOutput 从 Agent 的 stdout/stderr 中解析结构化信息。
-// 支持解析 OpenCode、Claude Code 等 CLI Agent 的日志格式。
+// 支持解析 OpenCode、Claude Code、CodeBuddy 等 CLI Agent 的日志格式。
 func parseAgentOutput(trace *AgentTrace, stdout, stderr string) {
 	fullOutput := stdout + "\n" + stderr
 
 	trace.CommandsExecuted = parseCommands(fullOutput)
 
-	// 解析工具调用
-	trace.ToolCalls = parseToolCalls(fullOutput)
+	// 解析工具调用（根据框架选择不同解析策略）
+	if strings.EqualFold(trace.Framework, "codebuddy") {
+		trace.ToolCalls = parseCodeBuddyToolCalls(stdout, stderr)
+	} else {
+		trace.ToolCalls = parseToolCalls(fullOutput)
+	}
 
 	// 解析文件读写
 	trace.FilesRead = parseFileReads(trace.CommandsExecuted, trace.Command)
@@ -628,8 +644,336 @@ var (
 	extTokenPattern  = regexp.MustCompile("(?:^|[\\s\"'`=])((?:/workspace/)?[A-Za-z0-9_./-]+\\.(?:py|go|java|cpp|cc|cxx|h|hpp|md|txt|json|ya?ml))(?:$|[\\s\"'`,:;()])")
 )
 
+// parseCodeBuddyJSONOutput 尝试从 CodeBuddy Code 的 --output-format json 输出中
+// 解析 session_id 和 token usage。
+// CodeBuddy 在 -p 模式下输出 JSON（可能是对象或数组），包含消息和 usage 等字段。
+func parseCodeBuddyJSONOutput(trace *AgentTrace, stdout string) {
+	jsonStr := extractFinalJSON(stdout)
+	if jsonStr == "" {
+		return
+	}
+
+	var payload any
+	if err := json.Unmarshal([]byte(jsonStr), &payload); err != nil {
+		return
+	}
+
+	// 如果是数组，遍历每个元素查找 session_id 和 usage
+	if arr, ok := payload.([]any); ok {
+		for _, item := range arr {
+			if m, ok := item.(map[string]any); ok {
+				if sid, ok := m["session_id"]; ok {
+					if s, ok := sid.(string); ok && s != "" && trace.SessionID == "" {
+						trace.SessionID = s
+					}
+				}
+			}
+		}
+		records := extractUsageRecords(payload)
+		if len(records) == 0 {
+			return
+		}
+		accumulateUsage(trace, records)
+		trace.TokenSource = "actual"
+		trace.UsageSourceDetail = "codebuddy_json_output"
+		return
+	}
+
+	// 如果是对象，直接处理
+	m, ok := payload.(map[string]any)
+	if !ok {
+		return
+	}
+
+	// 提取 session_id
+	if sid, ok := m["session_id"]; ok {
+		if s, ok := sid.(string); ok && s != "" && trace.SessionID == "" {
+			trace.SessionID = s
+		}
+	}
+
+	// 提取 usage
+	records := extractUsageRecords(m)
+	if len(records) == 0 {
+		return
+	}
+	accumulateUsage(trace, records)
+	trace.TokenSource = "actual"
+	trace.UsageSourceDetail = "codebuddy_json_output"
+}
+
+// accumulateUsage 将 usageRecord 累加到 trace 的 token 字段。
+func accumulateUsage(trace *AgentTrace, records []usageRecord) {
+	var promptSum, completionSum, totalSum int
+	var promptSeen, completionSeen, totalSeen bool
+	for _, record := range records {
+		if record.Prompt != nil {
+			promptSum += *record.Prompt
+			promptSeen = true
+		}
+		if record.Completion != nil {
+			completionSum += *record.Completion
+			completionSeen = true
+		}
+		if record.Total != nil {
+			totalSum += *record.Total
+			totalSeen = true
+		}
+	}
+	if promptSeen && trace.PromptTokens == nil {
+		trace.PromptTokens = intPtr(promptSum)
+	}
+	if completionSeen && trace.CompletionTokens == nil {
+		trace.CompletionTokens = intPtr(completionSum)
+	}
+	if totalSeen && trace.TotalTokens == nil {
+		trace.TotalTokens = intPtr(totalSum)
+	}
+	if trace.TotalTokens == nil && trace.PromptTokens != nil && trace.CompletionTokens != nil {
+		trace.TotalTokens = intPtr(*trace.PromptTokens + *trace.CompletionTokens)
+	}
+}
+
+// parseCodeBuddyJSONLUsage 从 CodeBuddy 的 stream-json (JSONL) 输出行中累加 token usage。
+func parseCodeBuddyJSONLUsage(trace *AgentTrace, output string) {
+	var promptSum, completionSum, totalSum int
+	var promptSeen, completionSeen, totalSeen bool
+
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(line), &payload); err != nil {
+			continue
+		}
+		// 提取 session_id（init 或 result 消息中）
+		if trace.SessionID == "" {
+			if sid, ok := payload["session_id"]; ok {
+				if s, ok := sid.(string); ok && s != "" {
+					trace.SessionID = s
+				}
+			}
+		}
+		// result 消息的 usage 在顶层
+		if typ, _ := payload["type"].(string); typ == "result" {
+			if usage, ok := payload["usage"].(map[string]any); ok {
+				records := extractUsageRecords(usage)
+				for _, r := range records {
+					if r.Prompt != nil {
+						promptSum += *r.Prompt
+						promptSeen = true
+					}
+					if r.Completion != nil {
+						completionSum += *r.Completion
+						completionSeen = true
+					}
+					if r.Total != nil {
+						totalSum += *r.Total
+						totalSeen = true
+					}
+				}
+				continue
+			}
+		}
+		// 尝试从顶层或嵌套的 usage/tokens 字段提取
+		records := extractUsageRecords(payload)
+		for _, r := range records {
+			if r.Prompt != nil {
+				promptSum += *r.Prompt
+				promptSeen = true
+			}
+			if r.Completion != nil {
+				completionSum += *r.Completion
+				completionSeen = true
+			}
+			if r.Total != nil {
+				totalSum += *r.Total
+				totalSeen = true
+			}
+		}
+	}
+
+	if promptSeen && trace.PromptTokens == nil {
+		trace.PromptTokens = intPtr(promptSum)
+	}
+	if completionSeen && trace.CompletionTokens == nil {
+		trace.CompletionTokens = intPtr(completionSum)
+	}
+	if totalSeen && trace.TotalTokens == nil {
+		trace.TotalTokens = intPtr(totalSum)
+	}
+	if trace.TotalTokens == nil && trace.PromptTokens != nil && trace.CompletionTokens != nil {
+		trace.TotalTokens = intPtr(*trace.PromptTokens + *trace.CompletionTokens)
+	}
+	if promptSeen || completionSeen || totalSeen {
+		trace.TokenSource = "actual"
+		trace.UsageSourceDetail = "codebuddy_jsonl_lines"
+	}
+}
+
+// parseCodeBuddyToolCalls 从 CodeBuddy 的 stream-json (JSONL) 输出中解析工具调用。
+// 每行是一个 JSON 对象，助手消息的 content 数组中包含 type:"tool_use" 的块。
+func parseCodeBuddyToolCalls(stdout, stderr string) []ToolCall {
+	var calls []ToolCall
+	seen := map[string]struct{}{}
+
+	for _, output := range []string{stdout, stderr} {
+		lines := strings.Split(output, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "{") {
+				continue
+			}
+			var event map[string]any
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				continue
+			}
+
+			// stream-json 格式：助手消息包含 content 数组
+			// {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"bash","input":{...}}]}}
+			msg, _ := event["message"].(map[string]any)
+			if msg == nil {
+				msg = event // 兼容非嵌套格式
+			}
+			content, _ := msg["content"].([]any)
+			for _, block := range content {
+				blockMap, ok := block.(map[string]any)
+				if !ok {
+					continue
+				}
+				blockType, _ := blockMap["type"].(string)
+				if blockType != "tool_use" && blockType != "function_call" {
+					continue
+				}
+				tool, _ := blockMap["name"].(string)
+				if tool == "" {
+					continue
+				}
+				key := tool + "|" + line
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+
+				input := ""
+				if args, ok := blockMap["input"]; ok {
+					if b, err := json.Marshal(args); err == nil {
+						input = trimText(string(b), 500)
+					}
+				}
+				calls = append(calls, ToolCall{
+					Tool:    tool,
+					Input:   input,
+					Success: true,
+				})
+			}
+
+			// 兼容：直接在 event 层级的工具字段
+			if tool := extractToolName(event); tool != "" {
+				key := tool + "|" + line
+				if _, ok := seen[key]; !ok {
+					seen[key] = struct{}{}
+					calls = append(calls, ToolCall{Tool: tool, Success: true})
+				}
+			}
+		}
+	}
+	return calls
+}
+
+// extractToolName 从 CodeBuddy JSON 事件中提取工具名称。
+// 支持多种常见字段名和嵌套结构。
+func extractToolName(event map[string]any) string {
+	// 直接字段
+	for _, key := range []string{"tool", "tool_name", "name"} {
+		if v, ok := event[key]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				// 过滤掉非工具类型的事件
+				lower := strings.ToLower(s)
+				if lower == "result" || lower == "message" || lower == "error" || lower == "status" {
+					continue
+				}
+				return s
+			}
+		}
+	}
+	// type 字段中提取（如 "tool_use", "tool_call"）
+	if typ, ok := event["type"]; ok {
+		if s, ok := typ.(string); ok {
+			lower := strings.ToLower(s)
+			if strings.Contains(lower, "tool") {
+				// 尝试从 function.name 或 name 获取
+				if fn, ok := event["function"]; ok {
+					if fnMap, ok := fn.(map[string]any); ok {
+						if n, ok := fnMap["name"]; ok {
+							if name, ok := n.(string); ok {
+								return name
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// extractFinalJSON 从可能包含混合文本+JSON的输出中提取最后一个完整 JSON 值（对象或数组）。
+func extractFinalJSON(output string) string {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return ""
+	}
+	// 快速路径：整个输出就是合法 JSON
+	if json.Valid([]byte(output)) {
+		return output
+	}
+	// 从末尾向前搜索，尝试找到最后一个可解析的 JSON 对象或数组
+	lastObj := strings.LastIndex(output, "{")
+	lastArr := strings.LastIndex(output, "[")
+	start := lastObj
+	if lastArr > start {
+		start = lastArr
+	}
+	if start < 0 {
+		return ""
+	}
+	for i := start; i >= 0; i-- {
+		c := output[i]
+		if c != '{' && c != '[' {
+			continue
+		}
+		candidate := output[i:]
+		if json.Valid([]byte(candidate)) {
+			return candidate
+		}
+		var payload any
+		if json.Unmarshal([]byte(candidate), &payload) == nil {
+			return candidate
+		}
+	}
+	return ""
+}
+
 func parseUsageAndSession(trace *AgentTrace, stdout, stderr string) {
 	fullOutput := stdout + "\n" + stderr
+
+	// CodeBuddy: 优先从 JSON 输出中提取精确数据
+	// 同时检查 stdout 和 stderr，因为 CodeBuddy 可能将结果输出到任一流
+	if strings.EqualFold(trace.Framework, "codebuddy") {
+		parseCodeBuddyJSONOutput(trace, stdout)
+		if trace.PromptTokens == nil && trace.CompletionTokens == nil && trace.TotalTokens == nil {
+			parseCodeBuddyJSONOutput(trace, stderr)
+		}
+		// 如果还没找到，尝试从 JSONL 行中累加 usage
+		if trace.PromptTokens == nil && trace.CompletionTokens == nil && trace.TotalTokens == nil {
+			parseCodeBuddyJSONLUsage(trace, fullOutput)
+		}
+	}
+
 	if trace.SessionID == "" {
 		if match := sessionIDPattern.FindStringSubmatch(fullOutput); len(match) == 2 {
 			trace.SessionID = match[1]
@@ -657,19 +1001,21 @@ func parseUsageAndSession(trace *AgentTrace, stdout, stderr string) {
 			totalSeen = true
 		}
 	}
-	if promptSeen {
+	if promptSeen && trace.PromptTokens == nil {
 		trace.PromptTokens = intPtr(promptSum)
 	}
-	if completionSeen {
+	if completionSeen && trace.CompletionTokens == nil {
 		trace.CompletionTokens = intPtr(completionSum)
 	}
-	if totalSeen {
+	if totalSeen && trace.TotalTokens == nil {
 		trace.TotalTokens = intPtr(totalSum)
 	}
 	if trace.TotalTokens == nil && trace.PromptTokens != nil && trace.CompletionTokens != nil {
 		trace.TotalTokens = intPtr(*trace.PromptTokens + *trace.CompletionTokens)
 	}
-	trace.TokenSource = "actual"
+	if trace.TokenSource == "" {
+		trace.TokenSource = "actual"
+	}
 	if strings.TrimSpace(trace.UsageSourceDetail) == "" {
 		trace.UsageSourceDetail = "log_json"
 	}

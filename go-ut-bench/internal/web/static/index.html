@@ -1274,6 +1274,72 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
           <div class="text-[13px]" style="color:var(--fg-muted)">尚未执行环境检查</div>
           <button @click="loadEnvironment(true)" class="btn-primary mt-3">开始检查</button>
         </div>
+
+        <!-- API Key 管理 -->
+        <div class="form-section mt-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="section-title">API Key 配置</div>
+            <button @click="loadAPIKeys()" class="btn-ghost text-[11px]">刷新状态</button>
+          </div>
+          <div class="text-[11px] mb-3" style="color:var(--fg-subtle)">
+            API Key 保存到 <span class="font-mono">.env</span> 文件，Docker 执行时自动加载。模型服务商的 Key 也可在「注册表」页面编辑。
+          </div>
+
+          <!-- Agent 平台 -->
+          <div class="text-[12px] font-medium mb-2" style="color:var(--fg-muted)">Agent 平台认证</div>
+          <div class="space-y-2 mb-4">
+            <template x-for="k in apiKeys.filter(k => k.category === 'agent')" :key="k.key">
+              <div class="flex items-start gap-3 rounded-lg px-3 py-2.5" style="background:var(--bg-overlay);border:1px solid var(--border)">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13px] font-medium" x-text="k.label"></span>
+                    <span class="tag-pill text-[10px]"
+                          :style="k.value_set ? 'background:var(--success-bg);color:var(--green)' : 'background:var(--error-bg);color:var(--red)'"
+                          x-text="k.value_set ? '已设置' : '未设置'"></span>
+                    <span x-show="k.preview" class="font-mono text-[10px]" style="color:var(--fg-subtle)" x-text="k.preview"></span>
+                  </div>
+                  <div class="text-[11px] mt-1" style="color:var(--fg-muted)" x-text="k.description"></div>
+                  <div x-show="k.key === 'CODEBUDDY_INTERNET_ENVIRONMENT'" class="text-[11px] mt-1" style="color:var(--fg-muted)">
+                    中国版: <span class="font-mono">internal</span> | 海外版: 留空 | iOA: <span class="font-mono">ioa</span>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <input :type="k.key.includes('KEY') ? 'password' : 'text'"
+                         :placeholder="k.value_set ? '已设置，留空不修改' : '输入值'"
+                         class="input-base text-[11px] font-mono w-48"
+                         @input="k._input = $event.target.value">
+                  <button @click="saveAPIKey(k)" :disabled="!k._input" class="btn-ghost text-[11px] py-1 px-2.5">保存</button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- 模型服务商 -->
+          <div class="text-[12px] font-medium mb-2" style="color:var(--fg-muted)">模型服务商</div>
+          <div class="space-y-2">
+            <template x-for="k in apiKeys.filter(k => k.category === 'model')" :key="k.key">
+              <div class="flex items-start gap-3 rounded-lg px-3 py-2.5" style="background:var(--bg-overlay);border:1px solid var(--border)">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13px] font-medium" x-text="k.label"></span>
+                    <span class="tag-pill text-[10px]"
+                          :style="k.value_set ? 'background:var(--success-bg);color:var(--green)' : 'background:var(--error-bg);color:var(--red)'"
+                          x-text="k.value_set ? '已设置' : '未设置'"></span>
+                    <span x-show="k.preview" class="font-mono text-[10px]" style="color:var(--fg-subtle)" x-text="k.preview"></span>
+                  </div>
+                  <div class="text-[11px] mt-1" style="color:var(--fg-muted)" x-text="k.description"></div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <input type="password"
+                         :placeholder="k.value_set ? '已设置，留空不修改' : '输入 API Key'"
+                         class="input-base text-[11px] font-mono w-48"
+                         @input="k._input = $event.target.value">
+                  <button @click="saveAPIKey(k)" :disabled="!k._input" class="btn-ghost text-[11px] py-1 px-2.5">保存</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
       </div>
 
       <!-- MODELS -->
@@ -1860,7 +1926,7 @@ function app() {
       { id:'new-run',   icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>', label:'新建任务' },
       { id:'runs',      icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>', label:'任务列表' },
       { id:'database',  icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>', label:'资产管理' },
-      // { id:'environment', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-5"/></svg>', label:'环境检查' },
+      { id:'environment', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-5"/></svg>', label:'环境检查' },
       { id:'models',    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 10v6m11-11h-6m-10 0H1m15.5-6.5l-4.25 4.25M7.75 16.25L3.5 20.5M20.5 20.5l-4.25-4.25M7.75 7.75L3.5 3.5"/></svg>', label:'注册表' },
     ],
     config: null,
@@ -1944,6 +2010,8 @@ function app() {
     buildSSE: null,
     environment: null,
     environmentLoading: false,
+    apiKeys: [],
+    apiKeysLoading: false,
     installConfirmOpen: false,
     installTarget: null,
     installRunning: false,
@@ -2070,17 +2138,52 @@ function app() {
     },
 
     envStatusText(s) {
-      return ({ ok:'正常', warning:'警告', missing:'缺失', unknown:'未验证' })[s] || s || '未知'
+      return ({ ok:'正常', docker_ok:'Docker 可用', warning:'警告', missing:'缺失', unknown:'未验证' })[s] || s || '未知'
     },
 
     envStatusStyle(s) {
       const map = {
         ok: 'background:var(--success-bg);color:var(--green)',
+        docker_ok: 'background:rgba(14,165,233,.1);color:var(--accent)',
         warning: 'background:var(--warn-bg);color:var(--yellow)',
         missing: 'background:var(--error-bg);color:var(--red)',
         unknown: 'background:var(--badge-bg);color:var(--fg-muted)',
       }
       return map[s] || map.unknown
+    },
+
+    // ─── API Key 管理 ──────────────────────────────────────────
+    async loadAPIKeys() {
+      this.apiKeysLoading = true
+      try {
+        const r = await fetch('/api/settings/api-keys', { cache: 'no-store' })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.apiKeys = (data.keys || []).map(k => ({ ...k, _input: '' }))
+      } catch (e) {
+        this.showToast('加载 API Key 失败：' + (e.message || String(e)), 'err')
+      } finally {
+        this.apiKeysLoading = false
+      }
+    },
+
+    async saveAPIKey(k) {
+      if (!k._input || !k._input.trim()) return
+      try {
+        const body = { keys: { [k.key]: k._input.trim() } }
+        const r = await fetch('/api/settings/api-keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.showToast(`已保存 ${k.label}`, 'ok')
+        k._input = ''
+        await this.loadAPIKeys()
+      } catch (e) {
+        this.showToast('保存失败：' + (e.message || String(e)), 'err')
+      }
     },
 
     installCommandText(item) {
@@ -2834,7 +2937,10 @@ function app() {
       this.stopSSE(); this.page = id
       if (id === 'models') this.loadModels()
       if (id === 'database') this.loadDBTabData()
-      if (id === 'environment' && !this.environment) this.loadEnvironment()
+      if (id === 'environment') {
+        if (!this.environment) this.loadEnvironment()
+        this.loadAPIKeys()
+      }
     },
     get pageTitle() {
       const map = { dashboard:'总览', 'new-run':'新建任务', runs:'任务列表', database:'资产管理', 'run-detail':'任务详情', environment:'环境检查', models:'注册表' }

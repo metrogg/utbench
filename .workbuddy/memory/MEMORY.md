@@ -65,3 +65,21 @@
 - 关键借鉴: SWE-bench FAIL/PASS契约, TestGenEval @pass指标, FEA-Bench仓库选择策略, CrossCodeEval跨文件依赖提取, SWE-Bench++ 4层AutoQA
 - 实施路线: Phase1(1-2周,5仓库)→Phase2(2-4周,30-50仓库+模板)→Phase3(1-2月,100+仓库+4语言)→Phase4(2-3月,Leaderboard+论文)
 - UT-Bench vs 竞品差异: 任务不是"修Bug"而是"为覆盖不足的函数生成测试",评测指标是覆盖率+变异得分提升
+
+## 首次完整Run数据 (2026-05-04)
+- 160样本: 5Subjects × 4语言(C++/Go/Java/Python) × 4场景
+- Subjects: model_api(deepseek-v4-flash, minimax2.7), opencode(+deepseek, +minimax), opencode+skill(+deepseek)
+- **Agent模式质变**: 测试通过率30-38%(API)→74-94%(Agent), 变异得分28-42%→56-76%
+- **行覆盖率是假象**: API已达85-92%, Agent仅+1-7%; 变异得分差距30-50pp
+- **最佳区分语言**: C++最难(75%编译/45%通过), Java最简单(API即82.5%通过)
+- **Skill增益微弱**: +3.2pp通过率, +2.4pp变异(31样本可能不够统计显著)
+- **成本**: Agent模式token消耗~50x(API 4k vs Agent 195k)
+- **异常**: MiniMax Java变异得分负增益(-12.8pp), Agent循环引入错误
+
+## CodeBuddy Agent 接入 (2026-05-04)
+- 已完成代码层面接入: docker/agents/codebuddy/Dockerfile + configs/agents.yaml + Go解析代码
+- CodeBuddy模型配置: models.json({id,url(/chat/completions结尾),apiKey:${ENV_VAR}}), 非简单env var
+- headless命令: `codebuddy -p -y --output-format json --model <id> --max-turns 50 "prompt"`
+- 模型注入方式: heredoc写models.json + sed替换(避免Go template/shell变量冲突)
+- Go代码新增: parseCodeBuddyJSONOutput(), extractFinalJSONObject(), 4个测试全PASS
+- 待做: Linux+Docker环境构建镜像并smoke test

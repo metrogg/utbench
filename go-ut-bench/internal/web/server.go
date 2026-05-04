@@ -151,6 +151,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("/api/models/test-all", s.handleTestAllModels)
 	s.mux.HandleFunc("/api/models/", s.handleModelsSub)
+	s.mux.HandleFunc("/api/settings/api-keys", s.handleAPIKeys)
 	// 数据库管理API
 	s.mux.HandleFunc("/api/db/overview", s.handleDBOverview)
 	s.mux.HandleFunc("/api/db/runs", s.handleDBRuns)

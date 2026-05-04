@@ -50,10 +50,10 @@ build_eval() {
 
 build_sandbox() {
     echo "=========================================="
-    echo "构建统一 Agent 沙箱: utbench-agent-opencode:latest"
+    echo "构建通用 Agent 沙箱: utbench-agent-base:latest"
     echo "=========================================="
-    docker build $BUILD_ARGS_AGENT -f docker/agents/opencode/Dockerfile -t utbench-agent-opencode:latest docker/agents/opencode/
-    echo "✅ utbench-agent-opencode:latest 构建完成"
+    docker build $BUILD_ARGS_AGENT -f docker/agents/Dockerfile -t utbench-agent-base:latest docker/agents/
+    echo "✅ utbench-agent-base:latest 构建完成"
     echo ""
 }
 
@@ -76,7 +76,7 @@ verify_images() {
     }
 
     check_image "utbench:latest"
-    check_image "utbench-agent-opencode:latest"
+    check_image "utbench-agent-base:latest"
     echo ""
 
     if $all_ok; then
@@ -110,7 +110,7 @@ case "$TARGET" in
         echo "Target:"
         echo "  all         构建全部镜像（评测 + 沙箱）"
         echo "  eval        仅构建评测镜像 (utbench:latest)"
-        echo "  sandbox     仅构建统一 Agent 沙箱 (utbench-agent-opencode:latest)"
+        echo "  sandbox     仅构建通用 Agent 沙箱 (utbench-agent-base:latest)"
         echo "  verify      验证镜像状态"
         echo ""
         echo "选项:"

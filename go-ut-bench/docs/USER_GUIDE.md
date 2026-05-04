@@ -292,6 +292,14 @@ skills:
 | `compatible_frameworks` | 兼容的 framework |
 | `compatible_languages` | 兼容的语言 |
 
+### inject_mode 说明
+
+| 模式 | 行为 |
+|------|------|
+| `prompt_append` | 将 `instruction_path` 内容追加到 prompt 末尾，辅助文件复制到 `.utbench/skills/` |
+| `workspace_mount` | 仅将 `files` 中的文件复制到 `.utbench/skills/`，不修改 prompt |
+| `agent_native` | 转换为 Agent 框架原生 skill 格式写入 workspace：CodeBuddy → `.codebuddy/skills/<name>/SKILL.md`，OpenCode → `.opencode/skills/<name>.md`。Agent 启动后自动加载原生 skill，无需手动注入 prompt |
+
 ## 7. CLI Agent 的调用约定
 
 当前实现不是为某个 Agent 写死命令，而是统一模板渲染。

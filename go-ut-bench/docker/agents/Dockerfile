@@ -1,15 +1,23 @@
-# UT-Bench Agent Sandbox: Unified image (all languages)
-# Used by CLI Agent subjects (OpenCode) to generate unit tests.
-# Contains: OpenCode CLI + Python + Go + Java + C++ + test frameworks.
+# UT-Bench Agent Sandbox: Universal image (all agents, all languages)
+# Contains: OpenCode CLI + CodeBuddy CLI + Python + Go + Java + C++ + test frameworks.
 # Does NOT contain: coverage / mutation tools (those live in the eval image).
+#
+# This is a unified sandbox image shared by all CLI Agent frameworks.
+# New agents only need to add their CLI installation in Stage 1.
 
-FROM node:22-bookworm-slim AS opencode
+# ── Stage 1: Install all Agent CLIs ──────────────────────────
+FROM node:22-bookworm-slim AS agent-clis
 
 ARG NPM_REGISTRY=
-RUN if [ -n "${NPM_REGISTRY}" ]; then npm config set registry "${NPM_REGISTRY}"; fi \
-    && npm install -g opencode-ai opencode-linux-x64-baseline
+RUN if [ -n "${NPM_REGISTRY}" ]; then npm config set registry "${NPM_REGISTRY}"; fi
 
-# ── Base: Python + system tools ──────────────────────────────
+# OpenCode CLI
+RUN npm install -g opencode-ai opencode-linux-x64-baseline
+
+# CodeBuddy CLI (腾讯)
+RUN npm install -g @tencent-ai/codebuddy-code
+
+# ── Stage 2: Full runtime image ─────────────────────────────
 FROM python:3.11-slim-bookworm
 
 ARG DEBIAN_MIRROR=
@@ -17,8 +25,9 @@ ARG PIP_INDEX_URL=
 ARG GO_VERSION=1.22.12
 ARG GO_DOWNLOAD_URLS=
 
-COPY --from=opencode /usr/local/bin/ /usr/local/bin/
-COPY --from=opencode /usr/local/lib/ /usr/local/lib/
+# Copy all Agent CLIs from stage 1
+COPY --from=agent-clis /usr/local/bin/ /usr/local/bin/
+COPY --from=agent-clis /usr/local/lib/ /usr/local/lib/
 
 RUN if [ -n "${DEBIAN_MIRROR}" ]; then \
       MIRROR_HOST=$(echo "${DEBIAN_MIRROR}" | sed 's|https\?://||;s|/$||'); \

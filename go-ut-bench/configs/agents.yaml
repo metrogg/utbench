@@ -11,7 +11,6 @@ frameworks:
     sandbox:
       provider: docker
       mode: docker
-      # 统一沙箱镜像，包含所有语言运行时（Python/Go/Java/C++）。
       image: utbench-agent-base:latest
       timeout_seconds: 600
       network_disabled: false
@@ -76,8 +75,6 @@ frameworks:
       - VOLCENGINE_API_KEY
       - ARK_API_KEY
       - BIGMODEL_API_KEY
-    # OpenCode 当前 CLI 版本要求 message 作为 positional 参数传入。
-    # UT-Bench 依赖 Agent 在 workspace 内写测试文件，不依赖 stdout 返回最终代码。
     command: >
       mkdir -p "$XDG_CONFIG_HOME/opencode" "$XDG_DATA_HOME" "{{.ContainerWorkdir}}/.utbench/opencode" &&
       printf '%s' "$OPENCODE_CONFIG_CONTENT" > "$XDG_CONFIG_HOME/opencode/config.json" &&
@@ -222,10 +219,3 @@ skills:
       - go
       - java
       - cpp
-
-# If omitted, UT-Bench expands all legal framework x model x skill combinations
-# and always includes model_api__<model>__no_skill as the pure model baseline.
-# subjects:
-#   - framework: opencode
-#     model: deepseek-v4-flash
-#     skill: unit_test_skill

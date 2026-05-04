@@ -1,0 +1,4 @@
+# Quick patch: fix CodeBuddy CLI in existing sandbox image
+# Usage: docker build -f docker/agents/Dockerfile.patch -t utbench-agent-base:latest .
+FROM utbench-agent-base:latest
+RUN npm uninstall -g codebuddy 2>/dev/null; npm install -g @tencent-ai/codebuddy-code
