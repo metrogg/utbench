@@ -239,6 +239,22 @@ body {
   min-width: 0;
 }
 
+/* 超宽屏幕（>= 1600px）把目录从内容区抽出，固定贴到视口最左侧，
+   填满 .wrap 居中留下的空白；主内容保持在 .wrap 里居中不动。 */
+@media (min-width: 1600px) {
+  .report-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .report-sidebar {
+    position: fixed;
+    left: 18px;
+    top: 96px;
+    width: 210px;
+    max-height: calc(100vh - 120px);
+    z-index: 20;
+  }
+}
+
 .jump-nav {
   display: none;
 }
