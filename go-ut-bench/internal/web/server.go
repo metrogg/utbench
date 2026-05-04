@@ -360,6 +360,10 @@ type dbReportRequest struct {
 	Models            []string `json:"models"`
 	Languages         []string `json:"languages"`
 	ScoreEligibleOnly bool     `json:"score_eligible_only"`
+	// DedupMode 去重模式：
+	// - "merge" (默认): 合并所有结果，同名样本可能有多条记录
+	// - "overwrite": 按 (model, language, sample_id) 去重，保留最新 run_id 的结果
+	DedupMode string `json:"dedup_mode,omitempty"`
 }
 
 // dbReportSummary 是写入 _db_report 目录下 run_summary.json 的结构，
@@ -375,6 +379,34 @@ type dbReportSummary struct {
 	ReportHTMLPath  string            `json:"report_html_path"`
 	IsMergedReport  bool              `json:"is_merged_report"`
 	Spec            contracts.RunSpec `json:"spec"`
+}
+
+// dedupResultsByLatestRun 按 (model, language, sample_id) 去重，保留最新 run_id 的结果。
+// 用于 "overwrite" 模式，确保同一模型+语言+样本只保留最新运行的结果。
+func dedupResultsByLatestRun(results []contracts.EvaluationResult) []contracts.EvaluationResult {
+	type dedupKey struct {
+		Model    string
+		Language string
+		SampleID string
+	}
+	// 按 run_id 排序（run_id 是时间戳格式，字典序即时间序），后面的会覆盖前面的
+	seen := make(map[dedupKey]int) // key -> index in result slice
+	for i, r := range results {
+		key := dedupKey{Model: r.Model, Language: r.Language, SampleID: r.SampleID}
+		if prevIdx, exists := seen[key]; exists {
+			// 比较 run_id，保留最新的
+			if r.RunID > results[prevIdx].RunID {
+				seen[key] = i
+			}
+		} else {
+			seen[key] = i
+		}
+	}
+	deduped := make([]contracts.EvaluationResult, 0, len(seen))
+	for _, idx := range seen {
+		deduped = append(deduped, results[idx])
+	}
+	return deduped
 }
 
 func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
@@ -428,6 +460,16 @@ func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// 按去重模式处理结果
+	dedupMode := strings.TrimSpace(req.DedupMode)
+	if dedupMode == "" {
+		dedupMode = "merge"
+	}
+	if dedupMode == "overwrite" {
+		set.Results = dedupResultsByLatestRun(set.Results)
+	}
+
 	logger := obs.NewLogger(false, filepath.Join(s.outputRoot, "runs", outRunID, "logs"))
 	out, err := reporter.NewService(logger, &runner.DefaultPromptMetaProvider{}).GenerateFromResultSet(contracts.RunSpec{
 		RunID:      outRunID,

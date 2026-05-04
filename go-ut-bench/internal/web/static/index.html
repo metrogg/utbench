@@ -656,6 +656,23 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                   <input type="checkbox" x-model="dbReportSelection.score_eligible_only" style="accent-color:var(--accent)">
                   <span>仅计入评分有效样本</span>
                 </label>
+                <!-- 去重模式 -->
+                <div class="mt-3">
+                  <div class="label-text mb-1">同名样本冲突策略</div>
+                  <div class="flex gap-3 text-[12px]">
+                    <label class="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" name="dedup_mode" value="merge" x-model="dbReportSelection.dedup_mode" style="accent-color:var(--accent)">
+                      <span>合并（保留全部）</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" name="dedup_mode" value="overwrite" x-model="dbReportSelection.dedup_mode" style="accent-color:var(--accent)">
+                      <span>覆盖（保留最新 run）</span>
+                    </label>
+                  </div>
+                  <div class="text-[11px] mt-1" style="color:var(--fg-subtle)" x-show="dbReportSelection.dedup_mode === 'overwrite'">
+                    按 (模型+语言+样本ID) 去重，同一组合只保留最新 run_id 的结果
+                  </div>
+                </div>
               </div>
               <!-- 生成操作 -->
               <div>
@@ -667,6 +684,7 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                   <div x-text="'运行: ' + (dbReportSelection.run_ids.length || '全部')"></div>
                   <div x-text="'模型: ' + (dbReportSelection.models.length || '全部')"></div>
                   <div x-text="'语言: ' + (dbReportSelection.languages.length || '全部')"></div>
+                  <div x-text="'冲突策略: ' + (dbReportSelection.dedup_mode === 'overwrite' ? '覆盖' : '合并')"></div>
                 </div>
                 <button @click="generateDBReport()" :disabled="dbReportGenerating" class="btn-primary text-[12px] w-full py-2.5">
                   <span x-text="dbReportGenerating ? '生成中...' : (dbReportSelection.merge_target ? '追加合并' : '生成对比报告')"></span>
@@ -2014,7 +2032,7 @@ function app() {
     dbIngestRunID: '',
     dbFilters: { run_id:'', model:'', language:'' },
     dbArtifactFilters: { run_id:'', kind:'' },
-    dbReportSelection: { run_ids: [], models: [], languages: [], score_eligible_only: false, merge_target: '' },
+    dbReportSelection: { run_ids: [], models: [], languages: [], score_eligible_only: false, merge_target: '', dedup_mode: 'merge' },
     lastDBReportResult: null,
     pinnedReportID: localStorage.getItem('utbench_pinned_report') || '',
     // 新增：各表数据
@@ -2597,6 +2615,7 @@ function app() {
           models: this.dbReportSelection.models.length ? this.dbReportSelection.models : (this.dbFilters.model ? [this.dbFilters.model] : []),
           languages: this.dbReportSelection.languages.length ? this.dbReportSelection.languages : (this.dbFilters.language ? [this.dbFilters.language] : []),
           score_eligible_only: !!this.dbReportSelection.score_eligible_only,
+          dedup_mode: this.dbReportSelection.dedup_mode || 'merge',
         }
         // 增量合并：如果选择了合并目标，传入 run_id 让后端追加到已有报告
         if (this.dbReportSelection.merge_target) {
@@ -2660,7 +2679,7 @@ function app() {
     },
 
     clearReportSelection() {
-      this.dbReportSelection = { run_ids: [], models: [], languages: [], score_eligible_only: false, merge_target: '' }
+      this.dbReportSelection = { run_ids: [], models: [], languages: [], score_eligible_only: false, merge_target: '', dedup_mode: 'merge' }
       this.lastDBReportResult = null
       // 清空后仍保留置顶报告的自动选择
       this.$nextTick(() => this.autoSelectPinnedReport())

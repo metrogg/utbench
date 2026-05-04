@@ -296,7 +296,7 @@ func (s *SQLiteStore) SelectEvaluationResultSet(ctx context.Context, runID strin
 	}
 	query := `
 		SELECT
-			er.model, COALESCE(er.subject_id, ''), COALESCE(er.subject_kind, ''), COALESCE(er.agent_framework, ''),
+			er.run_id, er.model, COALESCE(er.subject_id, ''), COALESCE(er.subject_kind, ''), COALESCE(er.agent_framework, ''),
 			COALESCE(er.agent_model, ''), COALESCE(er.skill_name, ''), COALESCE(er.skill_version, ''),
 			er.language, er.sample_id,
 			COALESCE(g.path, ''), COALESCE(src.path, ''),
@@ -333,7 +333,7 @@ func (s *SQLiteStore) SelectEvaluationResultSet(ctx context.Context, runID strin
 		var mutationTotal, mutationKilled, mutationSurvived, mutationNoTests, mutationTimeouts, mutationSkipped, mutationSuspicious sql.NullInt64
 		var assertionCount, testCaseCount, testPassCount, testTotalCount, runtimeMS, latencyMS, promptTokens, completionTokens, totalTokens sql.NullInt64
 		if err := rows.Scan(
-			&r.Model, &r.SubjectID, &r.SubjectKind, &r.AgentFramework, &r.AgentModel, &r.SkillName, &r.SkillVersion,
+			&r.RunID, &r.Model, &r.SubjectID, &r.SubjectKind, &r.AgentFramework, &r.AgentModel, &r.SkillName, &r.SkillVersion,
 			&r.Language, &r.SampleID,
 			&r.GeneratedTestPath, &r.SourcePath,
 			&compilePass, &testPass, &truncated,

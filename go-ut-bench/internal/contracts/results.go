@@ -84,6 +84,7 @@ type GeneratedManifest struct {
 // EvaluationResult 表示单个测试的评测结果
 // 包含编译、运行、覆盖率、变异测试等全面的评测指标
 type EvaluationResult struct {
+	RunID                    string   `json:"run_id,omitempty"`                     // 关联的运行ID（用于跨run去重）
 	Model                    string   `json:"model"`                                // 评测的模型名称
 	SubjectID                string   `json:"subject_id,omitempty"`                 // 被测对象ID
 	SubjectKind              string   `json:"subject_kind,omitempty"`               // model_api / cli_agent / http_agent / swe_agent
