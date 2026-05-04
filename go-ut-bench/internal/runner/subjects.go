@@ -287,6 +287,66 @@ func injectSkillWorkspace(workRoot string, skill contracts.SkillSpec) (string, e
 	return skillDir, nil
 }
 
+// injectAgentNativeSkill 将 skill 文件原样复制到 Agent 框架的原生 skill 目录。
+// 不做任何格式转换，由 Agent 自行发现和加载。
+//
+// CodeBuddy: workspace/.codebuddy/skills/<name>/（SKILL.md + references/ 等）
+// OpenCode:  workspace/.opencode/skills/<name>/（指令文件 + 辅助文件）
+func injectAgentNativeSkill(workRoot, framework string, skill contracts.SkillSpec) (string, error) {
+	if skill.Name == "" || skill.Name == agentconfig.NoSkill {
+		return "", nil
+	}
+
+	switch strings.ToLower(framework) {
+	case "codebuddy":
+		return copySkillToNativeDir(workRoot, skill, ".codebuddy", "skills")
+	case "opencode":
+		return copySkillToNativeDir(workRoot, skill, ".opencode", "skills")
+	default:
+		return "", nil
+	}
+}
+
+// copySkillToNativeDir 将 skill 的 instruction_path + files 原样复制到
+// <workRoot>/<topDir>/<subDir>/<skillName>/ 目录。
+// Agent 启动后通过其原生机制发现并加载这些文件。
+func copySkillToNativeDir(workRoot string, skill contracts.SkillSpec, topDir, subDir string) (string, error) {
+	destDir := filepath.Join(workRoot, topDir, subDir, safePathName(skill.Name))
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return "", err
+	}
+
+	// 收集所有要复制的源路径：instruction_path + files
+	var sources []string
+	if skill.InstructionPath != "" {
+		sources = append(sources, skill.InstructionPath)
+	}
+	for _, f := range skill.Files {
+		f = strings.TrimSpace(f)
+		if f != "" {
+			sources = append(sources, f)
+		}
+	}
+
+	for _, src := range sources {
+		info, err := os.Stat(src)
+		if err != nil {
+			continue
+		}
+		dst := filepath.Join(destDir, filepath.Base(src))
+		if info.IsDir() {
+			if err := copyDir(src, dst); err != nil {
+				return "", err
+			}
+		} else {
+			if err := copyFile(src, dst); err != nil {
+				return "", err
+			}
+		}
+	}
+	return destDir, nil
+}
+
 func appendSkillInstruction(prompt string, skill contracts.SkillSpec) string {
 	if skill.Name == "" || skill.Name == agentconfig.NoSkill || !strings.EqualFold(defaultString(skill.InjectMode, "prompt_append"), "prompt_append") {
 		return prompt
@@ -610,7 +670,23 @@ func findGeneratedTest(workRoot, preferred string, globs, changes []string, lang
 			return path
 		}
 	}
-	return ""
+	// 递归搜索：Agent 可能将测试文件写入子目录（如 tests/、test/）
+	var found string
+	filepath.WalkDir(workRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || found != "" {
+			return nil
+		}
+		// 跳过隐藏目录和常见非源码目录
+		if strings.HasPrefix(d.Name(), ".") || d.Name() == "node_modules" || d.Name() == "__pycache__" {
+			return filepath.SkipDir
+		}
+		if isTestFile(path, language) {
+			found = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 func isTestFile(path, language string) bool {

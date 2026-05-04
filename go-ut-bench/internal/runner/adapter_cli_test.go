@@ -59,7 +59,7 @@ func TestCollectOpenCodeSessionExportUsesExportedUsage(t *testing.T) {
 	collectOpenCodeSessionExport(
 		context.Background(),
 		runner,
-		SandboxRunRequest{Workspace: workRoot, DockerImage: "utbench-agent-opencode-go:latest"},
+		SandboxRunRequest{Workspace: workRoot, DockerImage: "utbench-agent-base:latest"},
 		workRoot,
 		traceDir,
 		"boundary_000",
@@ -125,7 +125,7 @@ func TestCollectOpenCodeSessionExportUsesOpenCodeMessageTokensSchema(t *testing.
 	collectOpenCodeSessionExport(
 		context.Background(),
 		runner,
-		SandboxRunRequest{Workspace: workRoot, DockerImage: "utbench-agent-opencode-go:latest"},
+		SandboxRunRequest{Workspace: workRoot, DockerImage: "utbench-agent-base:latest"},
 		workRoot,
 		traceDir,
 		"boundary_000",
@@ -176,5 +176,110 @@ func TestParseFileWritesFiltersOpenCodeWorkspaceNoise(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("files_written[%d] = %q, want %q (all=%v)", i, got[i], want[i], got)
 		}
+	}
+}
+
+func TestParseCodeBuddyJSONOutput(t *testing.T) {
+	trace := &AgentTrace{Framework: "codebuddy"}
+	stdout := `{"result":"Test file created","session_id":"sess_abc123","usage":{"input_tokens":5000,"output_tokens":1200}}`
+	parseCodeBuddyJSONOutput(trace, stdout)
+
+	if trace.SessionID != "sess_abc123" {
+		t.Fatalf("session_id = %q, want %q", trace.SessionID, "sess_abc123")
+	}
+	if trace.PromptTokens == nil || *trace.PromptTokens != 5000 {
+		t.Fatalf("prompt_tokens = %v, want 5000", trace.PromptTokens)
+	}
+	if trace.CompletionTokens == nil || *trace.CompletionTokens != 1200 {
+		t.Fatalf("completion_tokens = %v, want 1200", trace.CompletionTokens)
+	}
+	if trace.TokenSource != "actual" {
+		t.Fatalf("token_source = %q, want %q", trace.TokenSource, "actual")
+	}
+	if trace.UsageSourceDetail != "codebuddy_json_output" {
+		t.Fatalf("usage_source_detail = %q, want %q", trace.UsageSourceDetail, "codebuddy_json_output")
+	}
+}
+
+func TestParseCodeBuddyJSONOutputWithMixedOutput(t *testing.T) {
+	trace := &AgentTrace{Framework: "codebuddy"}
+	stdout := "Some log lines\nTool call: write_file\nAnother log line\n" +
+		`{"result":"Done","session_id":"sess_mixed","usage":{"prompt_tokens":3000,"completion_tokens":800,"total_tokens":3800}}`
+	parseCodeBuddyJSONOutput(trace, stdout)
+
+	if trace.SessionID != "sess_mixed" {
+		t.Fatalf("session_id = %q, want %q", trace.SessionID, "sess_mixed")
+	}
+	if trace.PromptTokens == nil || *trace.PromptTokens != 3000 {
+		t.Fatalf("prompt_tokens = %v, want 3000", trace.PromptTokens)
+	}
+	if trace.CompletionTokens == nil || *trace.CompletionTokens != 800 {
+		t.Fatalf("completion_tokens = %v, want 800", trace.CompletionTokens)
+	}
+}
+
+func TestExtractFinalJSON(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "single JSON object",
+			input: `{"key":"value"}`,
+			want:  `{"key":"value"}`,
+		},
+		{
+			name:  "JSON at end of mixed output",
+			input: "log line 1\nlog line 2\n{\"result\":\"ok\"}",
+			want:  `{"result":"ok"}`,
+		},
+		{
+			name:  "no JSON",
+			input: "just plain text",
+			want:  "",
+		},
+		{
+			name:  "nested braces in JSON",
+			input: `{"outer":{"inner":"val"}}`,
+			want:  `{"outer":{"inner":"val"}}`,
+		},
+		{
+			name:  "JSON array",
+			input: `[{"type":"message","role":"user"},{"type":"message","role":"assistant"}]`,
+			want:  `[{"type":"message","role":"user"},{"type":"message","role":"assistant"}]`,
+		},
+		{
+			name:  "JSON array with trailing text",
+			input: "some log\n[{\"type\":\"msg\"}]",
+			want:  `[{"type":"msg"}]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractFinalJSON(tt.input)
+			if got != tt.want {
+				t.Fatalf("extractFinalJSON() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseUsageAndSessionWithCodeBuddy(t *testing.T) {
+	trace := &AgentTrace{Framework: "codebuddy"}
+	stdout := `{"result":"Done","session_id":"sess_cb","usage":{"input_tokens":2000,"output_tokens":500}}`
+	parseUsageAndSession(trace, stdout, "")
+
+	if trace.SessionID != "sess_cb" {
+		t.Fatalf("session_id = %q, want %q", trace.SessionID, "sess_cb")
+	}
+	if trace.PromptTokens == nil || *trace.PromptTokens != 2000 {
+		t.Fatalf("prompt_tokens = %v, want 2000", trace.PromptTokens)
+	}
+	if trace.CompletionTokens == nil || *trace.CompletionTokens != 500 {
+		t.Fatalf("completion_tokens = %v, want 500", trace.CompletionTokens)
+	}
+	if got, want := trace.UsageSourceDetail, "codebuddy_json_output"; got != want {
+		t.Fatalf("usage_source_detail = %q, want %q", got, want)
 	}
 }

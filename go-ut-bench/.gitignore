@@ -4,6 +4,9 @@ utbench
 # Go module cache
 .gomodcache/
 
+# Java/Maven local cache
+.m2-cache/
+
 # Runtime artifacts
 artifacts/*
 !artifacts/.gitkeep

@@ -243,9 +243,6 @@ func buildDockerRunArgs(spec contracts.RunSpec, opts orchestrator.Options, cfg D
 		if spec.TestTimeout > 0 {
 			a = append(a, "--test-timeout", fmt.Sprintf("%d", spec.TestTimeout))
 		}
-		if spec.Workers > 0 {
-			a = append(a, "--workers", fmt.Sprintf("%d", spec.Workers))
-		}
 		if spec.ReuseEvaluation {
 			a = append(a, "--reuse-evaluation", "--db-path", "/app/storage/utbench.db")
 		}
