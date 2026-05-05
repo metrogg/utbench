@@ -213,12 +213,21 @@ agent_workspaces/<subject-id>/<language>/<sample-id>/
 
 除了原有聚合统计，现在还包含：
 
-- `agent_comparisons`
-- `skill_uplifts`
+- `agent_comparisons`：Agent 相对纯模型 API 的提升
+- `skill_uplifts`：Skill 相对 no_skill 的提升
+- `comparison_views`：控制变量对比视图，包含三个维度：
+  - `platform`：固定模型+Skill，比较不同平台（model_api / opencode / claudecode）
+  - `model`：固定平台+Skill，比较不同基座模型
+  - `skill`：固定平台+模型，比较不同 Skill（含 no_skill）
 
 ### `report.html`
 
-HTML 报告继续沿用现有页面结构，但数据源已经支持 subject 维度聚合。
+HTML 报告包含以下主要区块：
+
+- **排名（Leaderboard）**：每个 subject 以平台/模型/Skill 三标签独立展示
+- **控制变量对比**：按上述三个视角分组，每组内按综合得分降序排列
+- **图表分析**：柱状图、雷达图、场景对比
+- **维度分析**：按模型、语言、场景交叉分析
 
 ## 7. checkpoint 作用域
 

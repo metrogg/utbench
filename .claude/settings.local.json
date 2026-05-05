@@ -80,7 +80,9 @@
       "Bash(docker info *)",
       "Bash(docker pull *)",
       "Bash(docker tag *)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(./utbench.exe help *)",
+      "Bash(git mv *)"
     ]
   }
 }

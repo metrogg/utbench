@@ -336,12 +336,16 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
             <div class="section-title">模型 Baseline / 兼容回退</div>
             <div class="flex flex-wrap gap-2.5">
               <template x-for="m in config?.models ?? []" :key="m.name">
-                <label :class="form.models.includes(m.name) ? 'active' : ''" class="chip">
+                <label :class="form.models.includes(m.name) ? 'active' : ''" class="chip" :title="m.api_key_set ? 'API Key 已配置' : 'API Key 未配置: ' + m.api_key_env">
                   <input type="checkbox" :value="m.name" x-model="form.models" class="w-3.5 h-3.5">
+                  <span class="inline-block w-2 h-2 rounded-full shrink-0" :style="m.api_key_set ? 'background:var(--green)' : 'background:var(--red)'"></span>
                   <span x-text="m.name" class="font-medium"></span>
                   <span x-text="m.model_id" class="text-[11px]" style="color:var(--fg-muted)"></span>
                 </label>
               </template>
+            </div>
+            <div x-show="(config?.models ?? []).some(m => !m.api_key_set)" class="mt-2 text-[11px]" style="color:var(--yellow)">
+              <span class="inline-block w-2 h-2 rounded-full mr-1" style="background:var(--red)"></span>红点表示 API Key 未配置，运行时会失败。请在 <span class="font-mono">.env</span> 中设置对应变量，或到「注册表」页面编辑。
             </div>
           </div>
           <div class="form-section" x-show="form.phase === 'full' || form.phase === 'generate'">
@@ -487,6 +491,8 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
               <template x-for="run in filteredRuns" :key="run.run_id">
                 <tr>
                   <td class="font-mono text-[12px]" style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? window.open('/api/runs/' + run.run_id + '/report-html') : openRun(run.run_id)">
+                    <span x-show="run.label" class="font-semibold mr-1" style="color:var(--fg)" x-text="run.label"></span>
+                    <span x-show="run.label" class="text-[10px] mr-1" style="color:var(--fg-muted)">·</span>
                     <span x-text="run.run_id"></span>
                     <span x-show="run.is_merged_report" class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full" style="background:var(--accent-bg);color:var(--accent)">合并</span>
                   </td>
@@ -512,6 +518,8 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                     </template>
                     <button x-show="!run.is_merged_report && (run.status === 'completed' || run.status === 'failed' || run.status === 'canceled')" @click.stop="ingestRunToDB(run.run_id)" :disabled="dbIngesting" class="text-[12px] mr-2" style="color:var(--green)" title="补录该任务到数据库">入库</button>
                     <button x-show="!run.is_merged_report" @click.stop="rerunRun(run.run_id)" class="text-[12px] mr-2" style="color:var(--yellow)" title="以相同配置再跑一次">重跑</button>
+                    <button @click.stop="renameRun(run.run_id, run.label)" class="text-[12px] mr-2" style="color:var(--fg-muted)" title="设置备注名">备注</button>
+                    <button x-show="run.status !== 'running' && run.status !== 'pending'" @click.stop="deleteRun(run.run_id)" class="text-[12px] mr-2" style="color:var(--red)" title="删除该任务及所有产物">删除</button>
                     <template x-if="run.is_merged_report">
                       <a :href="'/api/runs/' + run.run_id + '/report-html'" target="_blank" @click.stop class="text-[12px]" style="color:var(--accent)">查看报告 →</a>
                     </template>
@@ -1653,6 +1661,8 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                     <span class="status-dot"></span><span x-text="statusText(currentRun.status, currentRun.paused)"></span>
                   </span>
                   <span x-show="currentRun.paused" class="text-[10px] px-1.5 py-0.5 rounded" style="background:var(--warn-bg);color:var(--yellow)">暂停</span>
+                  <span x-show="currentRun.label" class="font-semibold text-[14px]" style="color:var(--fg)" x-text="currentRun.label"></span>
+                  <span x-show="currentRun.label" class="text-[11px]" style="color:var(--fg-muted)">·</span>
                   <span class="font-mono text-[13px]" style="color:var(--fg-muted)" x-text="currentRun.run_id"></span>
                 </div>
                 <div class="flex flex-wrap gap-x-6 gap-y-1 text-[12px]" style="color:var(--fg-muted)">
@@ -1693,6 +1703,8 @@ table.data-table tbody tr{cursor:pointer;transition:all .1s}
                   <span x-text="dbIngesting ? '入库中...' : '入库'"></span>
                 </button>
                 <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="rerunRun(currentRun.run_id)" class="btn-ghost" style="color:var(--yellow)" title="以相同配置再跑一次">重跑</button>
+                <button @click="renameRun(currentRun.run_id, currentRun.label)" class="btn-ghost" style="color:var(--fg-muted)" title="设置备注名">备注</button>
+                <button x-show="currentRun.status !== 'running' && currentRun.status !== 'pending'" @click="deleteRun(currentRun.run_id)" class="btn-ghost" style="color:var(--red)" title="删除该任务及所有产物">删除</button>
                 <button @click="goto('runs')" class="btn-ghost">返回</button>
                 <button x-show="currentRun.status === 'completed'" @click="openHtmlReport()" class="btn-warm text-[12px]">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
@@ -3239,6 +3251,39 @@ function app() {
       } catch (e) { this.showToast('重跑失败：' + e.message, 'err') }
     },
 
+    async deleteRun(runID) {
+      if (!confirm('确定删除该任务？会删除磁盘上所有产物（生成结果、评测、报告），不可恢复。')) return
+      try {
+        const r = await fetch('/api/runs/' + encodeURIComponent(runID), { method: 'DELETE' })
+        const data = await r.json()
+        if (!r.ok) { this.showToast('删除失败：' + (data.error || 'HTTP ' + r.status), 'err'); return }
+        this.showToast('已删除 ' + runID, 'ok')
+        await this.loadRuns()
+        if (this.currentRun && this.currentRun.run_id === runID) {
+          this.currentRun = null; this.goto('runs')
+        }
+      } catch (e) { this.showToast('删除失败：' + e.message, 'err') }
+    },
+
+    async renameRun(runID, currentLabel) {
+      const label = prompt('输入任务备注名（留空清除）：', currentLabel || '')
+      if (label === null) return
+      try {
+        const r = await fetch('/api/runs/' + encodeURIComponent(runID), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label: label.trim() })
+        })
+        const data = await r.json()
+        if (!r.ok) { this.showToast('重命名失败：' + (data.error || 'HTTP ' + r.status), 'err'); return }
+        this.showToast('已更新备注名', 'ok')
+        await this.loadRuns()
+        if (this.currentRun && this.currentRun.run_id === runID) {
+          this.currentRun.label = label.trim()
+        }
+      } catch (e) { this.showToast('重命名失败：' + e.message, 'err') }
+    },
+
     async reevaluateRun(runID) {
       if (!confirm('重新运行 evaluator？会重新编译、运行测试、覆盖率和变异测试，并覆盖当前 evaluation_result.json。')) return
       this.runActionBusy = 'reevaluate'
@@ -3350,9 +3395,14 @@ function app() {
     renderSelectModel(idx, framework, current) {
       const models = this._comboModels(framework)
       if (!models.includes(current) && models.length) current = models[0]
-      const opts = models.map(m =>
-        `<option value="${this._escapeHtml(m)}" ${m===current?'selected':''}>${this._escapeHtml(m)}</option>`
-      ).join('')
+      const modelMap = {}
+      ;(this.config?.models ?? []).forEach(m => { modelMap[m.name] = m })
+      const opts = models.map(m => {
+        const info = modelMap[m]
+        const keyOk = info?.api_key_set
+        const marker = keyOk ? ' ✓' : ' ✗'
+        return `<option value="${this._escapeHtml(m)}" ${m===current?'selected':''}>${this._escapeHtml(m)}${marker}</option>`
+      }).join('')
       return `<select class="input-base text-[12px]" data-combo-idx="${idx}" data-combo-type="model">${opts}</select>`
     },
     renderSelectSkill(idx, framework, current) {

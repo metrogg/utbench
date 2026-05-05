@@ -9,7 +9,9 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"go-ut-bench/internal/contracts"
@@ -21,6 +23,8 @@ import (
 	"go-ut-bench/internal/runner"
 	"go-ut-bench/internal/store"
 	"go-ut-bench/internal/web"
+
+	"gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -84,10 +88,14 @@ Usage:
   utbench dataset      Dataset management (index, manifest, stats)
   utbench doctor       Check evaluator toolchains with canary tests
   utbench web          Launch Web management UI
-  utbench tui          Launch interactive TUI interface
   utbench help         Show this help
 
-Run "utbench <command> --help" for more details on a command.`)
+Run "utbench <command> --help" for more details on a command.
+
+Quick Start:
+  1. cp .env.example .env        # 填入你的 API Key
+  2. utbench doctor --langs python  # 检查环境是否就绪
+  3. utbench web --addr :8080       # 启动 Web UI 开始使用`)
 }
 
 func runAssets(args []string) error {
@@ -396,7 +404,7 @@ func newCtx() (context.Context, context.CancelFunc) {
 func withSignal(ctx context.Context) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(ctx)
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
 		cancel()
@@ -474,6 +482,9 @@ func runWeb(args []string) error {
 		return fmt.Errorf("load env file: %w", err)
 	}
 
+	// Check API keys and warn about missing ones
+	checkModelAPIKeys(*configPath)
+
 	if strings.TrimSpace(*imageName) != "" {
 		*evalImageName = *imageName
 	}
@@ -494,7 +505,49 @@ func runWeb(args []string) error {
 		return fmt.Errorf("create web server: %w", err)
 	}
 	defer server.Close()
-	return server.Start(*addr)
+
+	// 优雅关闭：监听 SIGINT/SIGTERM，收到信号后先清理再退出
+	return server.StartGraceful(*addr)
+}
+
+// checkModelAPIKeys 读取 models.yaml 并检查各模型的 API Key 环境变量是否已设置。
+// 缺失的 Key 会在启动时打印警告，帮助用户尽早发现问题。
+func checkModelAPIKeys(configPath string) {
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return // config 读取失败不阻塞启动
+	}
+	var cfg struct {
+		Models map[string]struct {
+			Enabled bool `yaml:"enabled"`
+			Config  struct {
+				APIKeyEnv string `yaml:"api_key_env"`
+			} `yaml:"config"`
+		} `yaml:"models"`
+	}
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		return
+	}
+	var missing []string
+	for name, m := range cfg.Models {
+		if !m.Enabled {
+			continue
+		}
+		key := strings.TrimSpace(m.Config.APIKeyEnv)
+		if key == "" {
+			continue
+		}
+		val := strings.TrimSpace(os.Getenv(key))
+		lower := strings.ToLower(val)
+		if val == "" || strings.Contains(lower, "your_") || strings.Contains(lower, "placeholder") {
+			missing = append(missing, fmt.Sprintf("  %-22s → %s", name, key))
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		fmt.Fprintf(os.Stderr, "\n⚠  以下模型的 API Key 未配置，运行时会失败:\n%s\n", strings.Join(missing, "\n"))
+		fmt.Fprintf(os.Stderr, "   请在 .env 文件中设置对应变量，参考 .env.example\n\n")
+	}
 }
 
 func runRun(args []string) error {

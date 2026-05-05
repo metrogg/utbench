@@ -321,7 +321,7 @@ func (m *RunManager) execute(entry *RunEntry, spec contracts.RunSpec, opts orche
 
 	// 清理可能残留的 sandbox 子容器（无论成功/失败/取消）
 	if entry.UseDocker {
-		go killSandboxContainers(spec.RunID)
+		killSandboxContainers(spec.RunID)
 	}
 
 	m.ingestRunArtifacts(entry, spec)

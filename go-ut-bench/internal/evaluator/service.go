@@ -214,7 +214,11 @@ func (s *Service) Evaluate(ctx context.Context, spec contracts.RunSpec, manifest
 				copyRow := row
 				reused = &copyRow
 			}
-			tasks <- evalTask{index: i, item: item, reused: reused, envHash: envFingerprintHash}
+			select {
+			case <-ctx.Done():
+				return
+			case tasks <- evalTask{index: i, item: item, reused: reused, envHash: envFingerprintHash}:
+			}
 		}
 	}()
 

@@ -208,6 +208,161 @@ func skillUpliftRows(aggs map[string]*comparisonAgg) []contracts.SkillUpliftRow 
 	return out
 }
 
+// subjectMetrics 按 subject (framework × model × skill) 聚合的指标快照
+type subjectMetrics struct {
+	framework  string
+	model      string
+	skill      string
+	subjectID  string
+	count      int
+	compileSum float64
+	testSum    float64
+	lineSum    float64
+	lineCnt    int
+	mutSum     float64
+	mutCnt     int
+}
+
+func (s *subjectMetrics) compileRate() float64 { return rate(int(s.compileSum), s.count) }
+func (s *subjectMetrics) testRate() float64     { return rate(int(s.testSum), s.count) }
+func (s *subjectMetrics) lineCov() float64      { return avg(s.lineSum, s.lineCnt) }
+func (s *subjectMetrics) mutScore() float64     { return avg(s.mutSum, s.mutCnt) }
+func (s *subjectMetrics) composite() float64 {
+	return round(
+		s.compileRate()*contracts.DefaultWeights.Compile+
+			s.testRate()*contracts.DefaultWeights.Test+
+			s.lineCov()*contracts.DefaultWeights.Coverage+
+			s.mutScore()*contracts.DefaultWeights.Mutation, 6)
+}
+
+func buildSubjectMetrics(rows []contracts.EvaluationResult) map[string]*subjectMetrics {
+	m := map[string]*subjectMetrics{}
+	for _, row := range rows {
+		if !isScoreEligible(row) {
+			continue
+		}
+		fw := firstNonEmpty(row.AgentFramework, "model_api")
+		model := firstNonEmpty(row.AgentModel, row.Model)
+		skill := firstNonEmpty(row.SkillName, "no_skill")
+		key := strings.Join([]string{fw, model, skill}, "|")
+		sm, ok := m[key]
+		if !ok {
+			sm = &subjectMetrics{
+				framework: fw,
+				model:     model,
+				skill:     skill,
+				subjectID: firstNonEmpty(row.SubjectID, row.Model),
+			}
+			m[key] = sm
+		}
+		sm.count++
+		if row.CompilePass {
+			sm.compileSum++
+		}
+		if row.TestPass != nil && *row.TestPass {
+			sm.testSum++
+		}
+		if row.LineCoverage != nil {
+			sm.lineSum += *row.LineCoverage
+			sm.lineCnt++
+		}
+		if row.MutationScore != nil {
+			sm.mutSum += *row.MutationScore
+			sm.mutCnt++
+		}
+	}
+	return m
+}
+
+func buildComparisonViews(rows []contracts.EvaluationResult) []contracts.ComparisonView {
+	subjects := buildSubjectMetrics(rows)
+	if len(subjects) == 0 {
+		return nil
+	}
+
+	// 平台对比：固定 model+skill，比较不同 platform
+	platformGroups := map[string]*contracts.ComparisonGroup{}
+	// 模型对比：固定 platform+skill，比较不同 model
+	modelGroups := map[string]*contracts.ComparisonGroup{}
+	// Skill 对比：固定 platform+model，比较不同 skill
+	skillGroups := map[string]*contracts.ComparisonGroup{}
+
+	for _, sm := range subjects {
+		entry := contracts.ComparisonEntry{
+			Platform:         sm.framework,
+			Model:            sm.model,
+			Skill:            sm.skill,
+			SubjectID:        sm.subjectID,
+			SampleCount:      sm.count,
+			CompilePassRate:  sm.compileRate(),
+			AvgTestPassRate:  sm.testRate(),
+			AvgLineCoverage:  sm.lineCov(),
+			AvgMutationScore: sm.mutScore(),
+			CompositeScore:   sm.composite(),
+		}
+
+		// 平台对比：按 model+skill 分组
+		pKey := sm.model + "|" + sm.skill
+		pg, ok := platformGroups[pKey]
+		if !ok {
+			pg = &contracts.ComparisonGroup{FixedModel: sm.model, FixedSkill: sm.skill}
+			platformGroups[pKey] = pg
+		}
+		pg.Entries = append(pg.Entries, entry)
+
+		// 模型对比：按 platform+skill 分组
+		mKey := sm.framework + "|" + sm.skill
+		mg, ok := modelGroups[mKey]
+		if !ok {
+			mg = &contracts.ComparisonGroup{FixedPlatform: sm.framework, FixedSkill: sm.skill}
+			modelGroups[mKey] = mg
+		}
+		mg.Entries = append(mg.Entries, entry)
+
+		// Skill 对比：按 platform+model 分组
+		sKey := sm.framework + "|" + sm.model
+		sg, ok := skillGroups[sKey]
+		if !ok {
+			sg = &contracts.ComparisonGroup{FixedPlatform: sm.framework, FixedModel: sm.model}
+			skillGroups[sKey] = sg
+		}
+		sg.Entries = append(sg.Entries, entry)
+	}
+
+	// 排名：每组内按 composite 降序，只保留 >=2 个条目的组（否则没有对比意义）
+	rankAndFilter := func(groups map[string]*contracts.ComparisonGroup) []contracts.ComparisonGroup {
+		var out []contracts.ComparisonGroup
+		for _, g := range groups {
+			if len(g.Entries) < 2 {
+				continue
+			}
+			sort.Slice(g.Entries, func(i, j int) bool {
+				return g.Entries[i].CompositeScore > g.Entries[j].CompositeScore
+			})
+			for i := range g.Entries {
+				g.Entries[i].Rank = i + 1
+			}
+			out = append(out, *g)
+		}
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].FixedModel != out[j].FixedModel {
+				return out[i].FixedModel < out[j].FixedModel
+			}
+			if out[i].FixedSkill != out[j].FixedSkill {
+				return out[i].FixedSkill < out[j].FixedSkill
+			}
+			return out[i].FixedPlatform < out[j].FixedPlatform
+		})
+		return out
+	}
+
+	return []contracts.ComparisonView{
+		{Dimension: "platform", Label: "平台对比", Groups: rankAndFilter(platformGroups)},
+		{Dimension: "model", Label: "模型对比", Groups: rankAndFilter(modelGroups)},
+		{Dimension: "skill", Label: "Skill 对比", Groups: rankAndFilter(skillGroups)},
+	}
+}
+
 func buildTopModels(models []contracts.ModelDim) []contracts.ModelRank {
 	var sorted []contracts.ModelDim
 	for _, m := range models {

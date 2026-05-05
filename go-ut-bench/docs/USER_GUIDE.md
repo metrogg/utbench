@@ -1,5 +1,40 @@
 # UT-Bench 用户指南
 
+## 0. 快速开始
+
+### 环境要求
+
+- Go 1.21+
+- Docker（推荐，用于隔离评测环境）
+- Python 3.10+、Java 17+、g++（按需，用于各语言评测）
+
+### 三步上手
+
+```bash
+# 1. 配置 API Key
+cp .env.example .env
+# 编辑 .env，填入你使用的模型对应的 API Key
+
+# 2. 检查环境
+utbench doctor --langs python
+
+# 3. 启动 Web UI
+utbench web --addr :8080
+# 浏览器打开 http://localhost:8080
+```
+
+### CLI 快速运行
+
+```bash
+# dry-run：不调用 API，验证流程是否通畅
+utbench run --models deepseek --langs python --max-samples 2 --dry-run
+
+# 正式运行
+utbench run --models deepseek --langs python --max-samples 5 --config ./configs/models.yaml
+```
+
+> 提示：首次使用建议先执行 `utbench doctor` 检查评测工具链是否就绪。
+
 ## 1. 定位
 
 UT-Bench 现在评测的不是单一模型，而是统一被测对象 `subject`：

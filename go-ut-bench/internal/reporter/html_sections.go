@@ -4,6 +4,7 @@
 package reporter
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -78,7 +79,8 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 	// Navigation
 	b.WriteString(`
 <div class="jump-nav">
-    <a href="#details">图表分析</a>
+    <a href="#leaderboard">排名</a>
+  <a href="#details">图表分析</a>
   <a href="#analysis-controls">筛选与导出</a>
   <a href="#dimension-analysis">维度分析</a>
   <a href="#score-exclusions">计分剔除</a>
@@ -88,8 +90,8 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 </div>
 `)
 
-	// Leaderboard Section - 模型排名（重点）
-	b.WriteString(buildLeaderboardHTMLNew(payload.TopModels))
+	// Leaderboard Section - 模型排名（含控制变量对比）
+	b.WriteString(buildLeaderboardHTMLNew(payload.TopModels, payload.ComparisonViews))
 	b.WriteString(buildChartsSection(payload.TopModels))
 	b.WriteString(buildAnalysisControlsSection(heroModels, heroLangs, heroTypes))
 	b.WriteString(buildDimensionAnalysisSection())
@@ -291,64 +293,54 @@ func buildScenarioInsightsSection(rows []contracts.EvaluationResult) string {
 }
 
 // buildLeaderboardHTMLNew 生成新的 Leaderboard HTML
-func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
+func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.ComparisonView) string {
 	if len(models) == 0 {
 		return ""
 	}
 
-	var b strings.Builder
-	b.WriteString(`<div class="section" id="leaderboard">
-  <h2>模型排名 Leaderboard</h2>
-  <div class="lb-info-box" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;color:#475569;">
-    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
-      <span><strong>综合评分公式：</strong> ` + contracts.DefaultWeights.String() + `</span>
-      <span style="color:#94a3b8;">|</span>
-      <span><strong>指标说明：</strong> 样测=样本级测试通过率；行覆盖=代码行覆盖率；变异=变异测试得分</span>
-    </div>
-    <div style="margin-top:8px;color:#64748b;">
-      <strong>Token/成本口径：</strong> actual=直接解析到真实 usage；estimated=按 prompt 与生成代码长度估算；partial=只拿到部分 usage；missing=没有 token 数据。
-    </div>
-  </div>
-  <div class="leaderboard">`)
-
+	// 构建卡片 HTML 和 data 属性
+	var cardsHTML string
 	for _, m := range models {
-		// 确定排名样式
 		rankClass := ""
 		itemClass := ""
-		if m.Rank == 1 {
+		switch m.Rank {
+		case 1:
 			rankClass = "gold"
 			itemClass = "gold"
-		} else if m.Rank == 2 {
+		case 2:
 			rankClass = "silver"
 			itemClass = "silver"
-		} else if m.Rank == 3 {
+		case 3:
 			rankClass = "bronze"
 			itemClass = "bronze"
 		}
 
-		// 计算各指标的进度条宽度
 		compileWidth := int(m.CompilePassRate * 100)
 		testWidth := int(m.AvgTestPassRate * 100)
 		coverWidth := int(m.AvgLineCoverage * 100)
 		mutWidth := int(m.AvgMutationScore * 100)
-
-		// 综合得分百分比
 		compositePct := m.CompositeScore * 100
-
-		// 效率指标格式化（标注平均值）
 		latencyStr := fmt.Sprintf("%.1fs", m.AvgLatencyMS/1000)
 		tokensStr := fmt.Sprintf("%.0f", m.AvgTotalTokens)
-		tokenSourceStr := fmt.Sprintf("actual=%d, estimated=%d, partial=%d, missing=%d",
-			m.ActualTokenSamples, m.EstimatedTokenSamples, m.PartialTokenSamples, m.MissingTokenSamples)
-
-		// 断言密度
 		assertionDensityStr := fmt.Sprintf("%.2f", m.AvgAssertionDensity)
 
-		b.WriteString(fmt.Sprintf(`
-    <div class="lb-item %s">
-      <div class="lb-rank %s">%d</div>
+		platform := firstNonEmpty(m.AgentFramework, "model_api")
+		model := firstNonEmpty(m.AgentModel, m.Model)
+		skill := firstNonEmpty(m.SkillName, "no_skill")
+		modelIDLine := ""
+		if m.ModelID != "" && m.ModelID != model {
+			modelIDLine = fmt.Sprintf(`<div style="font-size:11px;color:#94a3b8;margin-top:2px;">%s</div>`, escapeHTML(m.ModelID))
+		}
+
+		cardsHTML += fmt.Sprintf(`
+    <div class="lb-item %s" data-platform="%s" data-model="%s" data-skill="%s" data-score="%.6f">
+      <div class="lb-rank %s"><span class="lb-rank-num">%d</span></div>
       <div class="lb-content">
-        <div class="lb-title">%s <span style="font-size:12px;color:#6b7280;font-weight:400;">(%s)</span></div>
+        <div class="lb-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span class="lb-tag lb-tag-platform">%s</span>
+          <span class="lb-tag lb-tag-model">%s</span>
+          <span class="lb-tag lb-tag-skill">%s</span>
+        </div>%s
         <div class="lb-metrics">
           <div class="metric">
             <span class="name">编译通过</span>
@@ -386,9 +378,6 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
           <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;">
             <span style="color:#64748b;">📝</span>样本数: <strong>%d</strong>
           </span>
-          <span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;">
-            <span style="color:#64748b;">🧾</span>Token口径: <strong>%s</strong>
-          </span>
         </div>
       </div>
       <div class="lb-score">
@@ -396,22 +385,190 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank) string {
         <div class="score-val">%.2f</div>
       </div>
     </div>`,
-			itemClass, rankClass, m.Rank,
-			escapeHTML(m.Model), escapeHTML(getModelIDShort(m.ModelID)),
+			itemClass,
+			escapeHTML(platform), escapeHTML(model), escapeHTML(skill), m.CompositeScore,
+			rankClass, m.Rank,
+			escapeHTML(platform), escapeHTML(model), escapeHTML(skill),
+			modelIDLine,
 			compileWidth, m.CompilePassRate*100,
 			testWidth, m.AvgTestPassRate*100,
 			coverWidth, m.AvgLineCoverage*100,
 			mutWidth, m.AvgMutationScore*100,
-			min(100, int(m.AvgAssertionDensity*20)), // 断言密度进度条（假设理想值5）
+			min(100, int(m.AvgAssertionDensity*20)),
 			assertionDensityStr,
-			latencyStr, tokensStr, m.TotalSamples, tokenSourceStr,
-			compositePct))
+			latencyStr, tokensStr, m.TotalSamples,
+			compositePct)
 	}
 
-	b.WriteString(`
+	// 构建控制变量下拉选项（从 comparison views 提取）
+	filterOptionsJSON := buildFilterOptionsJSON(views)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`<div class="section" id="leaderboard">
+  <h2>模型排名 Leaderboard</h2>
+  <div class="lb-info-box" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;color:#475569;">
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+      <span><strong>综合评分公式：</strong> ` + contracts.DefaultWeights.String() + `</span>
+      <span style="color:#94a3b8;">|</span>
+      <span><strong>指标说明：</strong> 样测=样本级测试通过率；行覆盖=代码行覆盖率；变异=变异测试得分</span>
+    </div>
   </div>
-</div>`)
+  <div class="lb-controls" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
+    <div class="lb-tabs" style="display:flex;gap:4px;">
+      <button class="lb-tab active" data-mode="all" onclick="lbSwitchMode('all',this)">全部排名</button>
+      <button class="lb-tab" data-mode="platform" onclick="lbSwitchMode('platform',this)">按平台</button>
+      <button class="lb-tab" data-mode="model" onclick="lbSwitchMode('model',this)">按模型</button>
+      <button class="lb-tab" data-mode="skill" onclick="lbSwitchMode('skill',this)">按Skill</button>
+    </div>
+    <select id="lb-filter" style="display:none;padding:6px 12px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;background:#fff;" onchange="lbApplyFilter()">
+    </select>
+    <span id="lb-filter-hint" style="display:none;font-size:12px;color:#64748b;"></span>
+  </div>
+  <div class="leaderboard" id="lb-list">
+%s
+  </div>
+</div>
+<script>
+(function(){
+  var _lbOpts = %s;
+  var _curMode = 'all';
+  var _curFilter = '';
+
+  window.lbSwitchMode = function(mode, btn) {
+    document.querySelectorAll('.lb-tab').forEach(function(t){t.classList.remove('active')});
+    btn.classList.add('active');
+    _curMode = mode;
+    var sel = document.getElementById('lb-filter');
+    var hint = document.getElementById('lb-filter-hint');
+    if (mode === 'all') {
+      sel.style.display = 'none';
+      hint.style.display = 'none';
+      _curFilter = '';
+      lbRender('all');
+      return;
+    }
+    // 填充下拉
+    var opts = _lbOpts[mode] || [];
+    sel.innerHTML = '';
+    opts.forEach(function(o, i) {
+      var opt = document.createElement('option');
+      opt.value = o.key;
+      opt.textContent = o.label;
+      sel.appendChild(opt);
+    });
+    sel.style.display = 'inline-block';
+    hint.style.display = 'inline';
+    if (opts.length > 0) {
+      _curFilter = opts[0].key;
+      sel.value = _curFilter;
+      hint.textContent = opts[0].hint || '';
+      lbRender(mode);
+    }
+  };
+
+  window.lbApplyFilter = function() {
+    var sel = document.getElementById('lb-filter');
+    var hint = document.getElementById('lb-filter-hint');
+    _curFilter = sel.value;
+    var opts = _lbOpts[_curMode] || [];
+    for (var i = 0; i < opts.length; i++) {
+      if (opts[i].key === _curFilter) {
+        hint.textContent = opts[i].hint || '';
+        break;
+      }
+    }
+    lbRender(_curMode);
+  };
+
+  // 根据 mode 构建卡片的组合键
+  function cardKey(el, mode) {
+    var d = el.dataset;
+    if (mode === 'platform') return d.model + '|' + d.skill;
+    if (mode === 'model') return d.platform + '|' + d.skill;
+    if (mode === 'skill') return d.platform + '|' + d.model;
+    return '';
+  }
+
+  window.lbRender = function(mode) {
+    var container = document.getElementById('lb-list');
+    var items = Array.from(container.querySelectorAll('.lb-item'));
+
+    if (mode === 'all') {
+      items.forEach(function(el) { el.style.display = ''; });
+      items.sort(function(a, b) {
+        return parseFloat(b.dataset.score) - parseFloat(a.dataset.score);
+      });
+      items.forEach(function(el, i) {
+        container.appendChild(el);
+        el.querySelector('.lb-rank-num').textContent = i + 1;
+        var cls = i < 3 ? ['gold','silver','bronze'][i] : '';
+        el.querySelector('.lb-rank').className = 'lb-rank' + (cls ? ' ' + cls : '');
+      });
+      return;
+    }
+
+    // 控制变量模式
+    var match = [];
+    items.forEach(function(el) {
+      if (cardKey(el, mode) === _curFilter) {
+        match.push(el);
+        el.style.display = '';
+      } else {
+        el.style.display = 'none';
+      }
+    });
+    match.sort(function(a, b) {
+      return parseFloat(b.dataset.score) - parseFloat(a.dataset.score);
+    });
+    match.forEach(function(el, i) {
+      container.appendChild(el);
+      el.querySelector('.lb-rank-num').textContent = i + 1;
+      var cls = i < 3 ? ['gold','silver','bronze'][i] : '';
+      el.querySelector('.lb-rank').className = 'lb-rank' + (cls ? ' ' + cls : '');
+    });
+  };
+})();
+</script>
+`, cardsHTML, filterOptionsJSON))
+
 	return b.String()
+}
+
+// buildFilterOptionsJSON 从 comparison views 构建前端筛选选项的 JSON
+// 每个选项包含 key（用于匹配卡片 data 属性的组合键）、label、hint
+func buildFilterOptionsJSON(views []contracts.ComparisonView) string {
+	type filterOpt struct {
+		Key   string `json:"key"`   // 组合键，如 "model|skill"
+		Label string `json:"label"` // 下拉显示文本
+		Hint  string `json:"hint"`  // 提示文字
+	}
+	opts := map[string][]filterOpt{}
+	for _, v := range views {
+		for _, g := range v.Groups {
+			switch v.Dimension {
+			case "platform":
+				// 固定 model+skill，变化 platform → 用 "model|skill" 做 key
+				key := g.FixedModel + "|" + g.FixedSkill
+				label := g.FixedModel + " / " + g.FixedSkill
+				hint := fmt.Sprintf("固定: 模型=%s, Skill=%s → 比较不同平台", g.FixedModel, g.FixedSkill)
+				opts[v.Dimension] = append(opts[v.Dimension], filterOpt{Key: key, Label: label, Hint: hint})
+			case "model":
+				// 固定 platform+skill，变化 model → 用 "platform|skill" 做 key
+				key := g.FixedPlatform + "|" + g.FixedSkill
+				label := g.FixedPlatform + " / " + g.FixedSkill
+				hint := fmt.Sprintf("固定: 平台=%s, Skill=%s → 比较不同模型", g.FixedPlatform, g.FixedSkill)
+				opts[v.Dimension] = append(opts[v.Dimension], filterOpt{Key: key, Label: label, Hint: hint})
+			case "skill":
+				// 固定 platform+model，变化 skill → 用 "platform|model" 做 key
+				key := g.FixedPlatform + "|" + g.FixedModel
+				label := g.FixedPlatform + " / " + g.FixedModel
+				hint := fmt.Sprintf("固定: 平台=%s, 模型=%s → 比较不同Skill", g.FixedPlatform, g.FixedModel)
+				opts[v.Dimension] = append(opts[v.Dimension], filterOpt{Key: key, Label: label, Hint: hint})
+			}
+		}
+	}
+	b, _ := json.Marshal(opts)
+	return string(b)
 }
 
 func buildDimensionAnalysisSection() string {

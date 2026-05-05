@@ -362,6 +362,39 @@ type ReportPayload struct {
 	RuntimeSummary   RuntimeSummary       `json:"runtime_summary,omitempty"`   // 运行时/镜像/沙箱摘要
 	AgentComparisons []AgentComparisonRow `json:"agent_comparisons,omitempty"` // Agent相对纯模型API的提升
 	SkillUplifts     []SkillUpliftRow     `json:"skill_uplifts,omitempty"`     // Skill相对no_skill的提升
+	ComparisonViews  []ComparisonView     `json:"comparison_views,omitempty"`  // 控制变量对比视图
+}
+
+// ComparisonView 控制变量对比视图
+// 按"对比视角"组织：固定两个维度、变化一个维度
+type ComparisonView struct {
+	Dimension string          `json:"dimension"` // 变化的维度：platform / model / skill
+	Label     string          `json:"label"`     // 视图中文标签
+	Groups    []ComparisonGroup `json:"groups"`   // 每组是一个控制变量组合
+}
+
+// ComparisonGroup 一组控制变量下的对比
+// 例如：固定 model=deepseek-v4-flash, skill=no_skill，比较不同 platform
+type ComparisonGroup struct {
+	FixedModel   string              `json:"fixed_model,omitempty"`   // 固定的模型
+	FixedSkill   string              `json:"fixed_skill,omitempty"`   // 固定的Skill
+	FixedPlatform string             `json:"fixed_platform,omitempty"` // 固定的平台
+	Entries      []ComparisonEntry   `json:"entries"`                 // 按综合得分降序
+}
+
+// ComparisonEntry 对比项（一行）
+type ComparisonEntry struct {
+	Rank             int     `json:"rank"`
+	Platform         string  `json:"platform"`                       // 平台/框架
+	Model            string  `json:"model"`                          // 模型
+	Skill            string  `json:"skill"`                          // Skill
+	SubjectID        string  `json:"subject_id,omitempty"`
+	SampleCount      int     `json:"sample_count"`
+	CompilePassRate  float64 `json:"compile_pass_rate"`
+	AvgTestPassRate  float64 `json:"avg_test_pass_rate"`
+	AvgLineCoverage  float64 `json:"avg_line_coverage"`
+	AvgMutationScore float64 `json:"avg_mutation_score"`
+	CompositeScore   float64 `json:"composite_score"`
 }
 
 type RuntimeSummary struct {
