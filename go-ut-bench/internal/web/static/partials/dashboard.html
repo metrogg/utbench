@@ -1,0 +1,50 @@
+      <!-- DASHBOARD -->
+      <div x-show="page === 'dashboard'" class="max-w-6xl animate-fadeUp">
+        <div class="grid grid-cols-4 gap-5 mb-6">
+          <div class="kpi-card">
+            <div class="kpi-value kpi-total" x-text="runs.length"></div>
+            <div class="kpi-label">总任务数</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-value kpi-running" x-text="runs.filter(r => r.status === 'running').length"></div>
+            <div class="kpi-label">运行中</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-value kpi-completed" x-text="runs.filter(r => r.status === 'completed').length"></div>
+            <div class="kpi-label">已完成</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-value kpi-failed" x-text="runs.filter(r => r.status === 'failed' || r.status === 'canceled').length"></div>
+            <div class="kpi-label">失败/取消</div>
+          </div>
+        </div>
+        <div class="form-section p-0 overflow-hidden">
+          <div class="px-5 py-3.5 border-b flex items-center justify-between" style="border-color:var(--border)">
+            <span class="text-[13px] font-medium tracking-wide">最近任务</span>
+            <button @click="goto('runs')" class="text-[12px] font-medium" style="color:var(--accent)">查看全部 →</button>
+          </div>
+          <div x-show="runs.length === 0" class="px-5 py-12 text-center text-[13px]" style="color:var(--fg-muted)">
+            暂无任务。<button @click="goto('new-run')" style="color:var(--accent)" class="hover:underline ml-1">新建任务</button>
+          </div>
+          <table x-show="runs.length > 0" class="data-table">
+            <thead><tr><th>任务 ID</th><th>状态</th><th>被测对象</th><th>语言</th><th>启动时间</th><th style="width:80px"></th></tr></thead>
+            <tbody>
+              <template x-for="run in runs.slice(0,10)" :key="run.run_id">
+                <tr @click="openRun(run.run_id)">
+                  <td class="font-mono text-[12px]" style="color:var(--fg-muted)" x-text="run.run_id"></td>
+                  <td>
+                    <span :class="'status-' + run.status" class="inline-flex items-center text-[12px] font-medium px-2.5 py-0.5 rounded-full" style="background:var(--badge-bg)">
+                      <span class="status-dot"></span><span x-text="statusText(run.status, run.paused)"></span>
+                    </span>
+                    <span x-show="run.paused" class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background:var(--warn-bg);color:var(--yellow)">暂停</span>
+                  </td>
+                  <td style="color:var(--fg-muted)" x-text="runSubjectSummary(run)"></td>
+                  <td style="color:var(--fg-muted)" x-text="(run.spec?.languages ?? []).join(', ') || '—'"></td>
+                  <td style="color:var(--fg-muted)" x-text="fmtTime(run.started_at)"></td>
+                  <td class="text-right"><span style="color:var(--accent)" class="text-[12px]">详情 →</span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>

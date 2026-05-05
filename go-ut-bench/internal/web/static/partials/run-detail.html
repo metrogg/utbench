@@ -1,0 +1,274 @@
+      <!-- RUN DETAIL -->
+      <div x-show="page === 'run-detail'" class="max-w-6xl space-y-4 animate-fadeUp">
+        <template x-if="currentRun">
+          <div>
+            <!-- Detail Header -->
+            <div class="form-section flex items-start gap-4">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-3 mb-2">
+                  <span :class="'status-' + currentRun.status" class="inline-flex items-center text-[12px] font-medium px-2.5 py-1 rounded-full" style="background:var(--badge-bg)">
+                    <span class="status-dot"></span><span x-text="statusText(currentRun.status, currentRun.paused)"></span>
+                  </span>
+                  <span x-show="currentRun.paused" class="text-[10px] px-1.5 py-0.5 rounded" style="background:var(--warn-bg);color:var(--yellow)">暂停</span>
+                  <span x-show="currentRun.label" class="font-semibold text-[14px]" style="color:var(--fg)" x-text="currentRun.label"></span>
+                  <span x-show="currentRun.label" class="text-[11px]" style="color:var(--fg-muted)">·</span>
+                  <span class="font-mono text-[13px]" style="color:var(--fg-muted)" x-text="currentRun.run_id"></span>
+                </div>
+                <div class="flex flex-wrap gap-x-6 gap-y-1 text-[12px]" style="color:var(--fg-muted)">
+                  <span>被测对象: <span style="color:var(--fg)" x-text="runSubjectSummary(currentRun)"></span></span>
+                  <span>模型: <span style="color:var(--fg)" x-text="(currentRun.spec?.models ?? []).join(', ') || '—'"></span></span>
+                  <span>语言: <span style="color:var(--fg)" x-text="(currentRun.spec?.languages ?? []).join(', ')"></span></span>
+                  <span>类型: <span style="color:var(--fg)" x-text="(currentRun.spec?.dataset_classes ?? []).join(', ') || '—'"></span></span>
+                  <span>场景: <span style="color:var(--fg)" x-text="currentRun.spec?.dataset_scenario || '—'"></span></span>
+                  <span>样本: <span style="color:var(--fg)" x-text="currentRun.spec?.max_samples ?? '—'"></span></span>
+                  <span>并发: <span style="color:var(--fg)" x-text="currentRun.spec?.workers ?? 0"></span></span>
+                  <span>复用生成: <span style="color:var(--fg)" x-text="currentRun.spec?.reuse_generated ? '开启' : '关闭'"></span></span>
+                  <span>复用评测: <span style="color:var(--fg)" x-text="currentRun.spec?.reuse_evaluation ? '开启' : '关闭'"></span></span>
+                  <span>后端: <span style="color:var(--fg)" x-text="currentRun.use_docker ? 'Docker' : '本地进程'"></span></span>
+                  <span x-show="currentReport?.runtime_summary?.sandbox_providers?.length">沙箱: <span style="color:var(--fg)" x-text="(currentReport?.runtime_summary?.sandbox_providers ?? []).join(', ')"></span></span>
+                  <span x-show="currentReport?.runtime_summary?.agent_frameworks?.length">Agent: <span style="color:var(--fg)" x-text="(currentReport?.runtime_summary?.agent_frameworks ?? []).join(', ')"></span></span>
+                  <span x-show="currentReport?.runtime_summary?.evaluator_env_fingerprint">评测指纹: <code class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="(currentReport?.runtime_summary?.evaluator_env_fingerprint || '').slice(0, 12) + '...'"></code></span>
+                  <span>启动: <span style="color:var(--fg)" x-text="fmtTime(currentRun.started_at)"></span></span>
+                  <span x-show="currentRun.ended_at">耗时: <span style="color:var(--fg)" x-text="duration(currentRun.started_at, currentRun.ended_at)"></span></span>
+                </div>
+                <div x-show="currentRun.error" class="mt-2 text-[12px] rounded-lg p-2.5" style="background:var(--error-bg);color:var(--red);border:1px solid var(--error-border)" x-text="currentRun.error"></div>
+              </div>
+              <div class="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+                <template x-if="currentRun.status === 'running'">
+                  <span class="inline-flex gap-1.5">
+                    <button x-show="!currentRun.paused" @click="runControl(currentRun.run_id, 'pause')" class="btn-ghost" title="暂停">暂停</button>
+                    <button x-show="currentRun.paused" @click="runControl(currentRun.run_id, 'resume')" class="btn-ghost" title="继续">继续</button>
+                    <button @click="runControl(currentRun.run_id, 'cancel')" class="btn-ghost" style="color:var(--red)" title="取消">取消</button>
+                    <button @click="refreshDetail()" class="btn-ghost">刷新</button>
+                  </span>
+                </template>
+                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="reevaluateRun(currentRun.run_id)" :disabled="runActionBusy === 'reevaluate'" class="btn-ghost" style="color:var(--accent)" title="重新运行 evaluator：重新编译、运行测试、覆盖率和变异测试">
+                  <span x-text="runActionBusy === 'reevaluate' ? '评测中...' : '重新评测'"></span>
+                </button>
+                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="regenerateReport(currentRun.run_id)" :disabled="runActionBusy === 'report'" class="btn-ghost" style="color:var(--green)" title="根据 evaluation_result.json 重新生成报告">
+                  <span x-text="runActionBusy === 'report' ? '生成中...' : '从 JSON 生成报告'"></span>
+                </button>
+                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="ingestRunToDB(currentRun.run_id)" :disabled="dbIngesting" class="btn-ghost" style="color:var(--green)" title="补录该任务到数据库">
+                  <span x-text="dbIngesting ? '入库中...' : '入库'"></span>
+                </button>
+                <button x-show="currentRun.status === 'completed' || currentRun.status === 'failed' || currentRun.status === 'canceled'" @click="rerunRun(currentRun.run_id)" class="btn-ghost" style="color:var(--yellow)" title="以相同配置再跑一次">重跑</button>
+                <button @click="renameRun(currentRun.run_id, currentRun.label)" class="btn-ghost" style="color:var(--fg-muted)" title="设置备注名">备注</button>
+                <button x-show="currentRun.status !== 'running' && currentRun.status !== 'pending'" @click="deleteRun(currentRun.run_id)" class="btn-ghost" style="color:var(--red)" title="删除该任务及所有产物">删除</button>
+                <button @click="goto('runs')" class="btn-ghost">返回</button>
+                <button x-show="currentRun.status === 'completed'" @click="openHtmlReport()" class="btn-warm text-[12px]">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
+                  打开 HTML 报告
+                </button>
+              </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex gap-0 border-b mb-4" style="border-color:var(--border)">
+              <button @click="detailTab = 'logs'" :class="detailTab === 'logs' ? 'active' : ''" class="tab-btn">日志</button>
+              <button @click="detailTab = 'report'; loadReport()" :class="detailTab === 'report' ? 'active' : ''" class="tab-btn">报告</button>
+            </div>
+
+            <!-- Logs -->
+            <div x-show="detailTab === 'logs'" class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-2.5 border-b flex items-center justify-between" style="border-color:var(--border);background:var(--bg-elevated)">
+                <span class="text-[12px]" style="color:var(--fg-muted)">实时输出 · <span x-text="_logCount"></span> 行</span>
+                <button @click="scrollLogsBottom()" class="text-[12px]" style="color:var(--fg-subtle)">滚动到底部</button>
+              </div>
+              <div id="log-area" class="terminal text-[12px] p-4 h-[540px] overflow-y-auto leading-5" style="background:#020408;color:var(--green)">
+                <pre id="log-pre" class="log-pre whitespace-pre-wrap break-words m-0" style="font:inherit;color:inherit"></pre>
+                <div x-show="currentRun.status === 'running'" class="animate-pulse mt-1" style="color:var(--yellow)">▊</div>
+                <div id="log-bottom"></div>
+              </div>
+            </div>
+
+            <!-- Report -->
+            <div x-show="detailTab === 'report'">
+              <div x-show="!currentReport && currentRun.status !== 'completed'" class="form-section py-12 text-center">
+                <div x-show="currentRun.status === 'running'" class="animate-pulse text-[13px]" style="color:var(--fg-muted)">评测进行中...</div>
+                <div x-show="currentRun.status === 'failed'" style="color:var(--red)" class="text-[13px]">任务失败，无报告可用。</div>
+                <div x-show="currentRun.status === 'pending'" class="text-[13px]" style="color:var(--yellow)">等待开始...</div>
+              </div>
+              <div x-show="!currentReport && currentRun.status === 'completed'" class="form-section py-12 text-center">
+                <button @click="loadReport()" style="color:var(--accent)" class="text-[13px] hover:underline">加载报告</button>
+              </div>
+
+              <template x-if="currentReport">
+                <div class="space-y-4">
+                  <!-- Summary -->
+                  <div class="grid grid-cols-5 gap-3">
+                    <template x-for="card in reportCards" :key="card.label">
+                      <div class="kpi-card text-center">
+                        <div class="kpi-value" :class="card.color" x-text="card.value"></div>
+                        <div class="kpi-label" x-text="card.label"></div>
+                      </div>
+                    </template>
+                  </div>
+
+                  <div class="form-section" x-show="currentReport.runtime_summary">
+                    <div class="section-title flex items-center justify-between">
+                      <span>运行时拓扑</span>
+                      <span class="text-[11px] font-normal" style="color:var(--fg-subtle)">执行面 / 沙箱面 / 镜像</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 text-[12px]">
+                      <div class="space-y-2">
+                        <div>评测环境指纹: <code class="font-mono text-[11px]" x-text="currentReport.runtime_summary?.evaluator_env_fingerprint || '—'"></code></div>
+                        <div>Agent 框架: <span x-text="(currentReport.runtime_summary?.agent_frameworks || []).join(', ') || '—'"></span></div>
+                        <div>沙箱 Provider: <span x-text="(currentReport.runtime_summary?.sandbox_providers || []).join(', ') || '—'"></span></div>
+                      </div>
+                      <div class="space-y-2">
+                        <div>沙箱镜像: <span x-text="(currentReport.runtime_summary?.sandbox_images || []).join(', ') || '—'"></span></div>
+                        <div>Docker 沙箱样本: <span x-text="currentReport.runtime_summary?.docker_backed_subjects ?? 0"></span></div>
+                        <div>本地沙箱样本: <span x-text="currentReport.runtime_summary?.local_backed_subjects ?? 0"></span></div>
+                      </div>
+                    </div>
+                    <div x-show="(currentReport.runtime_summary?.notes || []).length" class="mt-3 text-[12px]" style="color:var(--fg-muted)">
+                      <template x-for="(note, idx) in (currentReport.runtime_summary?.notes || [])" :key="idx">
+                        <div class="py-1" x-text="'· ' + note"></div>
+                      </template>
+                    </div>
+                  </div>
+
+                  <!-- Charts: radar + bar -->
+                  <div class="grid grid-cols-2 gap-4">
+                    <div class="form-section">
+                      <div class="section-title flex items-center justify-between">
+                        <span>能力雷达</span>
+                        <span class="text-[11px] font-normal" style="color:var(--fg-subtle)">编译 / 测试 / 覆盖 / 变异 / 效率</span>
+                      </div>
+                      <div class="h-64"><canvas id="radarChart"></canvas></div>
+                    </div>
+                    <div class="form-section">
+                      <div class="section-title">模型对比</div>
+                      <div class="h-64"><canvas id="modelChart"></canvas></div>
+                    </div>
+                  </div>
+
+                  <!-- Scenario heatmap: model × (language·scenario) with mutation score -->
+                  <div class="form-section" x-show="heatmap.cols.length > 0">
+                    <div class="section-title flex items-center justify-between">
+                      <span>变异分热力图</span>
+                      <span class="text-[11px] font-normal" style="color:var(--fg-subtle)">颜色越暖表示变异分越高（测试越能发现 bug）</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                      <table class="text-[12px] w-full" style="border-collapse:separate;border-spacing:2px">
+                        <thead>
+                          <tr>
+                            <th class="text-left p-2 font-medium" style="color:var(--fg-muted)">模型 \\ 场景</th>
+                            <template x-for="col in heatmap.cols" :key="col">
+                              <th class="p-2 font-mono text-[11px] text-center whitespace-nowrap" style="color:var(--fg-muted)" x-text="col"></th>
+                            </template>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="row in heatmap.rows" :key="row.model">
+                            <tr>
+                              <td class="p-2 font-medium whitespace-nowrap" x-text="row.model"></td>
+                              <template x-for="(v,i) in row.values" :key="i">
+                                <td class="p-2 text-center font-mono rounded"
+                                    :style="heatCell(v)"
+                                    :title="heatmap.cols[i] + ': ' + (v==null ? '无数据' : (v*100).toFixed(1)+'%')">
+                                  <span x-text="v==null ? '—' : (v*100).toFixed(0)"></span>
+                                </td>
+                              </template>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <!-- Leaderboard -->
+                  <div class="form-section p-0 overflow-hidden">
+                    <div class="px-4 py-3 border-b text-[13px] font-medium" style="border-color:var(--border)">排行榜</div>
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th style="width:50px">排名</th><th>模型</th>
+                          <th class="text-right">编译</th><th class="text-right">样测</th>
+                          <th class="text-right">覆盖率</th><th class="text-right">变异</th>
+                          <th class="text-right" title="每通过样本所需的平均生成 token 数，越小越高效">tokens/通过</th>
+                          <th class="text-right" title="每通过样本所需的平均耗时，越小越快">ms/通过</th>
+                          <th class="text-right">总分</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="m in currentReport.top_models ?? []" :key="m.rank">
+                          <tr>
+                            <td class="font-mono text-[12px]" style="color:var(--fg-muted)">#<span x-text="m.rank"></span></td>
+                            <td class="font-medium text-[13px]" x-text="m.model"></td>
+                            <td class="text-right text-[12px]" :class="pctColor(m.compile_pass_rate)" x-text="pct(m.compile_pass_rate)"></td>
+                            <td class="text-right text-[12px]" :class="pctColor(m.avg_test_pass_rate)" x-text="pct(m.avg_test_pass_rate)"></td>
+                            <td class="text-right text-[12px]" :class="pctColor(m.avg_line_coverage)" x-text="pct(m.avg_line_coverage)"></td>
+                            <td class="text-right text-[12px]" :class="pctColor(m.avg_mutation_score)" x-text="pct(m.avg_mutation_score)"></td>
+                            <td class="text-right text-[12px] font-mono" style="color:var(--fg-muted)" x-text="fmtInt(m.tokens_per_pass)"></td>
+                            <td class="text-right text-[12px] font-mono" style="color:var(--fg-muted)" x-text="fmtMs(m.ms_per_pass)"></td>
+                            <td class="text-right text-[13px] font-bold" style="color:var(--accent)" x-text="((m.composite_score||0)*100).toFixed(1)"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- Failures -->
+                  <div x-show="(currentReport.failures ?? []).length > 0" class="form-section p-0 overflow-hidden">
+                    <div class="px-4 py-3 border-b text-[13px] font-medium" style="border-color:var(--border)">失败项</div>
+                    <table class="data-table">
+                      <thead><tr><th>阶段</th><th>错误类型</th><th class="text-right">总数</th><th>按模型分布</th><th>示例</th></tr></thead>
+                      <tbody>
+                        <template x-for="f in currentReport.failures ?? []" :key="f.error_type+f.stage">
+                          <tr>
+                            <td style="color:var(--fg-muted)" class="text-[12px]" x-text="f.stage"></td>
+                            <td style="color:var(--red)" class="font-mono text-[12px]" x-text="f.error_type"></td>
+                            <td class="text-right text-[12px] font-medium" x-text="f.count"></td>
+                            <td class="text-[12px]">
+                              <div class="flex flex-wrap gap-1.5">
+                                <template x-for="m in Object.entries(f.by_model || {}).sort((a,b)=>b[1]-a[1])" :key="m[0]">
+                                  <span class="tag-pill" style="background:rgba(239,68,68,.08);color:var(--red);font-size:11px">
+                                    <span class="font-medium" x-text="m[0]"></span>
+                                    <span class="opacity-70" x-text="'×'+m[1]"></span>
+                                  </span>
+                                </template>
+                                <span x-show="!f.by_model || Object.keys(f.by_model).length===0" style="color:var(--fg-subtle)">—</span>
+                              </div>
+                            </td>
+                            <td class="text-[12px] truncate max-w-xs" style="color:var(--fg-muted)" x-text="f.example_message || '—'"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- Score Exclusions -->
+                  <div class="form-section p-0 overflow-hidden">
+                    <div class="px-4 py-3 border-b flex items-center justify-between" style="border-color:var(--border)">
+                      <div class="text-[13px] font-medium">计分剔除</div>
+                      <div class="text-[11px]" style="color:var(--fg-subtle)">
+                        <span x-text="currentReport.summary?.excluded_samples ?? 0"></span>
+                        <span> / </span>
+                        <span x-text="currentReport.summary?.total_samples ?? 0"></span>
+                      </div>
+                    </div>
+                    <div x-show="!(currentReport.score_exclusions ?? []).length" class="p-4 text-[12px]" style="color:var(--fg-muted)">
+                      当前报告没有计分剔除项。只有 environment / dataset / tool 归因的样本会被剔除；模型自身生成导致的失败仍进入计分。
+                    </div>
+                    <table x-show="(currentReport.score_exclusions ?? []).length" class="data-table">
+                      <thead><tr><th>归因</th><th>原因</th><th class="text-right">数量</th><th>示例模型</th><th>示例样本</th></tr></thead>
+                      <tbody>
+                        <template x-for="item in currentReport.score_exclusions ?? []" :key="item.origin + item.reason">
+                          <tr>
+                            <td><span class="tag-pill" style="background:var(--warn-bg);color:var(--yellow)" x-text="item.origin"></span></td>
+                            <td class="text-[12px]" style="color:var(--fg-muted)" x-text="item.reason"></td>
+                            <td class="text-right text-[12px] font-medium" x-text="item.count"></td>
+                            <td class="text-[12px]" x-text="item.example_model || '-'"></td>
+                            <td class="font-mono text-[12px]" style="color:var(--fg-muted)" x-text="item.example_sample || '-'"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>

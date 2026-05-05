@@ -1,0 +1,752 @@
+      <!-- DATABASE -->
+      <div x-show="page === 'database'" class="max-w-none animate-fadeUp">
+        <div class="db-hero mb-4">
+          <div class="flex flex-wrap items-start gap-4">
+            <div class="min-w-0 flex-1">
+              <div class="db-eyebrow">资产管理</div>
+              <div class="db-title">Subject 与评测资产工作台</div>
+              <div class="mt-3 db-path">
+                <span>SQLite</span>
+                <code class="font-mono" x-text="dbOverview?.db_path || './storage/utbench.db'"></code>
+                <span x-show="dbLoading">· 加载中...</span>
+              </div>
+            </div>
+            <div class="db-toolbar">
+              <input x-model="dbIngestRunID" type="text" placeholder="run_id" class="input-base w-64 font-mono text-[12px]">
+              <button @click="ingestRunToDB()" :disabled="dbIngesting || !dbIngestRunID" class="btn-warm text-[12px]">
+                <span x-text="dbIngesting ? '入库中...' : '补录任务'"></span>
+              </button>
+              <button @click="loadDBTabData()" class="btn-ghost text-[12px]">刷新</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 子Tab导航 -->
+        <div class="db-tabbar">
+          <button @click="dbTab = 'overview'; loadDBTabData()" class="db-tab-btn" :class="dbTab === 'overview' ? 'active' : ''">
+            <span class="db-tab-label">报告工作台</span>
+            <span class="db-tab-hint">排名与对比</span>
+          </button>
+          <button @click="dbTab = 'runs'; loadDBTabData()" class="db-tab-btn" :class="dbTab === 'runs' ? 'active' : ''">
+            <span class="db-tab-label">运行数据</span>
+            <span class="db-tab-hint">生成链路</span>
+          </button>
+          <button @click="dbTab = 'evaluation'; loadDBTabData()" class="db-tab-btn" :class="dbTab === 'evaluation' ? 'active' : ''">
+            <span class="db-tab-label">评测明细</span>
+            <span class="db-tab-hint">编译测试变异</span>
+          </button>
+          <button @click="dbTab = 'assets'; loadDBTabData()" class="db-tab-btn" :class="dbTab === 'assets' ? 'active' : ''">
+            <span class="db-tab-label">资产审计</span>
+            <span class="db-tab-hint">样本/配置/文件</span>
+          </button>
+        </div>
+
+        <!-- 总览Tab -->
+        <div x-show="dbTab === 'overview'" class="space-y-5">
+          <div x-show="!dbHasData" class="db-empty-state">
+            <div>
+              <div class="db-empty-title">还没有可分析的数据</div>
+              <div class="db-empty-copy">在顶部输入 run_id 补录已有任务，或在任务详情中点击入库。</div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
+            <div class="kpi-card">
+              <div class="kpi-value kpi-total" x-text="dbOverview?.generation_runs ?? 0"></div>
+              <div class="kpi-label">生成运行</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-value kpi-running" x-text="dbOverview?.evaluation_runs ?? 0"></div>
+              <div class="kpi-label">评测运行</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-value kpi-completed" x-text="dbOverview?.generated_cases ?? 0"></div>
+              <div class="kpi-label">生成样本</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-value kpi-completed" x-text="dbOverview?.evaluation_results ?? 0"></div>
+              <div class="kpi-label">评测结果</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-value kpi-total" x-text="dbOverview?.artifacts ?? 0"></div>
+              <div class="kpi-label">Artifacts</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-value kpi-running" x-text="dbOverview?.reports ?? 0"></div>
+              <div class="kpi-label">报告</div>
+            </div>
+          </div>
+
+          <!-- 已有合并报告（可追加） -->
+          <div x-show="mergedReports.length > 0" class="form-section">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="section-title">已有合并报告（可追加新数据）</div>
+              <span x-show="pinnedReportID" class="text-[11px] px-2 py-0.5 rounded-full" style="background:var(--accent-bg);color:var(--accent)">
+                已置顶: <span class="font-mono" x-text="pinnedReportID?.slice(0,20) + '...'"></span>
+              </span>
+            </div>
+            <div class="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              <template x-for="mr in sortedMergedReports" :key="mr.run_id">
+                <label class="flex items-start gap-2 text-[12px] cursor-pointer p-2 rounded hover-surface transition-colors"
+                       :style="dbReportSelection.merge_target === mr.run_id ? 'outline:1px solid var(--accent); background:var(--bg-overlay)' : ''">
+                  <input type="radio" name="merge_target" :value="mr.run_id"
+                         :checked="dbReportSelection.merge_target === mr.run_id"
+                         @change="selectMergeTarget(mr.run_id)" class="mt-0.5" style="accent-color:var(--accent)">
+                  <span class="min-w-0 flex-1">
+                    <span class="font-mono block truncate">
+                      <span x-text="mr.run_id"></span>
+                      <span x-show="pinnedReportID === mr.run_id" class="ml-1 text-[10px]" style="color:var(--yellow)" title="已置顶">&#9733;</span>
+                    </span>
+                    <span class="text-[11px]" style="color:var(--fg-subtle)" x-text="`${mr.result_count || '?'} 条结果 · ${mr.source_run_ids?.length || 0} 个源运行 · ${mr.started_at?.slice(0,10) || ''}`"></span>
+                  </span>
+                  <button @click.stop="togglePinReport(mr.run_id)" class="text-[14px] shrink-0 px-1" :style="pinnedReportID === mr.run_id ? 'color:var(--yellow)' : 'color:var(--fg-muted)'" :title="pinnedReportID === mr.run_id ? '取消置顶' : '置顶为主报告'">
+                    <span x-text="pinnedReportID === mr.run_id ? '&#9733;' : '&#9734;'"></span>
+                  </button>
+                  <a :href="'/api/runs/' + mr.run_id + '/report-html'" target="_blank"
+                     @click.stop class="text-[11px] shrink-0" style="color:var(--accent)" title="查看报告">查看</a>
+                </label>
+              </template>
+            </div>
+            <div class="text-[11px] mt-2" style="color:var(--fg-muted)">
+              点击 &#9734; 置顶主报告，之后每次合并自动追加到置顶报告。不选择则创建新报告。
+            </div>
+          </div>
+
+          <!-- 跨运行对比报告生成 -->
+          <div class="form-section">
+            <div class="flex flex-wrap items-start gap-3 mb-4">
+              <div class="mr-auto">
+                <div class="section-title">跨运行对比报告</div>
+                <div class="text-[12px]" style="color:var(--fg-muted)">选择同一评测环境下的运行结果，生成模型排名和横向对比。</div>
+              </div>
+              <span class="tag-pill" :style="dbEnvCompatibilityStyle" x-text="dbEnvCompatibilityText"></span>
+            </div>
+            <div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+              <!-- 运行选择 -->
+              <div class="xl:col-span-2">
+                <div class="label-text">选择评测运行（可多选跨运行数据）</div>
+                <div class="db-run-picker space-y-1.5 overflow-y-auto pr-1 border rounded-lg p-2" style="border-color:var(--border)">
+                  <template x-for="run in dbFacets.runs" :key="run.evaluation_run_id">
+                    <label class="flex items-start gap-2 text-[12px] cursor-pointer p-2 rounded hover-surface transition-colors">
+                      <input type="checkbox" :checked="dbReportSelection.run_ids.includes(run.run_id)" @change="toggleReportSelection('run_ids', run.run_id)" class="mt-0.5" style="accent-color:var(--accent)">
+                      <span class="min-w-0 flex-1">
+                        <span class="font-mono block truncate" x-text="run.run_id"></span>
+                        <span class="text-[11px]" style="color:var(--fg-subtle)" x-text="`${run.evaluation_results} 条结果 · ${run.evaluated_at_utc?.slice(0,10) || '未知时间'}`"></span>
+                        <span x-show="run.env_id && run.env_id !== 'unknown'" class="text-[11px]" style="color:var(--green)" x-text="'环境: ' + run.env_id?.slice(0,16)"></span>
+                      </span>
+                    </label>
+                  </template>
+                  <div x-show="!dbFacets.runs.length" class="text-[12px] py-4 text-center" style="color:var(--fg-muted)">暂无可选运行，请先入库评测结果</div>
+                </div>
+              </div>
+              <!-- 模型筛选 -->
+              <div>
+                <div class="label-text">模型筛选（可选）</div>
+                <div class="flex flex-wrap gap-2 mb-3">
+                  <template x-for="m in dbFacets.models" :key="m">
+                    <button @click="toggleReportSelection('models', m)" class="chip" :class="dbReportSelection.models.includes(m) ? 'active' : ''" x-text="m"></button>
+                  </template>
+                </div>
+                <div class="label-text">语言筛选（可选）</div>
+                <div class="flex flex-wrap gap-2">
+                  <template x-for="lang in dbFacets.languages" :key="lang">
+                    <button @click="toggleReportSelection('languages', lang)" class="chip" :class="dbReportSelection.languages.includes(lang) ? 'active' : ''" x-text="lang"></button>
+                  </template>
+                </div>
+                <label class="flex items-center gap-2 text-[12px] mt-4 cursor-pointer">
+                  <input type="checkbox" x-model="dbReportSelection.score_eligible_only" style="accent-color:var(--accent)">
+                  <span>仅计入评分有效样本</span>
+                </label>
+                <!-- 去重模式 -->
+                <div class="mt-3">
+                  <div class="label-text mb-1">同名样本冲突策略</div>
+                  <div class="flex gap-3 text-[12px]">
+                    <label class="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" name="dedup_mode" value="merge" x-model="dbReportSelection.dedup_mode" style="accent-color:var(--accent)">
+                      <span>合并（保留全部）</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" name="dedup_mode" value="overwrite" x-model="dbReportSelection.dedup_mode" style="accent-color:var(--accent)">
+                      <span>覆盖（保留最新 run）</span>
+                    </label>
+                  </div>
+                  <div class="text-[11px] mt-1" style="color:var(--fg-subtle)" x-show="dbReportSelection.dedup_mode === 'overwrite'">
+                    按 (模型+语言+样本ID) 去重，同一组合只保留最新 run_id 的结果
+                  </div>
+                </div>
+              </div>
+              <!-- 生成操作 -->
+              <div>
+                <div class="label-text">当前选择</div>
+                <div class="text-[12px] p-3 rounded-lg mb-3" style="background:var(--bg-overlay)">
+                  <div x-show="dbReportSelection.merge_target" class="font-medium mb-1" style="color:var(--accent)">
+                    追加到: <span class="font-mono" x-text="dbReportSelection.merge_target?.slice(0,20) + '...'"></span>
+                  </div>
+                  <div x-text="'运行: ' + (dbReportSelection.run_ids.length || '全部')"></div>
+                  <div x-text="'模型: ' + (dbReportSelection.models.length || '全部')"></div>
+                  <div x-text="'语言: ' + (dbReportSelection.languages.length || '全部')"></div>
+                  <div x-text="'冲突策略: ' + (dbReportSelection.dedup_mode === 'overwrite' ? '覆盖' : '合并')"></div>
+                </div>
+                <button @click="generateDBReport()" :disabled="dbReportGenerating" class="btn-primary text-[12px] w-full py-2.5">
+                  <span x-text="dbReportGenerating ? '生成中...' : (dbReportSelection.merge_target ? '追加合并' : '生成对比报告')"></span>
+                </button>
+                <button @click="clearReportSelection()" class="btn-ghost text-[12px] w-full mt-2">清空选择</button>
+                <!-- 生成结果链接 -->
+                <div x-show="lastDBReportResult" class="mt-3 p-2 rounded-lg text-[12px]" style="background:var(--bg-overlay)">
+                  <div class="mb-1" style="color:var(--green)">报告已生成</div>
+                  <a :href="'/api/runs/' + lastDBReportResult?.run_id + '/report-html'" target="_blank" class="underline" style="color:var(--accent)">查看 HTML 报告</a>
+                  <span class="mx-1" style="color:var(--fg-muted)">|</span>
+                  <span style="color:var(--fg-subtle)" x-text="lastDBReportResult?.result_count + ' 条结果'"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 运行Tab -->
+        <div x-show="dbTab === 'runs'" class="space-y-5">
+          <div class="form-section p-0 overflow-hidden">
+            <div class="px-4 py-3 border-b flex items-center justify-between" style="border-color:var(--border)">
+              <span class="text-[13px] font-medium">生成运行</span>
+              <span class="text-[11px]" style="color:var(--fg-muted)" x-text="dbGenerationRuns.length + ' 条'"></span>
+            </div>
+            <table class="data-table">
+              <thead><tr><th>Run ID</th><th>创建时间</th><th>Prompt策略</th><th>模型</th><th>语言</th><th>样本数</th></tr></thead>
+              <tbody>
+                <template x-for="row in dbGenerationRuns" :key="row.run_id">
+                  <tr @click="dbGenCaseFilter.run_id = row.run_id; loadDBGeneratedCases()">
+                    <td class="font-mono text-[12px]" style="color:var(--fg-muted)" x-text="row.run_id"></td>
+                    <td x-text="row.created_at_utc?.slice(0,19) || ''"></td>
+                    <td x-text="row.prompt_strategy"></td>
+                    <td x-text="row.models"></td>
+                    <td x-text="row.languages"></td>
+                    <td x-text="row.generated_cases"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div x-show="!dbGenerationRuns.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无生成运行记录</div>
+          </div>
+
+          <div class="form-section p-0 overflow-hidden">
+            <div class="px-4 py-3 border-b flex flex-wrap items-center gap-2" style="border-color:var(--border)">
+              <span class="text-[13px] font-medium mr-auto">生成样本</span>
+              <input x-model="dbGenCaseFilter.run_id" @change="loadDBGeneratedCases()" type="text" placeholder="run_id" class="input-base w-40 font-mono text-[11px]">
+              <input x-model="dbGenCaseFilter.model" @change="loadDBGeneratedCases()" type="text" placeholder="model" class="input-base w-32">
+              <select x-model="dbGenCaseFilter.language" @change="loadDBGeneratedCases()" class="input-base w-24">
+                <option value="">全部</option>
+                <option value="python">python</option>
+                <option value="go">go</option>
+                <option value="java">java</option>
+                <option value="cpp">cpp</option>
+              </select>
+            </div>
+            <table class="data-table">
+              <thead><tr><th>Run ID</th><th>Model</th><th>Lang</th><th>Sample</th><th>成功</th><th>Token</th><th>延迟</th></tr></thead>
+              <tbody>
+                <template x-for="row in dbGeneratedCases" :key="row.generated_case_id">
+                  <tr>
+                    <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.run_id?.slice(0,12)"></td>
+                    <td x-text="row.model"></td>
+                    <td x-text="row.language"></td>
+                    <td class="font-mono text-[11px]" x-text="row.sample_id"></td>
+                    <td :style="row.success ? 'color:var(--green)' : 'color:var(--red)'" x-text="row.success ? 'OK' : 'FAIL'"></td>
+                    <td x-text="row.total_tokens || '—'"></td>
+                    <td x-text="row.latency_ms ? row.latency_ms + 'ms' : '—'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div x-show="!dbGeneratedCases.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无生成样本记录</div>
+          </div>
+        </div>
+
+        <!-- 评测Tab -->
+        <div x-show="dbTab === 'evaluation'" class="space-y-5">
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b flex items-center gap-2" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">评测运行</span>
+                <input x-model="dbEvalRunFilter.run_id" @change="loadDBEvaluationRuns()" type="text" placeholder="run_id筛选" class="input-base w-40 font-mono text-[11px] ml-auto">
+              </div>
+              <table class="data-table">
+                <thead><tr><th>Eval Run ID</th><th>Run ID</th><th>评测时间</th><th>结果数</th><th>环境</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbEvaluationRuns" :key="row.evaluation_run_id">
+                    <tr @click="dbStageFilter.evaluation_run_id = row.evaluation_run_id; loadDBEvaluationStages()">
+                      <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.evaluation_run_id?.slice(0,20)"></td>
+                      <td class="font-mono text-[11px]" x-text="row.run_id?.slice(0,12)"></td>
+                      <td x-text="row.evaluated_at_utc?.slice(0,19)"></td>
+                      <td x-text="row.results_count"></td>
+                      <td class="text-[11px]" style="color:var(--fg-subtle)" x-text="row.env_id?.slice(0,16) || 'unknown'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b flex items-center gap-2" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">评测结果</span>
+                <input x-model="dbFilters.run_id" @change="loadDBResults()" type="text" placeholder="run_id" class="input-base w-40 font-mono text-[11px] ml-auto">
+              </div>
+              <table class="data-table">
+                <thead><tr><th>模型</th><th>语言</th><th>样本</th><th>编译</th><th>测试</th><th>覆盖</th><th>变异</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbResults" :key="row.evaluation_result_id">
+                    <tr>
+                      <td x-text="row.model"></td>
+                      <td x-text="row.language"></td>
+                      <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.sample_id"></td>
+                      <td :style="row.compile_pass ? 'color:var(--green)' : 'color:var(--red)'" x-text="row.compile_pass ? 'PASS' : 'FAIL'"></td>
+                      <td :style="row.test_pass ? 'color:var(--green)' : 'color:var(--red)'" x-text="row.test_pass == null ? '—' : (row.test_pass ? 'PASS' : 'FAIL')"></td>
+                      <td x-text="metricPct(row.line_coverage)"></td>
+                      <td x-text="metricPct(row.mutation_score)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="form-section p-0 overflow-hidden">
+            <div class="px-4 py-3 border-b flex items-center gap-2" style="border-color:var(--border)">
+              <span class="text-[13px] font-medium">Stage执行详情</span>
+              <input x-model="dbStageFilter.evaluation_run_id" @change="loadDBEvaluationStages()" type="text" placeholder="eval_run_id筛选" class="input-base w-48 font-mono text-[11px] ml-auto">
+            </div>
+            <table class="data-table">
+              <thead><tr><th>Stage</th><th>命令</th><th>工作目录</th><th>退出码</th><th>耗时</th><th>状态</th></tr></thead>
+              <tbody>
+                <template x-for="row in dbEvaluationStages" :key="row.stage_result_id">
+                  <tr>
+                    <td class="font-mono" x-text="row.stage"></td>
+                    <td class="font-mono text-[11px]" style="color:var(--fg-subtle);overflow-wrap:anywhere" x-text="row.command?.slice(0,60)"></td>
+                    <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.workdir?.slice(-30)"></td>
+                    <td x-text="row.exit_code ?? '—'"></td>
+                    <td x-text="row.duration_ms ? row.duration_ms + 'ms' : '—'"></td>
+                    <td :style="row.status === 'ok' ? 'color:var(--green)' : 'color:var(--red)'" x-text="row.status"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div x-show="!dbEvaluationStages.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无Stage记录</div>
+          </div>
+        </div>
+
+        <!-- 资产审计Tab：低频排查信息合并展示，避免顶层标签过多 -->
+        <div x-show="dbTab === 'assets'" class="space-y-5 mt-5">
+          <div class="form-section">
+            <div class="section-title">Subject 资产管理</div>
+            <div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+              <div>
+                <label class="label-text">Subject</label>
+                <input x-model="dbAssetFilter.subject" @change="applyDBAssetFilter()" type="text" placeholder="opencode__deepseek-v4-flash__no_skill" class="input-base font-mono text-[12px]">
+              </div>
+              <div>
+                <label class="label-text">语言</label>
+                <select x-model="dbAssetFilter.language" @change="applyDBAssetFilter()" class="input-base">
+                  <option value="">全部</option>
+                  <option value="python">python</option>
+                  <option value="go">go</option>
+                  <option value="java">java</option>
+                  <option value="cpp">cpp</option>
+                </select>
+              </div>
+              <div>
+                <label class="label-text">样本</label>
+                <input x-model="dbAssetFilter.sample" @change="applyDBAssetFilter()" type="text" placeholder="boundary_000" class="input-base font-mono text-[12px]">
+              </div>
+              <div class="flex items-end gap-2">
+                <button @click="applyDBAssetFilter()" class="btn-ghost text-[12px]">刷新资产</button>
+                <button @click="applyDBAssetFilter('', '', '')" class="btn-ghost text-[12px]">清空筛选</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="section-title">树形历史视图</div>
+            <div x-show="!dbAssetTree.length" class="text-[13px]" style="color:var(--fg-muted)">当前筛选下暂无 subject / language / sample 资产历史</div>
+            <div class="space-y-3" x-show="dbAssetTree.length">
+              <template x-for="subject in dbAssetTree" :key="subject.subject_id">
+                <details class="rounded-lg border px-3 py-2" style="border-color:var(--border)">
+                  <summary class="cursor-pointer list-none flex items-center gap-3">
+                    <span class="font-mono text-[12px]" x-text="subject.subject_id"></span>
+                    <span class="text-[11px]" style="color:var(--fg-muted)" x-text="(subject.framework || subject.subject_kind || 'subject') + ' · ' + (subject.skill || 'no_skill')"></span>
+                    <span class="ml-auto text-[11px]" style="color:var(--fg-subtle)" x-text="'languages=' + subject.languages.length + ' · generations=' + subject.generated_cases + ' · evaluations=' + subject.evaluation_results"></span>
+                  </summary>
+                  <div class="mt-3 space-y-3">
+                    <template x-for="lang in subject.languages" :key="subject.subject_id + ':' + lang.language">
+                      <details class="rounded-lg border px-3 py-2" style="border-color:var(--border)">
+                        <summary class="cursor-pointer list-none flex items-center gap-3">
+                          <span class="font-medium" x-text="lang.language"></span>
+                          <span class="text-[11px]" style="color:var(--fg-muted)" x-text="'samples=' + lang.samples.length"></span>
+                        </summary>
+                        <div class="mt-3 space-y-3">
+                          <template x-for="sample in lang.samples" :key="subject.subject_id + ':' + lang.language + ':' + sample.sample_id">
+                            <details class="rounded-lg border px-3 py-2" style="border-color:var(--border)">
+                              <summary class="cursor-pointer list-none flex items-center gap-3">
+                                <span class="font-mono text-[12px]" x-text="sample.sample_id"></span>
+                                <span class="text-[11px]" style="color:var(--fg-muted)" x-text="'gen=' + sample.generations.length + ' · eval=' + sample.evaluations.length"></span>
+                                <span class="text-[11px]" :style="sample.latest_generation && sample.latest_generation.success ? 'color:var(--green)' : 'color:var(--red)'" x-text="'G:' + (sample.latest_generation ? (sample.latest_generation.success ? 'OK' : 'FAIL') : '—')"></span>
+                                <span class="text-[11px]" :style="sample.latest_evaluation && sample.latest_evaluation.compile_pass ? 'color:var(--green)' : 'color:var(--red)'" x-text="'E:' + (sample.latest_evaluation ? (sample.latest_evaluation.compile_pass ? 'PASS' : 'FAIL') : '—')"></span>
+                                <button @click.prevent="applyDBAssetFilter(subject.subject_id, lang.language, sample.sample_id)" class="ml-auto btn-ghost text-[11px] py-1 px-2">聚焦</button>
+                              </summary>
+                              <div class="mt-3 grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                <div>
+                                  <div class="text-[12px] font-medium mb-2">生成历史</div>
+                                  <div class="space-y-2" x-show="sample.generations.length">
+                                    <template x-for="row in sample.generations" :key="row.generated_case_id">
+                                      <div class="rounded-lg border px-3 py-2 text-[11px]" style="border-color:var(--border)">
+                                        <div class="flex items-center gap-2">
+                                          <span class="font-mono" x-text="row.run_id"></span>
+                                          <span :style="row.success ? 'color:var(--green)' : 'color:var(--red)'" x-text="row.success ? 'OK' : 'FAIL'"></span>
+                                          <span style="color:var(--fg-muted)" x-text="row.reused ? 'reused' : 'fresh'"></span>
+                                          <span class="ml-auto" style="color:var(--fg-subtle)" x-text="row.generated_at_utc?.slice(0,19) || '—'"></span>
+                                        </div>
+                                        <div class="mt-1 font-mono" style="color:var(--fg-subtle)" x-text="'subject_version=' + (row.subject_version_id?.slice(0,16) || '—')"></div>
+                                        <div class="mt-1 font-mono" style="color:var(--fg-subtle)" x-text="'generation_key=' + (row.generation_key?.slice(0,20) || '—')"></div>
+                                      </div>
+                                    </template>
+                                  </div>
+                                  <div x-show="!sample.generations.length" class="text-[11px]" style="color:var(--fg-muted)">暂无生成历史</div>
+                                </div>
+                                <div>
+                                  <div class="text-[12px] font-medium mb-2">评测历史</div>
+                                  <div class="space-y-2" x-show="sample.evaluations.length">
+                                    <template x-for="row in sample.evaluations" :key="row.evaluation_result_id">
+                                      <div class="rounded-lg border px-3 py-2 text-[11px]" style="border-color:var(--border)">
+                                        <div class="flex items-center gap-2">
+                                          <span class="font-mono" x-text="row.run_id"></span>
+                                          <span :style="row.compile_pass ? 'color:var(--green)' : 'color:var(--red)'" x-text="row.compile_pass ? 'PASS' : 'FAIL'"></span>
+                                          <span style="color:var(--fg-muted)" x-text="row.reused ? 'reused' : 'fresh'"></span>
+                                          <span class="ml-auto" style="color:var(--fg-subtle)" x-text="row.created_at_utc?.slice(0,19) || '—'"></span>
+                                        </div>
+                                        <div class="mt-1 font-mono" style="color:var(--fg-subtle)" x-text="'evaluation_key=' + (row.evaluation_key?.slice(0,20) || '—')"></div>
+                                        <div class="mt-1 font-mono" style="color:var(--fg-subtle)" x-text="'env=' + (row.evaluation_env_fingerprint?.slice(0,20) || '—')"></div>
+                                      </div>
+                                    </template>
+                                  </div>
+                                  <div x-show="!sample.evaluations.length" class="text-[11px]" style="color:var(--fg-muted)">暂无评测历史</div>
+                                </div>
+                              </div>
+                            </details>
+                          </template>
+                        </div>
+                      </details>
+                    </template>
+                  </div>
+                </details>
+              </template>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">Subject 列表</span>
+              </div>
+              <table class="data-table">
+                <thead><tr><th>Subject</th><th>Framework</th><th>Skill</th><th>生成</th><th>评测</th><th>最新生成</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbAssetSubjects" :key="row.subject_id">
+                    <tr @click="applyDBAssetFilter(row.subject_id, dbAssetFilter.language, dbAssetFilter.sample)" style="cursor:pointer">
+                      <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.subject_id"></td>
+                      <td x-text="row.framework || row.subject_kind || '—'"></td>
+                      <td x-text="row.skill || 'no_skill'"></td>
+                      <td x-text="row.generated_cases"></td>
+                      <td x-text="row.evaluation_results"></td>
+                      <td x-text="row.latest_generated_at?.slice(0,19) || '—'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+              <div x-show="!dbAssetSubjects.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无 subject 资产</div>
+            </div>
+
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">Subject Versions</span>
+              </div>
+              <table class="data-table">
+                <thead><tr><th>Version ID</th><th>Model Config</th><th>Docker</th><th>Command</th><th>创建时间</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbSubjectVersions" :key="row.subject_version_id">
+                    <tr>
+                      <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.subject_version_id?.slice(0,16)"></td>
+                      <td class="font-mono text-[11px]" x-text="row.model_config_id?.slice(0,16) || '—'"></td>
+                      <td class="font-mono text-[10px]" style="color:var(--fg-subtle)" x-text="row.docker_image_digest?.slice(0,16) || row.docker_image || '—'"></td>
+                      <td class="font-mono text-[10px]" style="color:var(--fg-subtle)" x-text="row.agent_command_sha256?.slice(0,16) || '—'"></td>
+                      <td x-text="row.created_at_utc?.slice(0,19) || '—'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+              <div x-show="!dbSubjectVersions.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无 subject version</div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">生成资产</span>
+              </div>
+              <table class="data-table">
+                <thead><tr><th>Run</th><th>Lang</th><th>Sample</th><th>状态</th><th>复用</th><th>Key</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbAssetGenerations" :key="row.generated_case_id">
+                    <tr @click="applyDBAssetFilter(row.subject_id, row.language, row.sample_id)" style="cursor:pointer">
+                      <td class="font-mono text-[11px]" x-text="row.run_id?.slice(0,12)"></td>
+                      <td x-text="row.language"></td>
+                      <td class="font-mono text-[11px]" x-text="row.sample_id"></td>
+                      <td :style="row.success ? 'color:var(--green)' : 'color:var(--red)'" x-text="row.success ? 'OK' : 'FAIL'"></td>
+                      <td x-text="row.reused ? 'yes' : 'no'"></td>
+                      <td class="font-mono text-[10px]" style="color:var(--fg-subtle)" x-text="row.generation_key?.slice(0,16) || '—'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+              <div x-show="!dbAssetGenerations.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无生成资产</div>
+            </div>
+
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">评测资产</span>
+              </div>
+              <table class="data-table">
+                <thead><tr><th>Run</th><th>Lang</th><th>Sample</th><th>编译</th><th>复用</th><th>Env</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbAssetEvaluations" :key="row.evaluation_result_id">
+                    <tr>
+                      <td class="font-mono text-[11px]" x-text="row.run_id?.slice(0,12)"></td>
+                      <td x-text="row.language"></td>
+                      <td class="font-mono text-[11px]" x-text="row.sample_id"></td>
+                      <td :style="row.compile_pass ? 'color:var(--green)' : 'color:var(--red)'" x-text="row.compile_pass ? 'PASS' : 'FAIL'"></td>
+                      <td x-text="row.reused ? 'yes' : 'no'"></td>
+                      <td class="font-mono text-[10px]" style="color:var(--fg-subtle)" x-text="row.evaluation_env_fingerprint?.slice(0,16) || '—'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+              <div x-show="!dbAssetEvaluations.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无评测资产</div>
+            </div>
+          </div>
+
+          <div class="form-section" x-show="dbReuseExplain">
+            <div class="section-title">复用解释</div>
+            <div class="grid grid-cols-1 xl:grid-cols-4 gap-4 text-[12px]">
+              <div>
+                <div style="color:var(--fg-muted)">命中状态</div>
+                <div class="font-medium" :style="dbReuseExplain?.matched ? 'color:var(--green)' : 'color:var(--yellow)'" x-text="dbReuseExplain?.matched ? 'matched' : (dbReuseExplain?.miss_reason || 'miss')"></div>
+              </div>
+              <div>
+                <div style="color:var(--fg-muted)">Generation Key</div>
+                <div class="font-mono text-[11px]" x-text="dbReuseExplain?.generation_key?.slice(0,24) || '—'"></div>
+              </div>
+              <div>
+                <div style="color:var(--fg-muted)">Stored Subject Version</div>
+                <div class="font-mono text-[11px]" x-text="dbReuseExplain?.comparisons?.stored_subject_version_id?.slice(0,24) || '—'"></div>
+              </div>
+              <div>
+                <div style="color:var(--fg-muted)">Stored Sample UID</div>
+                <div class="font-mono text-[11px]" x-text="dbReuseExplain?.comparisons?.stored_sample_uid?.slice(0,24) || '—'"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b flex items-center gap-2" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">样本注册</span>
+                <select x-model="dbSampleFilter.language" @change="loadDBDatasetSamples()" class="input-base w-24 ml-auto">
+                  <option value="">全部语言</option>
+                  <option value="python">python</option>
+                  <option value="go">go</option>
+                  <option value="java">java</option>
+                  <option value="cpp">cpp</option>
+                </select>
+              </div>
+              <table class="data-table">
+                <thead><tr><th>Sample UID</th><th>Language</th><th>Class</th><th>Path</th><th>SHA256</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbDatasetSamples" :key="row.sample_uid">
+                    <tr>
+                      <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.sample_uid?.slice(0,16)"></td>
+                      <td x-text="row.language"></td>
+                      <td x-text="row.class || '—'"></td>
+                      <td class="font-mono text-[11px]" style="color:var(--fg-subtle);overflow-wrap:anywhere" x-text="row.path?.slice(-40)"></td>
+                      <td class="font-mono text-[10px]" style="color:var(--fg-subtle)" x-text="row.source_sha256?.slice(0,12)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">数据集快照</span>
+              </div>
+              <table class="data-table">
+                <thead><tr><th>Snapshot ID</th><th>Fingerprint</th><th>样本数</th><th>创建时间</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbDatasetSnapshots" :key="row.snapshot_id">
+                    <tr>
+                      <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.snapshot_id?.slice(0,16)"></td>
+                      <td class="font-mono text-[10px]" style="color:var(--fg-subtle)" x-text="row.fingerprint?.slice(0,12)"></td>
+                      <td x-text="row.sample_count"></td>
+                      <td x-text="row.created_at_utc?.slice(0,19)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div x-show="dbTab === 'assets'" class="space-y-5">
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">模型配置历史</span>
+              </div>
+              <table class="data-table">
+                <thead><tr><th>Config ID</th><th>Model</th><th>Provider</th><th>创建时间</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbModelConfigs" :key="row.model_config_id">
+                    <tr>
+                      <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.model_config_id?.slice(0,16)"></td>
+                      <td x-text="row.model_name"></td>
+                      <td x-text="row.provider || '—'"></td>
+                      <td x-text="row.created_at_utc?.slice(0,19)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">Prompt策略</span>
+              </div>
+              <table class="data-table">
+                <thead><tr><th>Profile ID</th><th>Strategy</th><th>Version</th><th>创建时间</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbPromptProfiles" :key="row.profile_id">
+                    <tr>
+                      <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.profile_id?.slice(0,16)"></td>
+                      <td x-text="row.strategy || '—'"></td>
+                      <td x-text="row.version_id || '—'"></td>
+                      <td x-text="row.created_at_utc?.slice(0,19)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">评测环境</span>
+              </div>
+              <table class="data-table">
+                <thead><tr><th>Env ID</th><th>Fingerprint</th><th>创建时间</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbEvaluationEnvs" :key="row.env_id">
+                    <tr>
+                      <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.env_id?.slice(0,16)"></td>
+                      <td class="font-mono text-[10px]" style="color:var(--fg-subtle)" x-text="row.fingerprint?.slice(0,12)"></td>
+                      <td x-text="row.created_at_utc?.slice(0,19)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="form-section p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b" style="border-color:var(--border)">
+                <span class="text-[13px] font-medium">评分策略</span>
+              </div>
+              <table class="data-table">
+                <thead><tr><th>Policy ID</th><th>Name</th><th>创建时间</th></tr></thead>
+                <tbody>
+                  <template x-for="row in dbScorePolicies" :key="row.score_policy_id">
+                    <tr>
+                      <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.score_policy_id?.slice(0,16)"></td>
+                      <td x-text="row.name"></td>
+                      <td x-text="row.created_at_utc?.slice(0,19)"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div x-show="dbTab === 'assets'" class="form-section p-0 overflow-hidden mt-5">
+          <div class="px-4 py-3 border-b flex items-center gap-2" style="border-color:var(--border)">
+            <span class="text-[13px] font-medium">报告快照</span>
+            <input x-model="dbReportFilter.run_id" @change="loadDBReports()" type="text" placeholder="run_id筛选" class="input-base w-40 font-mono text-[11px] ml-auto">
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Report ID</th><th>Run ID</th><th>生成时间</th><th>JSON路径</th><th>HTML路径</th></tr></thead>
+            <tbody>
+              <template x-for="row in dbReports" :key="row.report_id">
+                <tr>
+                  <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.report_id?.slice(0,16)"></td>
+                  <td class="font-mono text-[11px]" x-text="row.run_id?.slice(0,12)"></td>
+                  <td x-text="row.generated_at_utc?.slice(0,19)"></td>
+                  <td class="font-mono text-[11px]" style="color:var(--fg-subtle)" x-text="row.report_json_path?.slice(-40)"></td>
+                  <td class="font-mono text-[11px]" style="color:var(--fg-subtle)" x-text="row.report_html_path?.slice(-40)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div x-show="!dbReports.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无报告记录</div>
+        </div>
+
+        <div x-show="dbTab === 'assets'" class="space-y-5 mt-5">
+          <div class="form-section p-0 overflow-hidden">
+            <div class="px-4 py-3 border-b flex flex-wrap items-center gap-2" style="border-color:var(--border)">
+              <span class="text-[13px] font-medium mr-auto">Artifact 索引</span>
+              <input x-model="dbArtifactFilters.run_id" @change="loadDBArtifacts()" type="text" placeholder="run_id" class="input-base w-40 font-mono text-[11px]">
+              <input x-model="dbArtifactFilters.kind" @change="loadDBArtifacts()" type="text" placeholder="kind" class="input-base w-32">
+            </div>
+            <table class="data-table">
+              <thead><tr><th>Kind</th><th>Path</th><th>Size</th><th>SHA256</th></tr></thead>
+              <tbody>
+                <template x-for="row in dbArtifacts" :key="row.artifact_id">
+                  <tr>
+                    <td x-text="row.kind"></td>
+                    <td class="font-mono text-[11px]" style="color:var(--fg-muted);overflow-wrap:anywhere" x-text="row.path"></td>
+                    <td x-text="fmtBytes(row.size_bytes)"></td>
+                    <td class="font-mono text-[11px]" style="color:var(--fg-subtle)" x-text="row.sha256?.slice(0, 16)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div x-show="!dbArtifacts.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无 artifact 记录</div>
+          </div>
+
+          <div class="form-section p-0 overflow-hidden">
+            <div class="px-4 py-3 border-b flex items-center gap-2" style="border-color:var(--border)">
+              <span class="text-[13px] font-medium">Run-Artifact 关联</span>
+              <input x-model="dbRunArtifactFilter.run_id" @change="loadDBRunArtifacts()" type="text" placeholder="run_id筛选" class="input-base w-40 font-mono text-[11px] ml-auto">
+            </div>
+            <table class="data-table">
+              <thead><tr><th>Run ID</th><th>Artifact ID</th><th>Role</th><th>Kind</th><th>Size</th></tr></thead>
+              <tbody>
+                <template x-for="row in dbRunArtifacts" :key="row.run_id + row.artifact_id">
+                  <tr>
+                    <td class="font-mono text-[11px]" style="color:var(--fg-muted)" x-text="row.run_id?.slice(0,12)"></td>
+                    <td class="font-mono text-[11px]" style="color:var(--fg-subtle)" x-text="row.artifact_id?.slice(0,12)"></td>
+                    <td x-text="row.role"></td>
+                    <td x-text="row.artifact_kind || '—'"></td>
+                    <td x-text="row.artifact_size ? fmtBytes(row.artifact_size) : '—'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div x-show="!dbRunArtifacts.length" class="px-4 py-8 text-center text-[13px]" style="color:var(--fg-muted)">暂无关联记录</div>
+          </div>
+        </div>
+      </div>

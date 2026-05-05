@@ -1,0 +1,70 @@
+      <!-- RUNS LIST -->
+      <div x-show="page === 'runs'" class="max-w-6xl animate-fadeUp">
+        <div class="flex items-center gap-3 mb-4">
+          <input x-model="runFilter" type="text" placeholder="按任务 ID、subject、模型、语言筛选..." class="input-base w-72">
+          <select x-model="statusFilter" class="input-base w-36">
+            <option value="">全部状态</option>
+            <option value="pending">等待中</option>
+            <option value="running">运行中</option>
+            <option value="completed">已完成</option>
+            <option value="failed">失败</option>
+          </select>
+          <button @click="goto('new-run')" class="btn-primary ml-auto">+ 新建任务</button>
+        </div>
+        <div class="form-section p-0 overflow-hidden">
+          <div x-show="filteredRuns.length === 0" class="px-5 py-12 text-center text-[13px]" style="color:var(--fg-muted)">
+            无匹配任务
+          </div>
+          <table x-show="filteredRuns.length > 0" class="data-table">
+            <thead>
+              <tr>
+                <th>任务 ID</th><th>状态</th><th>被测对象</th><th>语言</th><th>场景</th><th>样本数</th>
+                <th>启动时间</th><th>耗时</th><th style="width:210px" class="text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="run in filteredRuns" :key="run.run_id">
+                <tr>
+                  <td class="font-mono text-[12px]" style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? window.open('/api/runs/' + run.run_id + '/report-html') : openRun(run.run_id)">
+                    <span x-show="run.label" class="font-semibold mr-1" style="color:var(--fg)" x-text="run.label"></span>
+                    <span x-show="run.label" class="text-[10px] mr-1" style="color:var(--fg-muted)">·</span>
+                    <span x-text="run.run_id"></span>
+                    <span x-show="run.is_merged_report" class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full" style="background:var(--accent-bg);color:var(--accent)">合并</span>
+                  </td>
+                  <td @click="run.is_merged_report ? null : openRun(run.run_id)" style="cursor:pointer">
+                    <span :class="'status-' + run.status" class="inline-flex items-center text-[12px] font-medium px-2.5 py-0.5 rounded-full" style="background:var(--badge-bg)">
+                      <span class="status-dot"></span><span x-text="statusText(run.status, run.paused)"></span>
+                    </span>
+                    <span x-show="run.paused" class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background:var(--warn-bg);color:var(--yellow)">暂停</span>
+                  </td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="run.is_merged_report ? (run.source_run_ids?.length || 0) + ' 个源运行 · ' + (run.result_count || '?') + ' 条结果' : runSubjectSummary(run)"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="(run.spec?.languages ?? []).join(', ') || '—'"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="run.spec?.dataset_scenario || '—'"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="run.spec?.max_samples || '—'"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="fmtTime(run.started_at)"></td>
+                  <td style="color:var(--fg-muted);cursor:pointer" @click="run.is_merged_report ? null : openRun(run.run_id)" x-text="duration(run.started_at, run.ended_at)"></td>
+                  <td class="text-right whitespace-nowrap">
+                    <template x-if="run.status === 'running' && !run.is_merged_report">
+                      <span class="inline-flex gap-1.5">
+                        <button x-show="!run.paused" @click.stop="runControl(run.run_id, 'pause')" class="text-[12px]" style="color:var(--yellow)" title="暂停">暂停</button>
+                        <button x-show="run.paused" @click.stop="runControl(run.run_id, 'resume')" class="text-[12px]" style="color:var(--accent)" title="继续">继续</button>
+                        <button @click.stop="runControl(run.run_id, 'cancel')" class="text-[12px]" style="color:var(--red)" title="取消">取消</button>
+                      </span>
+                    </template>
+                    <button x-show="!run.is_merged_report && (run.status === 'completed' || run.status === 'failed' || run.status === 'canceled')" @click.stop="ingestRunToDB(run.run_id)" :disabled="dbIngesting" class="text-[12px] mr-2" style="color:var(--green)" title="补录该任务到数据库">入库</button>
+                    <button x-show="!run.is_merged_report" @click.stop="rerunRun(run.run_id)" class="text-[12px] mr-2" style="color:var(--yellow)" title="以相同配置再跑一次">重跑</button>
+                    <button @click.stop="renameRun(run.run_id, run.label)" class="text-[12px] mr-2" style="color:var(--fg-muted)" title="设置备注名">备注</button>
+                    <button x-show="run.status !== 'running' && run.status !== 'pending'" @click.stop="deleteRun(run.run_id)" class="text-[12px] mr-2" style="color:var(--red)" title="删除该任务及所有产物">删除</button>
+                    <template x-if="run.is_merged_report">
+                      <a :href="'/api/runs/' + run.run_id + '/report-html'" target="_blank" @click.stop class="text-[12px]" style="color:var(--accent)">查看报告 →</a>
+                    </template>
+                    <template x-if="!run.is_merged_report">
+                      <button @click.stop="openRun(run.run_id)" class="text-[12px]" style="color:var(--accent)">详情 →</button>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>

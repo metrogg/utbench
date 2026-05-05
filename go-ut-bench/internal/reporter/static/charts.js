@@ -1,4 +1,4 @@
-// Chart.js loader with CDN fallback. If blocked, we show a visible banner instead of failing silently.
+// Chart renderer. Reports are self-contained and do not depend on external CDNs.
 (function() {
   const banner = document.getElementById('runtime-banner');
   function showBanner(message) {
@@ -16,22 +16,152 @@
       document.head.appendChild(script);
     });
   }
-  async function ensureChartJS() {
-    if (window.Chart) return 'builtin';
-    const urls = [
-      'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
-      'https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js',
-      'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js'
-    ];
-    for (const url of urls) {
-      try {
-        await loadScript(url);
-        if (window.Chart) return url;
-      } catch (e) {
-        // try next
+  function installMiniChart() {
+    if (window.Chart) return;
+    class MiniChart {
+      constructor(canvas, config) {
+        this.canvas = canvas;
+        this.config = config || {};
+        this.ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
+        this._resize = () => this.draw();
+        window.addEventListener('resize', this._resize);
+        this.draw();
+      }
+      destroy() {
+        window.removeEventListener('resize', this._resize);
+        if (this.ctx && this.canvas) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      }
+      draw() {
+        if (!this.ctx || !this.canvas) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const width = Math.max(320, Math.floor(rect.width || this.canvas.clientWidth || 640));
+        const height = Math.max(220, Math.floor(rect.height || this.canvas.clientHeight || 320));
+        if (this.canvas.width !== Math.floor(width * dpr) || this.canvas.height !== Math.floor(height * dpr)) {
+          this.canvas.width = Math.floor(width * dpr);
+          this.canvas.height = Math.floor(height * dpr);
+        }
+        const ctx = this.ctx;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        const type = this.config.type || 'bar';
+        if (type === 'pie' || type === 'doughnut') return this.drawPie(ctx, width, height, type === 'doughnut');
+        if (type === 'scatter') return this.drawScatter(ctx, width, height);
+        return this.drawBars(ctx, width, height);
+      }
+      palette(i) {
+        return ['#315f9c', '#2f7d72', '#d5902f', '#c43d2f', '#5b6472', '#0f766e', '#7c5f35', '#475569'][i % 8];
+      }
+      datasets() { return (this.config.data && this.config.data.datasets) || []; }
+      labels() { return (this.config.data && this.config.data.labels) || []; }
+      drawLegend(ctx, datasets, x, y) {
+        ctx.font = '12px system-ui, sans-serif';
+        datasets.slice(0, 8).forEach((ds, i) => {
+          ctx.fillStyle = ds.borderColor || ds.backgroundColor || this.palette(i);
+          ctx.fillRect(x, y + i * 18, 10, 10);
+          ctx.fillStyle = '#475569';
+          ctx.fillText(String(ds.label || '数据 ' + (i + 1)).slice(0, 26), x + 16, y + 9 + i * 18);
+        });
+      }
+      drawAxes(ctx, left, top, right, bottom) {
+        ctx.strokeStyle = '#d8e0e7';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {
+          const y = bottom - (bottom - top) * i / 4;
+          ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+          ctx.fillStyle = '#64748b';
+          ctx.font = '11px system-ui, sans-serif';
+          ctx.fillText(String(i * 25) + '%', 8, y + 4);
+        }
+        ctx.strokeStyle = '#7d8793';
+        ctx.beginPath(); ctx.moveTo(left, top); ctx.lineTo(left, bottom); ctx.lineTo(right, bottom); ctx.stroke();
+      }
+      drawBars(ctx, width, height) {
+        const labels = this.labels();
+        const datasets = this.datasets();
+        const left = 42, right = width - 150, top = 18, bottom = height - 48;
+        this.drawAxes(ctx, left, top, right, bottom);
+        const groups = Math.max(1, labels.length);
+        const groupW = (right - left) / groups;
+        const barW = Math.max(3, Math.min(18, groupW / Math.max(1, datasets.length) * 0.72));
+        datasets.forEach((ds, di) => {
+          const color = ds.backgroundColor || ds.borderColor || this.palette(di);
+          (ds.data || []).forEach((raw, i) => {
+            const value = Math.max(0, Math.min(1, Number(raw) || 0));
+            const x = left + i * groupW + groupW * 0.18 + di * barW;
+            const y = bottom - value * (bottom - top);
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, barW, bottom - y);
+          });
+        });
+        ctx.fillStyle = '#475569';
+        ctx.font = '11px system-ui, sans-serif';
+        labels.slice(0, 14).forEach((label, i) => {
+          const text = String(label).slice(0, 14);
+          ctx.save();
+          ctx.translate(left + i * groupW + groupW * 0.2, bottom + 14);
+          ctx.rotate(-0.35);
+          ctx.fillText(text, 0, 0);
+          ctx.restore();
+        });
+        this.drawLegend(ctx, datasets, width - 132, 20);
+      }
+      drawScatter(ctx, width, height) {
+        const datasets = this.datasets();
+        const left = 42, right = width - 150, top = 20, bottom = height - 42;
+        this.drawAxes(ctx, left, top, right, bottom);
+        const points = datasets.map(ds => (ds.data && ds.data[0]) || { x: 0, y: 0 });
+        const maxX = Math.max(1, ...points.map(p => Number(p.x) || 0));
+        const maxY = Math.max(100, ...points.map(p => Number(p.y) || 0));
+        datasets.forEach((ds, i) => {
+          const p = (ds.data && ds.data[0]) || { x: 0, y: 0 };
+          const x = left + ((Number(p.x) || 0) / maxX) * (right - left);
+          const y = bottom - ((Number(p.y) || 0) / maxY) * (bottom - top);
+          ctx.beginPath();
+          ctx.fillStyle = ds.backgroundColor || ds.borderColor || this.palette(i);
+          ctx.arc(x, y, Number(ds.pointRadius || 6), 0, Math.PI * 2);
+          ctx.fill();
+        });
+        this.drawLegend(ctx, datasets, width - 132, 20);
+      }
+      drawPie(ctx, width, height, doughnut) {
+        const ds = this.datasets()[0] || {};
+        const values = (ds.data || []).map(v => Math.max(0, Number(v) || 0));
+        const labels = this.labels();
+        const total = values.reduce((a, b) => a + b, 0) || 1;
+        const cx = Math.floor(width * 0.38), cy = Math.floor(height * 0.5);
+        const radius = Math.max(55, Math.min(width, height) * 0.28);
+        let start = -Math.PI / 2;
+        values.forEach((value, i) => {
+          const angle = value / total * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.arc(cx, cy, radius, start, start + angle);
+          ctx.closePath();
+          const colors = Array.isArray(ds.backgroundColor) ? ds.backgroundColor : [];
+          ctx.fillStyle = colors[i] || this.palette(i);
+          ctx.fill();
+          start += angle;
+        });
+        if (doughnut) {
+          ctx.beginPath();
+          ctx.fillStyle = '#fff';
+          ctx.arc(cx, cy, radius * 0.55, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        const legend = labels.map((label, i) => ({ label, backgroundColor: (Array.isArray(ds.backgroundColor) && ds.backgroundColor[i]) || this.palette(i) }));
+        this.drawLegend(ctx, legend, Math.floor(width * 0.68), 24);
       }
     }
-    throw new Error('Chart.js unavailable');
+    window.Chart = MiniChart;
+    window.__utBenchMiniChart = true;
+  }
+  async function ensureChartJS() {
+    if (window.Chart) return 'builtin';
+    installMiniChart();
+    return 'mini-chart';
   }
   window.__utBenchEnsureChartJS = ensureChartJS;
   window.__utBenchShowBanner = showBanner;
@@ -615,7 +745,7 @@ function initReportSidebar() {
     initAnalysisFilters();
   } catch (e) {
     if (window.__utBenchShowBanner) {
-      window.__utBenchShowBanner('图表库 Chart.js 加载失败，通常是网络或企业代理拦截了 CDN。请在联网环境打开，或让报告改为本地内置 Chart.js。');
+      window.__utBenchShowBanner('图表渲染失败，请查看浏览器控制台错误。');
     }
     if (window.console && console.error) console.error(e);
   }

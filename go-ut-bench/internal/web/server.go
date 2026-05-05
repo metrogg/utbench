@@ -52,9 +52,10 @@ type Server struct {
 }
 
 type catalogCacheEntry struct {
-	data      webCatalog
-	loadedAt  time.Time
-	configMod time.Time // models.yaml 的 mtime，用于失效判断
+	data            webCatalog
+	loadedAt        time.Time
+	configMod       time.Time // models.yaml 的 mtime，用于失效判断
+	agentsConfigMod time.Time // agents.yaml 的 mtime，用于失效判断
 }
 
 type runsCacheEntry struct {
@@ -216,6 +217,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("/api/models/test-all", s.handleTestAllModels)
 	s.mux.HandleFunc("/api/models/", s.handleModelsSub)
+	s.mux.HandleFunc("/api/agents/frameworks", s.handleAgentFrameworks)
 	s.mux.HandleFunc("/api/settings/api-keys", s.handleAPIKeys)
 	// 数据库管理API
 	s.mux.HandleFunc("/api/db/overview", s.handleDBOverview)
@@ -434,16 +436,16 @@ type dbReportRequest struct {
 // dbReportSummary 是写入 _db_report 目录下 run_summary.json 的结构，
 // 使合并报告能被 /api/runs 发现并显示在 Web UI 中。
 type dbReportSummary struct {
-	RunID           string            `json:"run_id"`
-	CreatedAtUTC    string            `json:"created_at_utc"`
-	SchemaVersion   string            `json:"schema_version"`
-	Phase           string            `json:"phase"`
-	SourceRunIDs    []string          `json:"source_run_ids"`
-	ResultCount     int               `json:"result_count"`
-	ReportJSONPath  string            `json:"report_json_path"`
-	ReportHTMLPath  string            `json:"report_html_path"`
-	IsMergedReport  bool              `json:"is_merged_report"`
-	Spec            contracts.RunSpec `json:"spec"`
+	RunID          string            `json:"run_id"`
+	CreatedAtUTC   string            `json:"created_at_utc"`
+	SchemaVersion  string            `json:"schema_version"`
+	Phase          string            `json:"phase"`
+	SourceRunIDs   []string          `json:"source_run_ids"`
+	ResultCount    int               `json:"result_count"`
+	ReportJSONPath string            `json:"report_json_path"`
+	ReportHTMLPath string            `json:"report_html_path"`
+	IsMergedReport bool              `json:"is_merged_report"`
+	Spec           contracts.RunSpec `json:"spec"`
 }
 
 // dedupResultsByLatestRun 按 (model, language, sample_id) 去重，保留最新 run_id 的结果。
@@ -610,16 +612,26 @@ func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
 // ─── GET /api/config ─────────────────────────────────────────────────────────
 
 type modelInfo struct {
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	ModelID  string `json:"model_id"`
-	Enabled  bool   `json:"enabled"`
+	Name      string `json:"name"`
+	Provider  string `json:"provider"`
+	ModelID   string `json:"model_id"`
+	Enabled   bool   `json:"enabled"`
+	APIKeyEnv string `json:"api_key_env,omitempty"`
+	APIKeySet bool   `json:"api_key_set,omitempty"`
 }
 
 type frameworkInfo struct {
 	Name                string   `json:"name"`
 	Kind                string   `json:"kind"`
 	SandboxMode         string   `json:"sandbox_mode,omitempty"`
+	SandboxProvider     string   `json:"sandbox_provider,omitempty"`
+	SandboxImage        string   `json:"sandbox_image,omitempty"`
+	TimeoutSeconds      int      `json:"timeout_seconds,omitempty"`
+	NetworkDisabled     bool     `json:"network_disabled,omitempty"`
+	EnvFromHost         []string `json:"env_from_host,omitempty"`
+	PreflightLanguages  []string `json:"preflight_languages,omitempty"`
+	OutputGlobs         []string `json:"output_globs,omitempty"`
+	CommandPreview      string   `json:"command_preview,omitempty"`
 	CompatibleModels    []string `json:"compatible_models,omitempty"`
 	CompatibleLanguages []string `json:"compatible_languages,omitempty"`
 }
@@ -627,6 +639,9 @@ type frameworkInfo struct {
 type skillInfo struct {
 	Name                 string   `json:"name"`
 	Version              string   `json:"version,omitempty"`
+	Description          string   `json:"description,omitempty"`
+	InstructionPath      string   `json:"instruction_path,omitempty"`
+	Files                []string `json:"files,omitempty"`
 	InjectMode           string   `json:"inject_mode,omitempty"`
 	CompatibleFrameworks []string `json:"compatible_frameworks,omitempty"`
 	CompatibleLanguages  []string `json:"compatible_languages,omitempty"`
@@ -644,17 +659,17 @@ type subjectInfo struct {
 }
 
 type configResponse struct {
-	Models             []modelInfo     `json:"models"`
-	Frameworks         []frameworkInfo `json:"frameworks,omitempty"`
-	Skills             []skillInfo     `json:"skills,omitempty"`
-	Subjects           []subjectInfo   `json:"subjects,omitempty"`
-	Languages          []string        `json:"languages"`
-	Scenarios          []string        `json:"scenarios"`
-	Classes            []string        `json:"classes"`
-	DatasetRoot        string          `json:"dataset_root"`
-	ConfigPath         string          `json:"config_path"`
-	AgentsConfigPath   string          `json:"agents_config_path,omitempty"`
-	AgentsConfigError  string          `json:"agents_config_error,omitempty"`
+	Models            []modelInfo     `json:"models"`
+	Frameworks        []frameworkInfo `json:"frameworks,omitempty"`
+	Skills            []skillInfo     `json:"skills,omitempty"`
+	Subjects          []subjectInfo   `json:"subjects,omitempty"`
+	Languages         []string        `json:"languages"`
+	Scenarios         []string        `json:"scenarios"`
+	Classes           []string        `json:"classes"`
+	DatasetRoot       string          `json:"dataset_root"`
+	ConfigPath        string          `json:"config_path"`
+	AgentsConfigPath  string          `json:"agents_config_path,omitempty"`
+	AgentsConfigError string          `json:"agents_config_error,omitempty"`
 }
 
 type modelsYAML struct {
@@ -662,7 +677,8 @@ type modelsYAML struct {
 		Enabled  bool   `yaml:"enabled"`
 		Provider string `yaml:"provider"`
 		Config   struct {
-			Model string `yaml:"model"`
+			Model     string `yaml:"model"`
+			APIKeyEnv string `yaml:"api_key_env"`
 		} `yaml:"config"`
 	} `yaml:"models"`
 }
@@ -680,15 +696,14 @@ type webCatalog struct {
 func (s *Server) loadWebCatalogCached() (webCatalog, error) {
 	const cacheTTL = 2 * time.Second
 
-	// 获取 config 文件 mtime
-	info, err := os.Stat(s.configPath)
-	if err != nil {
-		return s.loadWebCatalog()
-	}
-	modTime := info.ModTime()
+	configModTime := fileModTime(s.configPath)
+	agentsConfigModTime := fileModTime(strings.TrimSpace(s.mgr.agentsConfigPath))
 
 	s.cacheMu.RLock()
-	if s.catalogCache != nil && time.Since(s.catalogCache.loadedAt) < cacheTTL && s.catalogCache.configMod == modTime {
+	if s.catalogCache != nil &&
+		time.Since(s.catalogCache.loadedAt) < cacheTTL &&
+		s.catalogCache.configMod == configModTime &&
+		s.catalogCache.agentsConfigMod == agentsConfigModTime {
 		cat := s.catalogCache.data
 		s.cacheMu.RUnlock()
 		return cat, nil
@@ -701,9 +716,20 @@ func (s *Server) loadWebCatalogCached() (webCatalog, error) {
 	}
 
 	s.cacheMu.Lock()
-	s.catalogCache = &catalogCacheEntry{data: cat, loadedAt: time.Now(), configMod: modTime}
+	s.catalogCache = &catalogCacheEntry{data: cat, loadedAt: time.Now(), configMod: configModTime, agentsConfigMod: agentsConfigModTime}
 	s.cacheMu.Unlock()
 	return cat, nil
+}
+
+func fileModTime(path string) time.Time {
+	if strings.TrimSpace(path) == "" {
+		return time.Time{}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
 }
 
 func (s *Server) loadWebCatalog() (webCatalog, error) {
@@ -718,10 +744,12 @@ func (s *Server) loadWebCatalog() (webCatalog, error) {
 	modelNames := make([]string, 0, len(mf.Models))
 	for name, m := range mf.Models {
 		models = append(models, modelInfo{
-			Name:     name,
-			Provider: m.Provider,
-			ModelID:  m.Config.Model,
-			Enabled:  m.Enabled,
+			Name:      name,
+			Provider:  m.Provider,
+			ModelID:   m.Config.Model,
+			Enabled:   m.Enabled,
+			APIKeyEnv: m.Config.APIKeyEnv,
+			APIKeySet: hasUsableAPIKey(s.lookupAPIKey(m.Config.APIKeyEnv)),
 		})
 		if m.Enabled {
 			modelNames = append(modelNames, name)
@@ -752,6 +780,14 @@ func (s *Server) loadWebCatalog() (webCatalog, error) {
 				Name:                item.Framework.Name,
 				Kind:                item.Framework.Kind,
 				SandboxMode:         item.Framework.SandboxMode,
+				SandboxProvider:     item.Framework.Sandbox.Provider,
+				SandboxImage:        firstNonEmptyString(item.Framework.Sandbox.Image, item.Framework.DockerImage),
+				TimeoutSeconds:      item.Framework.TimeoutSeconds,
+				NetworkDisabled:     item.Framework.NetworkDisabled,
+				EnvFromHost:         append([]string{}, item.Framework.EnvFromHost...),
+				PreflightLanguages:  sortedStringKeys(item.Framework.Preflight),
+				OutputGlobs:         append([]string{}, item.Framework.OutputGlobs...),
+				CommandPreview:      compactCommandPreview(item.Framework.Command),
 				CompatibleModels:    append([]string{}, item.Framework.CompatibleModels...),
 				CompatibleLanguages: append([]string{}, item.Framework.CompatibleLangs...),
 			}
@@ -760,6 +796,9 @@ func (s *Server) loadWebCatalog() (webCatalog, error) {
 			skillSeen[item.Skill.Name] = skillInfo{
 				Name:                 item.Skill.Name,
 				Version:              item.Skill.Version,
+				Description:          item.Skill.Description,
+				InstructionPath:      item.Skill.InstructionPath,
+				Files:                append([]string{}, item.Skill.Files...),
 				InjectMode:           item.Skill.InjectMode,
 				CompatibleFrameworks: append([]string{}, item.Skill.CompatibleFrameworks...),
 				CompatibleLanguages:  append([]string{}, item.Skill.CompatibleLanguages...),
@@ -836,6 +875,283 @@ func subjectRequiresDockerSandbox(subjectIDs []string, subjects []subjectInfo) b
 		}
 	}
 	return false
+}
+
+func sortedStringKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for key := range m {
+		if strings.TrimSpace(key) != "" {
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func compactCommandPreview(command string) string {
+	command = strings.Join(strings.Fields(command), " ")
+	if len(command) > 220 {
+		return command[:220] + "..."
+	}
+	return command
+}
+
+type createAgentFrameworkRequest struct {
+	Name                string   `json:"name"`
+	Command             string   `json:"command"`
+	Image               string   `json:"image"`
+	TimeoutSeconds      int      `json:"timeout_seconds"`
+	NetworkDisabled     bool     `json:"network_disabled"`
+	EnvFromHost         []string `json:"env_from_host"`
+	CompatibleModels    []string `json:"compatible_models"`
+	CompatibleLanguages []string `json:"compatible_languages"`
+	OutputGlobs         []string `json:"output_globs"`
+}
+
+func (s *Server) handleAgentFrameworks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req createAgentFrameworkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errJSON(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	name := sanitizeAgentFrameworkName(req.Name)
+	if name == "" {
+		errJSON(w, http.StatusBadRequest, "agent name is required")
+		return
+	}
+	command := strings.TrimSpace(req.Command)
+	if command == "" {
+		errJSON(w, http.StatusBadRequest, "agent command is required")
+		return
+	}
+	agentsConfigPath := strings.TrimSpace(s.mgr.agentsConfigPath)
+	if agentsConfigPath == "" {
+		errJSON(w, http.StatusBadRequest, "agents config path is not configured")
+		return
+	}
+	if err := appendAgentFrameworkToYAML(agentsConfigPath, name, req, command); err != nil {
+		errJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.cacheMu.Lock()
+	s.catalogCache = nil
+	s.cacheMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"name": name, "config_path": agentsConfigPath})
+}
+
+func sanitizeAgentFrameworkName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	var b strings.Builder
+	prevDash := false
+	for _, r := range name {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			prevDash = false
+			continue
+		}
+		if (r == '-' || r == '_' || r == '.') && !prevDash {
+			b.WriteRune(r)
+			prevDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-_.")
+}
+
+func appendAgentFrameworkToYAML(path, name string, req createAgentFrameworkRequest, command string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("cannot read agents config: %w", err)
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(raw, &root); err != nil {
+		return fmt.Errorf("cannot parse agents config: %w", err)
+	}
+	doc := ensureYAMLDocument(&root)
+	frameworks := ensureMappingChild(doc, "frameworks")
+	if mappingChild(frameworks, name) != nil {
+		return fmt.Errorf("agent framework %q already exists", name)
+	}
+	frameworks.Content = append(frameworks.Content, scalarNode(name), buildAgentFrameworkYAMLNode(req, command))
+	out, err := yaml.Marshal(&root)
+	if err != nil {
+		return fmt.Errorf("cannot encode agents config: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0644); err != nil {
+		return fmt.Errorf("cannot write agents config: %w", err)
+	}
+	return nil
+}
+
+func ensureYAMLDocument(root *yaml.Node) *yaml.Node {
+	if root.Kind == 0 {
+		root.Kind = yaml.DocumentNode
+		root.Content = []*yaml.Node{{Kind: yaml.MappingNode}}
+	}
+	if root.Kind != yaml.DocumentNode {
+		return root
+	}
+	if len(root.Content) == 0 {
+		root.Content = []*yaml.Node{{Kind: yaml.MappingNode}}
+	}
+	if root.Content[0].Kind != yaml.MappingNode {
+		root.Content[0] = &yaml.Node{Kind: yaml.MappingNode}
+	}
+	return root.Content[0]
+}
+
+func ensureMappingChild(parent *yaml.Node, key string) *yaml.Node {
+	if child := mappingChild(parent, key); child != nil && child.Kind == yaml.MappingNode {
+		return child
+	}
+	child := &yaml.Node{Kind: yaml.MappingNode}
+	parent.Content = append(parent.Content, scalarNode(key), child)
+	return child
+}
+
+func mappingChild(parent *yaml.Node, key string) *yaml.Node {
+	if parent == nil || parent.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(parent.Content); i += 2 {
+		if parent.Content[i].Value == key {
+			return parent.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func buildAgentFrameworkYAMLNode(req createAgentFrameworkRequest, command string) *yaml.Node {
+	timeout := req.TimeoutSeconds
+	if timeout <= 0 {
+		timeout = 600
+	}
+	image := strings.TrimSpace(req.Image)
+	if image == "" {
+		image = "utbench-agent-base:latest"
+	}
+	languages := uniqueNonEmptyStrings(req.CompatibleLanguages)
+	if len(languages) == 0 {
+		languages = []string{"python", "go", "java", "cpp"}
+	}
+	outputGlobs := uniqueNonEmptyStrings(req.OutputGlobs)
+	if len(outputGlobs) == 0 {
+		outputGlobs = []string{"generated_test.py", "test_*.py", "*_test.go", "*Test.java", "*test*.cpp"}
+	}
+	node := mappingNode(
+		"enabled", boolNode(true),
+		"kind", scalarNode("cli_agent"),
+		"sandbox", mappingNode(
+			"provider", scalarNode("docker"),
+			"mode", scalarNode("docker"),
+			"image", scalarNode(image),
+			"timeout_seconds", intNode(timeout),
+			"network_disabled", boolNode(req.NetworkDisabled),
+			"memory", scalarNode("2g"),
+			"cpu", scalarNode("2"),
+		),
+		"preflight", defaultPreflightNode(languages),
+		"forbidden_command_patterns", stringSeqNode(defaultForbiddenCommandPatterns()),
+		"env_from_host", stringSeqNode(uniqueNonEmptyStrings(req.EnvFromHost)),
+		"command", literalNode(command),
+		"compatible_languages", stringSeqNode(languages),
+		"output_globs", stringSeqNode(outputGlobs),
+	)
+	if models := uniqueNonEmptyStrings(req.CompatibleModels); len(models) > 0 {
+		node.Content = append(node.Content, scalarNode("compatible_models"), stringSeqNode(models))
+	}
+	return node
+}
+
+func mappingNode(items ...any) *yaml.Node {
+	node := &yaml.Node{Kind: yaml.MappingNode}
+	for i := 0; i+1 < len(items); i += 2 {
+		key, _ := items[i].(string)
+		child, _ := items[i+1].(*yaml.Node)
+		if key == "" || child == nil {
+			continue
+		}
+		node.Content = append(node.Content, scalarNode(key), child)
+	}
+	return node
+}
+
+func scalarNode(value string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+}
+
+func literalNode(value string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: strings.TrimSpace(value), Style: yaml.LiteralStyle}
+}
+
+func intNode(value int) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(value)}
+}
+
+func boolNode(value bool) *yaml.Node {
+	if value {
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"}
+	}
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "false"}
+}
+
+func stringSeqNode(values []string) *yaml.Node {
+	node := &yaml.Node{Kind: yaml.SequenceNode}
+	for _, value := range values {
+		node.Content = append(node.Content, scalarNode(value))
+	}
+	return node
+}
+
+func defaultPreflightNode(languages []string) *yaml.Node {
+	node := &yaml.Node{Kind: yaml.MappingNode}
+	defaults := map[string][]string{
+		"python": {"python3 --version", "pytest --version"},
+		"go":     {"go version"},
+		"java":   {"java -version", "mvn -version"},
+		"cpp":    {"g++ --version", "cmake --version"},
+	}
+	for _, lang := range languages {
+		if cmds := defaults[lang]; len(cmds) > 0 {
+			node.Content = append(node.Content, scalarNode(lang), stringSeqNode(cmds))
+		}
+	}
+	return node
+}
+
+func defaultForbiddenCommandPatterns() []string {
+	return []string{
+		"apt-get update", "apt-get install", "apt install", "apk add", "yum install", "dnf install",
+		"pip install", "pip3 install", "python -m pip install", "python3 -m pip install",
+		"npm install", "yarn add", "pnpm add",
+	}
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {

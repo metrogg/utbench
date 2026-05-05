@@ -503,10 +503,37 @@ h3 {
   color: var(--ink);
   font-weight: 900;
   line-height: 1.25;
+  font-size: 15px;
 }
 
-.lb-title span {
-  color: var(--muted) !important;
+.lb-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.lb-tag-platform {
+  background: #ede9fe;
+  color: #5b21b6;
+  border-color: #c4b5fd;
+}
+
+.lb-tag-model {
+  background: #d1fae5;
+  color: #065f46;
+  border-color: #6ee7b7;
+}
+
+.lb-tag-skill {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fcd34d;
 }
 
 .lb-metrics,

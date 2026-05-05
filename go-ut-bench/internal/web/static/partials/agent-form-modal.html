@@ -1,0 +1,74 @@
+      <!-- AGENT FORM MODAL -->
+        <div x-show="agentWizardOpen" class="agent-modal-backdrop" x-cloak>
+          <div class="agent-modal">
+            <div class="agent-modal-head">
+              <div>
+                <div class="db-eyebrow">New Agent</div>
+                <div class="db-title">添加 CLI Agent</div>
+              </div>
+              <button class="btn-ghost text-[12px]" @click="closeAgentWizard()">关闭</button>
+            </div>
+
+            <div class="agent-modal-body">
+              <section class="agent-modal-side">
+                <div class="section-title">模板</div>
+                <div class="agent-preset-list mt-3">
+                  <button :class="agentPreset === 'generic' ? 'active' : ''" @click="applyAgentPreset('generic')">通用 CLI</button>
+                  <button :class="agentPreset === 'claudecode' ? 'active' : ''" @click="applyAgentPreset('claudecode')">Claude Code</button>
+                  <button :class="agentPreset === 'opencode' ? 'active' : ''" @click="applyAgentPreset('opencode')">OpenCode</button>
+                </div>
+                <div class="agent-muted mt-3">
+                  保存后会写入 agents.yaml 的 frameworks。若 CLI 不在镜像内，还需要重建 Agent 镜像。
+                </div>
+              </section>
+
+              <section class="agent-modal-form">
+                <div class="grid grid-cols-2 gap-3">
+                  <label><span class="label-text">Agent 名称</span><input x-model="agentForm.name" class="input-base font-mono" placeholder="my-agent"></label>
+                  <label><span class="label-text">Docker 镜像</span><input x-model="agentForm.image" class="input-base font-mono"></label>
+                  <label><span class="label-text">超时秒数</span><input x-model.number="agentForm.timeout_seconds" type="number" min="60" class="input-base"></label>
+                  <label class="flex items-center gap-2 mt-6 text-[12px]"><input type="checkbox" x-model="agentForm.network_disabled" style="accent-color:var(--accent)">禁用网络</label>
+                </div>
+
+                <div class="mt-3">
+                  <span class="label-text">兼容语言</span>
+                  <div class="flex flex-wrap gap-2">
+                    <template x-for="lang in ['python','go','java','cpp']" :key="lang">
+                      <button class="chip" :class="agentForm.compatible_languages.includes(lang) ? 'active' : ''" @click="toggleAgentLanguage(lang)" x-text="lang"></button>
+                    </template>
+                  </div>
+                </div>
+
+                <div class="mt-3">
+                  <span class="label-text">兼容模型（留空表示全部）</span>
+                  <div class="agent-model-picks">
+                    <template x-for="m in models" :key="m.name">
+                      <button class="chip" :class="agentForm.compatible_models.includes(m.name) ? 'active' : ''" @click="toggleAgentModel(m.name)" x-text="m.name"></button>
+                    </template>
+                  </div>
+                </div>
+
+                <label class="block mt-3">
+                  <span class="label-text">宿主环境变量（一行一个）</span>
+                  <textarea x-model="agentForm.env_from_host" class="input-base terminal" rows="3" placeholder="MY_AGENT_API_KEY"></textarea>
+                </label>
+
+                <label class="block mt-3">
+                  <span class="label-text">输出文件匹配（一行一个）</span>
+                  <textarea x-model="agentForm.output_globs" class="input-base terminal" rows="3"></textarea>
+                </label>
+
+                <label class="block mt-3">
+                  <span class="label-text">启动命令模板</span>
+                  <textarea x-model="agentForm.command" class="input-base terminal agent-command-input" rows="7"></textarea>
+                </label>
+
+                <div x-show="agentFormError" class="mt-3 text-[12px]" style="color:var(--red)" x-text="agentFormError"></div>
+                <div class="mt-4 flex justify-end gap-2">
+                  <button class="btn-ghost" @click="closeAgentWizard()">取消</button>
+                  <button class="btn-primary" :disabled="agentSaving" @click="saveAgentFramework()" x-text="agentSaving ? '保存中...' : '保存 Agent'"></button>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>

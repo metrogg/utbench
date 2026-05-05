@@ -1,0 +1,159 @@
+      <!-- AGENTS -->
+      <div x-show="page === 'agents'" class="max-w-none animate-fadeUp">
+        <div class="agent-workbench-hero mb-4">
+          <div class="min-w-0">
+            <div class="db-eyebrow">Agent Workbench</div>
+            <div class="db-title">Agent 接入与调配工作台</div>
+            <div class="text-[12px] mt-2" style="color:var(--fg-muted)">
+              用一个入口完成新增 Agent、检查密钥与沙箱、选择 Subject 并跳转新建任务。
+            </div>
+            <div class="agent-pipeline mt-4">
+              <span>配置</span><i></i><span>密钥</span><i></i><span>沙箱</span><i></i><span>试跑</span><i></i><span>评测</span>
+            </div>
+          </div>
+          <div class="agent-hero-actions">
+            <button class="btn-primary" @click="openAgentWizard()">+ 添加 Agent</button>
+            <button class="btn-ghost" @click="loadConfig()">刷新配置</button>
+            <button class="btn-ghost" @click="copyText(config?.agents_config_path || '', 'Agent 配置路径')">复制路径</button>
+          </div>
+        </div>
+
+        <div x-show="config?.agents_config_error" class="form-section mb-4" style="border-color:var(--error-border);background:var(--error-bg)">
+          <div class="section-title">Agent 配置未就绪</div>
+          <div class="text-[12px] mt-2" style="color:var(--fg-muted)" x-text="config?.agents_config_error"></div>
+        </div>
+
+        <div class="agent-summary-grid mb-4">
+          <div class="agent-summary-card">
+            <span>Framework</span>
+            <strong x-text="(config?.frameworks ?? []).length"></strong>
+          </div>
+          <div class="agent-summary-card">
+            <span>可运行</span>
+            <strong class="kpi-completed" x-text="agentReadinessCounts().ready"></strong>
+          </div>
+          <div class="agent-summary-card">
+            <span>待处理</span>
+            <strong class="kpi-running" x-text="agentReadinessCounts().warning"></strong>
+          </div>
+          <div class="agent-summary-card">
+            <span>Subject</span>
+            <strong x-text="(config?.subjects ?? []).length"></strong>
+          </div>
+          <div class="agent-summary-card">
+            <span>Skill</span>
+            <strong class="kpi-completed" x-text="(config?.skills ?? []).length"></strong>
+          </div>
+        </div>
+
+        <div class="agent-onboarding-panel mb-4">
+            <div class="agent-pane-head">
+              <div>
+                <div class="section-title m-0">接入向导</div>
+                <div class="agent-muted">后续新增 Agent 建议都按这个顺序配置。</div>
+              </div>
+            </div>
+            <div class="agent-checklist">
+              <div><b>1</b><span><strong>先选运行外壳</strong><em>CLI Agent 统一注册为 framework。</em></span></div>
+              <div><b>2</b><span><strong>声明沙箱</strong><em>默认 Docker，镜像建议用 utbench-agent-base。</em></span></div>
+              <div><b>3</b><span><strong>透传密钥</strong><em>env_from_host 会在卡片中显示是否已设置。</em></span></div>
+              <div><b>4</b><span><strong>定义产物</strong><em>output_globs 决定 evaluator 读取哪些测试文件。</em></span></div>
+            </div>
+        </div>
+
+        <div class="agent-skills-strip mb-4">
+          <div class="agent-strip-head">
+            <div>
+              <div class="section-title m-0">Skill 包</div>
+              <div class="agent-muted">按 Skill 快速查看组合规模。</div>
+            </div>
+          </div>
+          <div class="agent-skill-list">
+            <template x-for="skill in config?.skills ?? []" :key="skill.name">
+              <div class="agent-skill-row">
+                <div class="min-w-0">
+                  <strong x-text="skill.name"></strong>
+                  <span x-text="skill.description || skill.inject_mode || 'registered'"></span>
+                </div>
+                <em x-text="agentSubjectsBySkill(skill.name).length"></em>
+              </div>
+            </template>
+            <div x-show="!(config?.skills ?? []).length" class="agent-muted">暂无 Skill 配置。</div>
+          </div>
+        </div>
+
+        <div class="agent-console">
+          <section class="agent-pane">
+            <div class="agent-pane-head">
+              <div>
+                <div class="section-title m-0">Agent 列表</div>
+                <div class="agent-muted">每张卡片代表一个可被组合进 Subject 的 framework。</div>
+              </div>
+              <input x-model="agentSubjectQuery" class="input-base agent-search" placeholder="筛选 framework / model / skill">
+            </div>
+
+            <div class="agent-card-list">
+              <template x-for="fw in (config?.frameworks ?? [])" :key="fw.name">
+                <article class="agent-row-card">
+                  <div class="agent-row-main">
+                    <div class="agent-row-title">
+                      <strong x-text="fw.name"></strong>
+                      <span class="tag-pill" :style="agentFrameworkStatusStyle(fw)" x-text="agentFrameworkStatus(fw)"></span>
+                    </div>
+                    <div class="agent-row-meta">
+                      <span x-text="fw.kind || 'cli_agent'"></span>
+                      <span x-text="fw.sandbox_image || '未声明镜像'"></span>
+                      <span x-text="fw.timeout_seconds ? fw.timeout_seconds + 's' : '默认超时'"></span>
+                      <span x-text="agentSubjectsByFramework(fw.name).length + ' subjects'"></span>
+                    </div>
+                    <div class="agent-key-strip">
+                      <template x-for="key in fw.env_from_host || []" :key="key">
+                        <span class="tag-pill" :style="agentKeyStyle(key)" :title="agentKeyInfo(key).label" x-text="agentKeyText(key)"></span>
+                      </template>
+                      <span x-show="!(fw.env_from_host || []).length" class="agent-muted">无需宿主密钥</span>
+                    </div>
+                    <div class="agent-command-preview mt-3" x-text="fw.command_preview || '未配置命令模板'"></div>
+                  </div>
+                  <div class="agent-row-actions">
+                    <button class="btn-primary text-[11px] py-1 px-2.5" @click="useAgentFramework(fw)">用于新任务</button>
+                    <button class="btn-ghost text-[11px] py-1 px-2.5" @click="copyText(fw.command_preview || '', fw.name + ' 命令')">复制命令</button>
+                  </div>
+                </article>
+              </template>
+              <div x-show="!(config?.frameworks ?? []).length" class="agent-empty">暂无 Agent，点击右上角添加。</div>
+            </div>
+          </section>
+        </div>
+
+        <div class="form-section p-0 overflow-hidden mt-4">
+          <div class="px-4 py-3 border-b flex items-center gap-3" style="border-color:var(--border)">
+            <span class="text-[13px] font-medium">Subject 试跑选择</span>
+            <span class="agent-muted">筛选后点击“使用”，会带入新建任务。</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="data-table">
+              <thead><tr><th>Subject</th><th>Framework</th><th>Model</th><th>Skill</th><th>沙箱</th><th></th></tr></thead>
+              <tbody>
+                <template x-for="subject in filteredAgentSubjects.slice(0, 80)" :key="subject.id">
+                  <tr>
+                    <td class="font-mono text-[11px]" x-text="subject.id"></td>
+                    <td x-text="subject.framework || '-'"></td>
+                    <td x-text="subject.model || '-'"></td>
+                    <td x-text="subject.skill || '-'"></td>
+                    <td x-text="subject.sandbox_mode || '-'"></td>
+                    <td class="text-right">
+                      <button class="text-[12px] mr-2" style="color:var(--accent)" @click="useAgentSubject(subject)">使用</button>
+                      <button class="text-[12px]" style="color:var(--fg-muted)" @click="copyText(subject.id, 'Subject')">复制</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div class="px-4 py-3 text-[11px]" style="color:var(--fg-muted)">
+            显示 <span x-text="Math.min(filteredAgentSubjects.length, 80)"></span> / <span x-text="filteredAgentSubjects.length"></span> 个 subject。
+          </div>
+        </div>
+
+
+      </div>

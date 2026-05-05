@@ -1,0 +1,227 @@
+      <!-- NEW RUN -->
+      <div x-show="page === 'new-run'" class="max-w-3xl animate-fadeUp">
+        <form @submit.prevent="submitRun()" class="space-y-5">
+          <div class="form-section">
+            <div class="section-title">任务配置</div>
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="label-text">任务 ID <span class="font-normal" style="color:var(--fg-subtle)">（可选，留空自动生成）</span></label>
+                <input x-model="form.run_id" type="text" placeholder="auto-generated" class="input-base">
+              </div>
+              <div>
+                <label class="label-text">模式</label>
+                <select x-model="form.mode" class="input-base">
+                  <option value="full">完整</option>
+                  <option value="incremental">增量</option>
+                </select>
+              </div>
+              <div>
+                <label class="label-text">执行阶段</label>
+                <select x-model="form.phase" class="input-base">
+                  <option value="full">全量运行 (生成 → 评测 → 报告)</option>
+                  <option value="generate">仅生成</option>
+                  <option value="evaluate">仅评测</option>
+                  <option value="report">仅报告</option>
+                </select>
+              </div>
+            </div>
+            <div x-show="form.phase !== 'full'" class="mt-3 text-[12px] rounded-lg p-2.5" style="background:var(--warn-bg);color:var(--yellow);border:1px solid var(--warn-border)">
+              <span x-show="form.phase === 'generate'">仅执行生成阶段，生成测试代码并保存 manifest。</span>
+              <span x-show="form.phase === 'evaluate'">仅执行评测阶段，需要已有 manifest 文件（<code class="font-mono text-[11px]">generated_manifest.json</code>）。</span>
+              <span x-show="form.phase === 'report'">仅生成报告，需要已有评测结果（<code class="font-mono text-[11px]">evaluation_result.json</code>）。</span>
+            </div>
+          </div>
+          <!-- 数据源选择区域：仅evaluate/report阶段显示 -->
+          <div x-show="form.phase === 'evaluate' || form.phase === 'report'" class="form-section">
+            <div class="section-title">数据源</div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="label-text">来源任务 <span class="font-normal" style="color:var(--fg-subtle)">（选择已有任务作为数据源）</span></label>
+                <select x-model="form.source_run_id" class="input-base">
+                  <option value="">— 选择任务 —</option>
+                  <template x-for="r in completedRuns" :key="r.run_id">
+                    <option :value="r.run_id" x-text="r.run_id + ' (' + fmtTime(r.started_at) + ')'"></option>
+                  </template>
+                </select>
+              </div>
+              <div x-show="form.phase === 'evaluate'">
+                <label class="label-text">Manifest 路径 <span class="font-normal" style="color:var(--fg-subtle)">（可选，覆盖默认路径）</span></label>
+                <input x-model="form.manifest_path" type="text" placeholder="留空使用来源任务的 manifest" class="input-base font-mono text-[12px]">
+              </div>
+              <div x-show="form.phase === 'report'">
+                <label class="label-text">评测结果路径 <span class="font-normal" style="color:var(--fg-subtle)">（可选，覆盖默认路径）</span></label>
+                <input x-model="form.evaluation_path" type="text" placeholder="留空使用来源任务的 evaluation_result.json" class="input-base font-mono text-[12px]">
+              </div>
+            </div>
+            <div x-show="form.source_run_id" class="mt-2 text-[11px]" style="color:var(--fg-muted)">
+              <span x-show="form.phase === 'evaluate'">将使用 <code class="font-mono">artifacts/runs/<span x-text="form.source_run_id"></span>/generated/generated_manifest.json</code></span>
+              <span x-show="form.phase === 'report'">将使用 <code class="font-mono">artifacts/runs/<span x-text="form.source_run_id"></span>/evaluation/evaluation_result.json</code></span>
+            </div>
+          </div>
+          <div class="form-section" x-show="form.phase === 'full' || form.phase === 'generate'">
+            <div class="section-title">被测对象 Subject（自由组合）</div>
+            <div class="text-[12px] mb-3" style="color:var(--fg-muted)">自由搭配 Framework + Model + Skill 组合。每行生成一个 Subject，可添加多个。</div>
+
+            <div x-show="config?.agents_config_error" class="mb-3 rounded-lg p-3 text-[12px]" style="background:var(--badge-bg);border:1px solid var(--border);color:var(--fg-muted)">
+              <strong>Agents Config:</strong> <span x-text="config?.agents_config_error"></span>
+              <br>当前仅支持 model_api（纯 API 模式）。如需 Framework/Skill，请确保启动时指定了 <code class="font-mono">--agents-config</code>。
+            </div>
+
+            <div class="space-y-2" id="combo-rows">
+              <template x-for="(combo, idx) in form.combinations" :key="`${_comboKey}-${idx}`">
+                <div class="flex items-center gap-2">
+                  <div class="flex-1" x-html="renderSelectFw(idx, combo.framework)"></div>
+                  <div class="flex-1" x-html="renderSelectModel(idx, combo.framework, combo.model)"></div>
+                  <div class="flex-1" x-html="renderSelectSkill(idx, combo.framework, combo.skill)"></div>
+                  <span class="font-mono text-[11px] px-2 py-1 rounded" style="background:var(--bg-overlay);color:var(--fg-subtle)" x-text="buildSubjectId(combo)"></span>
+                  <button type="button" class="text-[12px] px-1.5 py-0.5 rounded" style="color:var(--fg-muted);background:var(--bg-overlay)"
+                    @click="form.combinations.splice(idx, 1)" :disabled="form.combinations.length <= 1">&times;</button>
+                </div>
+              </template>
+            </div>
+
+            <button type="button" class="btn-pill mt-2" style="background:var(--accent);color:var(--accent-fg)"
+              @click="addCombination()">+ 添加组合</button>
+
+            <div class="mt-4 rounded-lg p-3" style="background:var(--bg-overlay);border:1px solid var(--border)">
+              <div class="flex flex-wrap items-center gap-2 text-[12px]">
+                <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg)">已选 Subject <span x-text="selectedSubjectCount"></span></span>
+                <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg)">有效被测对象 <span x-text="selectedExecutionTargetCount"></span></span>
+                <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg)">Framework <span x-text="selectedFrameworkCount"></span></span>
+                <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg)">Skill <span x-text="selectedSkillCount"></span></span>
+              </div>
+              <div class="mt-2 text-[12px]" style="color:var(--fg-muted)" x-text="subjectPlanHint"></div>
+            </div>
+          </div>
+
+          <div class="form-section" x-show="form.phase === 'full' || form.phase === 'generate'">
+            <div class="section-title">模型 Baseline / 兼容回退</div>
+            <div class="flex flex-wrap gap-2.5">
+              <template x-for="m in config?.models ?? []" :key="m.name">
+                <label :class="form.models.includes(m.name) ? 'active' : ''" class="chip" :title="m.api_key_set ? 'API Key 已配置' : 'API Key 未配置: ' + m.api_key_env">
+                  <input type="checkbox" :value="m.name" x-model="form.models" class="w-3.5 h-3.5">
+                  <span class="inline-block w-2 h-2 rounded-full shrink-0" :style="m.api_key_set ? 'background:var(--green)' : 'background:var(--red)'"></span>
+                  <span x-text="m.name" class="font-medium"></span>
+                  <span x-text="m.model_id" class="text-[11px]" style="color:var(--fg-muted)"></span>
+                </label>
+              </template>
+            </div>
+            <div x-show="(config?.models ?? []).some(m => !m.api_key_set)" class="mt-2 text-[11px]" style="color:var(--yellow)">
+              <span class="inline-block w-2 h-2 rounded-full mr-1" style="background:var(--red)"></span>红点表示 API Key 未配置，运行时会失败。请在 <span class="font-mono">.env</span> 中设置对应变量，或到「注册表」页面编辑。
+            </div>
+          </div>
+          <div class="form-section" x-show="form.phase === 'full' || form.phase === 'generate'">
+            <div class="section-title">语言</div>
+            <div class="flex flex-wrap gap-2.5">
+              <template x-for="lang in config?.languages ?? []" :key="lang">
+                <label :class="form.languages.includes(lang) ? 'active' : ''" class="chip">
+                  <input type="checkbox" :value="lang" x-model="form.languages" class="w-3.5 h-3.5">
+                  <span x-text="lang"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+          <div class="form-section" x-show="form.phase === 'full' || form.phase === 'generate'">
+            <div class="section-title">数据集筛选</div>
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="label-text">类型</label>
+                <select x-model="form.class" class="input-base">
+                  <option value="">全部</option>
+                  <template x-for="c in config?.classes ?? []" :key="c"><option :value="c" x-text="c"></option></template>
+                </select>
+              </div>
+              <div>
+                <label class="label-text">场景</label>
+                <select x-model="form.scenario" class="input-base">
+                  <option value="">全部场景</option>
+                  <template x-for="sc in config?.scenarios ?? []" :key="sc"><option :value="sc" x-text="sc"></option></template>
+                </select>
+              </div>
+              <div>
+                <label class="label-text">等级</label>
+                <input x-model="form.level" type="text" placeholder="l1, l2..." class="input-base">
+              </div>
+            </div>
+          </div>
+          <div class="form-section">
+            <div class="section-title">执行设置</div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="label-text">每语言/场景样本上限 <span class="font-normal" style="color:var(--fg-subtle)">（0 = 无限制）</span></label>
+                <input x-model.number="form.max_samples" type="number" min="0" class="input-base">
+                <div class="text-[11px] mt-1" style="color:var(--fg-subtle)">
+                  预计生成任务：<span style="color:var(--fg)" x-text="estimatedTaskCount"></span>
+                  <span x-text="estimatedTaskFormula"></span>
+                </div>
+              </div>
+              <div>
+                <label class="label-text">并发数 <span class="font-normal" style="color:var(--fg-subtle)">（0 = 自动）</span></label>
+                <input x-model.number="form.workers" type="number" min="0" class="input-base">
+              </div>
+            </div>
+          </div>
+          <div class="form-section">
+            <div class="section-title">高级选项</div>
+            <div class="grid grid-cols-2 gap-x-5 gap-y-3">
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors">
+                <input type="checkbox" x-model="form.dry_run" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
+                <div>
+                  <div class="text-[13px] font-medium">空跑模式</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">跳过真实 API 调用</div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors">
+                <input type="checkbox" x-model="form.mutation_enabled" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
+                <div>
+                  <div class="text-[13px] font-medium">变异测试</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">启用变异分析</div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors">
+                <input type="checkbox" x-model="form.ingest" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
+                <div>
+                  <div class="text-[13px] font-medium">入库保存</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">完成后写入 SQLite，供数据管理和跨运行报告使用</div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors">
+                <input type="checkbox" x-model="form.reuse_generated" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
+                <div>
+                  <div class="text-[13px] font-medium">复用历史生成</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">同模型、同源码、同 prompt 版本时复用数据库里的测试代码</div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors">
+                <input type="checkbox" x-model="form.reuse_evaluation" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)">
+                <div>
+                  <div class="text-[13px] font-medium">复用历史评测</div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">同 generated test、同 evaluator 环境、同 mutation 配置时复用评测结果</div>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors"
+                     :class="(env && !env.docker_available) ? 'opacity-50 pointer-events-none' : ''">
+                <input type="checkbox" x-model="form.use_docker" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)" :disabled="env && !env.docker_available">
+                <div>
+                  <div class="text-[13px] font-medium flex items-center gap-2">
+                    Docker 执行
+                    <span x-show="env && !env.image_present && env.docker_available" class="text-[10px] px-1.5 py-0.5 rounded" style="background:var(--warn-bg);color:var(--yellow)">需镜像</span>
+                  </div>
+                  <div class="text-[12px]" style="color:var(--fg-muted)">在 <code class="font-mono text-[11px]">utbench:latest</code> 容器中运行（Windows 下 mutmut/mull 必需）</div>
+                </div>
+              </label>
+              <div x-show="form.mutation_enabled">
+                <label class="label-text">变异超时（秒）</label>
+                <input x-model.number="form.mutation_timeout" type="number" min="60" class="input-base">
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 pt-1">
+            <button type="submit" :disabled="formSubmitting || submitDisabled" class="btn-primary">
+              <span x-show="!formSubmitting" x-text="submitButtonText"></span>
+              <span x-show="formSubmitting">启动中...</span>
+            </button>
+            <span x-show="formError" class="text-[13px]" style="color:var(--red)" x-text="formError"></span>
+          </div>
+        </form>
+      </div>

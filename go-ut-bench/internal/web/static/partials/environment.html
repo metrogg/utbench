@@ -1,0 +1,163 @@
+      <!-- ENVIRONMENT -->
+      <div x-show="page === 'environment'" class="max-w-7xl animate-fadeUp">
+        <div class="flex flex-wrap items-center gap-3 mb-4">
+          <div class="text-[12px]" style="color:var(--fg-muted)">
+            <span x-show="!environmentLoading && environment">上次检查：<span x-text="fmtTime(environment?.checked_at)" style="color:var(--fg)"></span></span>
+            <span x-show="environmentLoading">检查中...</span>
+          </div>
+          <button @click="loadEnvironment(true)" :disabled="environmentLoading" class="btn-primary text-[12px] ml-auto">
+            <span x-text="environmentLoading ? '检查中...' : '重新检查'"></span>
+          </button>
+        </div>
+
+        <template x-if="environment">
+          <div class="space-y-5">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div class="kpi-card">
+                <div class="kpi-value kpi-total" x-text="environment.summary?.total ?? 0"></div>
+                <div class="kpi-label">检查项</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-value kpi-completed" x-text="environment.summary?.ok ?? 0"></div>
+                <div class="kpi-label">正常</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-value kpi-running" x-text="environment.summary?.warning ?? 0"></div>
+                <div class="kpi-label">警告</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-value kpi-failed" x-text="environment.summary?.missing ?? 0"></div>
+                <div class="kpi-label">缺失</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-value kpi-running" x-text="environment.summary?.installable ?? 0"></div>
+                <div class="kpi-label">可安装</div>
+              </div>
+            </div>
+
+            <!-- 运行时拓扑卡片 -->
+            <div class="form-section">
+              <div class="section-title">运行时拓扑</div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                <div class="space-y-2 text-[12px]">
+                  <div class="flex justify-between"><span style="color:var(--fg-muted)">拓扑模式</span><span style="color:var(--fg)" x-text="envTopologyText(env?.topology_mode)"></span></div>
+                  <div class="flex justify-between"><span style="color:var(--fg-muted)">Docker</span><span :style="'color:' + (env?.docker_available ? 'var(--green)' : 'var(--red)')" x-text="env?.docker_available ? '可用 (' + (env?.docker_version || '?') + ')' : '不可用'"></span></div>
+                  <div class="flex justify-between"><span style="color:var(--fg-muted)">容器内运行</span><span style="color:var(--fg)" x-text="env?.running_in_container ? '是' : '否'"></span></div>
+                  <div class="flex justify-between"><span style="color:var(--fg-muted)">Docker Socket</span><span :style="'color:' + (env?.docker_socket_mounted ? 'var(--green)' : 'var(--fg-muted)')" x-text="env?.docker_socket_mounted ? '已挂载' : '未挂载'"></span></div>
+                </div>
+                <div class="space-y-2 text-[12px]">
+                  <div class="flex justify-between"><span style="color:var(--fg-muted)">评测镜像</span><span :style="'color:' + (env?.eval_image_present ? 'var(--green)' : 'var(--yellow)')" x-text="env?.eval_image_present ? '✓ ' + (env?.eval_image_name || '') : '未构建'"></span></div>
+                </div>
+              </div>
+              <div x-show="env?.recommendation" class="mt-3 text-[12px] rounded-lg p-2.5" style="background:var(--warn-bg);color:var(--yellow);border:1px solid var(--warn-border)" x-text="env?.recommendation"></div>
+            </div>
+
+            <template x-for="group in environment.groups" :key="group.id">
+              <div class="form-section">
+                <div class="section-title flex items-center justify-between">
+                  <span x-text="group.label"></span>
+                  <span class="text-[11px] font-normal" style="color:var(--fg-muted)" x-text="group.items.length + ' 项'"></span>
+                </div>
+                <div class="env-group-grid">
+                  <template x-for="item in group.items" :key="item.id">
+                    <div class="env-item">
+                      <div class="env-item-head">
+                        <div class="min-w-0">
+                          <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-medium text-[13px]" x-text="item.name"></span>
+                            <span x-show="item.required" class="tag-pill text-[10px]" style="background:var(--warn-bg);color:var(--yellow)">必需</span>
+                          </div>
+                          <div x-show="item.version" class="text-[11px] mt-1" style="color:var(--fg-muted)" x-text="item.version"></div>
+                        </div>
+                        <span class="tag-pill text-[10px] flex-shrink-0" :style="envStatusStyle(item.status)">
+                          <span x-text="envStatusText(item.status)"></span>
+                        </span>
+                      </div>
+                      <div x-show="item.path" class="env-path mt-2" x-text="item.path"></div>
+                      <div x-show="item.message" class="text-[12px] mt-2" style="color:var(--fg-muted)" x-text="item.message"></div>
+                      <div x-show="item.advice" class="text-[12px] mt-2" style="color:var(--fg-subtle)" x-text="item.advice"></div>
+                      <div class="flex items-center gap-2 mt-3" x-show="item.installable && item.status !== 'ok'">
+                        <button @click="openInstallConfirm(item)" class="btn-warm text-[12px] py-1.5 px-3">
+                          <span x-text="item.install_label || '安装'"></span>
+                        </button>
+                        <code class="font-mono text-[11px] truncate" style="color:var(--fg-muted)" x-text="installCommandText(item)"></code>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <div x-show="!environment && !environmentLoading" class="form-section text-center py-12">
+          <div class="text-[13px]" style="color:var(--fg-muted)">尚未执行环境检查</div>
+          <button @click="loadEnvironment(true)" class="btn-primary mt-3">开始检查</button>
+        </div>
+
+        <!-- API Key 管理 -->
+        <div class="form-section mt-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="section-title">API Key 配置</div>
+            <button @click="loadAPIKeys()" class="btn-ghost text-[11px]">刷新状态</button>
+          </div>
+          <div class="text-[11px] mb-3" style="color:var(--fg-subtle)">
+            API Key 保存到 <span class="font-mono">.env</span> 文件，Docker 执行时自动加载。模型服务商的 Key 也可在「注册表」页面编辑。
+          </div>
+
+          <!-- Agent 平台 -->
+          <div class="text-[12px] font-medium mb-2" style="color:var(--fg-muted)">Agent 平台认证</div>
+          <div class="space-y-2 mb-4">
+            <template x-for="k in apiKeys.filter(k => k.category === 'agent')" :key="k.key">
+              <div class="flex items-start gap-3 rounded-lg px-3 py-2.5" style="background:var(--bg-overlay);border:1px solid var(--border)">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13px] font-medium" x-text="k.label"></span>
+                    <span class="tag-pill text-[10px]"
+                          :style="k.value_set ? 'background:var(--success-bg);color:var(--green)' : 'background:var(--error-bg);color:var(--red)'"
+                          x-text="k.value_set ? '已设置' : '未设置'"></span>
+                    <span x-show="k.preview" class="font-mono text-[10px]" style="color:var(--fg-subtle)" x-text="k.preview"></span>
+                  </div>
+                  <div class="text-[11px] mt-1" style="color:var(--fg-muted)" x-text="k.description"></div>
+                  <div x-show="k.key === 'CODEBUDDY_INTERNET_ENVIRONMENT'" class="text-[11px] mt-1" style="color:var(--fg-muted)">
+                    中国版: <span class="font-mono">internal</span> | 海外版: 留空 | iOA: <span class="font-mono">ioa</span>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <input :type="k.key.includes('KEY') ? 'password' : 'text'"
+                         :placeholder="k.value_set ? '已设置，留空不修改' : '输入值'"
+                         class="input-base text-[11px] font-mono w-48"
+                         @input="k._input = $event.target.value">
+                  <button @click="saveAPIKey(k)" :disabled="!k._input" class="btn-ghost text-[11px] py-1 px-2.5">保存</button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- 模型服务商 -->
+          <div class="text-[12px] font-medium mb-2" style="color:var(--fg-muted)">模型服务商</div>
+          <div class="space-y-2">
+            <template x-for="k in apiKeys.filter(k => k.category === 'model')" :key="k.key">
+              <div class="flex items-start gap-3 rounded-lg px-3 py-2.5" style="background:var(--bg-overlay);border:1px solid var(--border)">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13px] font-medium" x-text="k.label"></span>
+                    <span class="tag-pill text-[10px]"
+                          :style="k.value_set ? 'background:var(--success-bg);color:var(--green)' : 'background:var(--error-bg);color:var(--red)'"
+                          x-text="k.value_set ? '已设置' : '未设置'"></span>
+                    <span x-show="k.preview" class="font-mono text-[10px]" style="color:var(--fg-subtle)" x-text="k.preview"></span>
+                  </div>
+                  <div class="text-[11px] mt-1" style="color:var(--fg-muted)" x-text="k.description"></div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <input type="password"
+                         :placeholder="k.value_set ? '已设置，留空不修改' : '输入 API Key'"
+                         class="input-base text-[11px] font-mono w-48"
+                         @input="k._input = $event.target.value">
+                  <button @click="saveAPIKey(k)" :disabled="!k._input" class="btn-ghost text-[11px] py-1 px-2.5">保存</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>

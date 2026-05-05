@@ -47,21 +47,21 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
   </div>
   <div class="hero-cards">
     <div class="hero-card">
-      <div class="hero-card-icon">🤖</div>
+      <div class="hero-card-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg></div>
       <div class="hero-card-content">
         <div class="hero-card-label">评测模型</div>
         <div class="hero-card-value">%s</div>
       </div>
     </div>
     <div class="hero-card">
-      <div class="hero-card-icon">💻</div>
+      <div class="hero-card-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
       <div class="hero-card-content">
         <div class="hero-card-label">编程语言</div>
         <div class="hero-card-value">%s</div>
       </div>
     </div>
     <div class="hero-card">
-      <div class="hero-card-icon">📦</div>
+      <div class="hero-card-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
       <div class="hero-card-content">
         <div class="hero-card-label">样本类型</div>
 	<div class="hero-card-value">%s</div>
@@ -74,7 +74,7 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 		escapeHTML(summarizeList(heroModels, 6)),
 		escapeHTML(summarizeList(heroLangs, 6)),
 		escapeHTML(summarizeList(heroTypeLabels, 6))))
-	b.WriteString(buildRuntimeSummarySection(payload.RuntimeSummary))
+	_ = buildRuntimeSummarySection // 已停用：运行时拓扑 Runtime Topology
 
 	// Navigation
 	b.WriteString(`
@@ -323,6 +323,7 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.Com
 		latencyStr := fmt.Sprintf("%.1fs", m.AvgLatencyMS/1000)
 		tokensStr := fmt.Sprintf("%.0f", m.AvgTotalTokens)
 		assertionDensityStr := fmt.Sprintf("%.2f", m.AvgAssertionDensity)
+		tokenSourceStr := tokenCoverageLabel(m)
 
 		platform := firstNonEmpty(m.AgentFramework, "model_api")
 		model := firstNonEmpty(m.AgentModel, m.Model)
@@ -404,6 +405,7 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.Com
 			min(100, int(m.AvgAssertionDensity*20)),
 			assertionDensityStr,
 			latencyStr, tokensStr, m.TotalSamples,
+			tokenSourceStr,
 			compositePct)
 	}
 
@@ -422,10 +424,10 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.Com
   </div>
   <div class="lb-controls" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
     <div class="lb-tabs" style="display:flex;gap:4px;">
-      <button class="lb-tab active" data-mode="all" onclick="lbSwitchMode('all',this)">全部排名</button>
-      <button class="lb-tab" data-mode="platform" onclick="lbSwitchMode('platform',this)">按平台</button>
-      <button class="lb-tab" data-mode="model" onclick="lbSwitchMode('model',this)">按模型</button>
-      <button class="lb-tab" data-mode="skill" onclick="lbSwitchMode('skill',this)">按Skill</button>
+      <button class="lb-tab active" data-mode="all" onclick="lbSwitchMode('all',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#1e293b;color:#fff;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">全部排名</button>
+      <button class="lb-tab" data-mode="platform" onclick="lbSwitchMode('platform',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按平台</button>
+      <button class="lb-tab" data-mode="model" onclick="lbSwitchMode('model',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按模型</button>
+      <button class="lb-tab" data-mode="skill" onclick="lbSwitchMode('skill',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按Skill</button>
     </div>
     <select id="lb-filter" style="display:none;padding:6px 12px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;background:#fff;" onchange="lbApplyFilter()">
     </select>
@@ -442,8 +444,14 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.Com
   var _curFilter = '';
 
   window.lbSwitchMode = function(mode, btn) {
-    document.querySelectorAll('.lb-tab').forEach(function(t){t.classList.remove('active')});
+    document.querySelectorAll('.lb-tab').forEach(function(t){
+      t.classList.remove('active');
+      t.style.background = '#fff';
+      t.style.color = '#475569';
+    });
     btn.classList.add('active');
+    btn.style.background = '#1e293b';
+    btn.style.color = '#fff';
     _curMode = mode;
     var sel = document.getElementById('lb-filter');
     var hint = document.getElementById('lb-filter-hint');
@@ -539,6 +547,21 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.Com
 `, cardsHTML, filterOptionsJSON))
 
 	return b.String()
+}
+
+func tokenCoverageLabel(m contracts.ModelRank) string {
+	total := m.ActualTokenSamples + m.EstimatedTokenSamples + m.PartialTokenSamples + m.MissingTokenSamples
+	if total == 0 {
+		if m.AvgTotalTokens > 0 {
+			return "actual=0, estimated=0, partial=0, missing=0"
+		}
+		return "actual=0, estimated=0, partial=0, missing=" + fmt.Sprintf("%d", m.TotalSamples)
+	}
+	return fmt.Sprintf("actual=%d, estimated=%d, partial=%d, missing=%d",
+		m.ActualTokenSamples,
+		m.EstimatedTokenSamples,
+		m.PartialTokenSamples,
+		m.MissingTokenSamples)
 }
 
 // buildFilterOptionsJSON 从 comparison views 构建前端筛选选项的 JSON

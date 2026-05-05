@@ -1,0 +1,50 @@
+      <!-- Build Image Modal -->
+      <div x-show="buildModalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.65)" @keydown.escape.window="closeBuildModal()">
+        <div class="form-section w-[720px] max-w-[90vw] max-h-[85vh] flex flex-col" @click.stop>
+          <div class="flex items-center justify-between mb-3">
+            <div class="section-title m-0">构建 Docker 镜像</div>
+            <div class="flex items-center gap-2">
+              <button x-show="buildStatus === 'running' || buildStatus === 'pending'" @click="cancelBuild()" class="btn-ghost text-[12px] py-1 px-2" style="color:var(--red)">取消构建</button>
+              <button @click="closeBuildModal()" class="btn-ghost text-[12px] py-1 px-2">关闭</button>
+            </div>
+          </div>
+          <div class="text-[12px] mb-3" style="color:var(--fg-muted)">
+            拓扑: <code class="font-mono text-[12px]" style="color:var(--fg)" x-text="envTopologyText(env?.topology_mode)"></code>
+            · 上下文: <code class="font-mono text-[11px]" x-text="env?.project_root || '.'"></code>
+            <span x-show="env?.eval_image_name"> · 评测镜像: <code class="font-mono text-[11px]" x-text="env.eval_image_name"></code></span>
+          </div>
+          <div class="flex items-center gap-2 mb-3 flex-wrap">
+            <button @click="buildTarget='eval'" class="chip active">评测镜像</button>
+            <span class="text-[11px]" style="color:var(--fg-subtle)">含全部语言工具链，用于 run/evaluate/doctor</span>
+            <span class="text-[12px]" style="color:var(--fg-muted)">
+              当前目标:
+              <code class="font-mono text-[12px]" style="color:var(--fg)" x-text="activeBuildImageName"></code>
+              <span> · Dockerfile: </span>
+              <code class="font-mono text-[12px]" style="color:var(--fg)" x-text="activeBuildDockerfile"></code>
+            </span>
+          </div>
+          <div class="flex items-center gap-3 mb-3">
+            <button @click="startBuild()" :disabled="buildStatus === 'running' || buildStatus === 'pending'" class="btn-primary text-[12px]">
+              <span x-show="buildStatus !== 'running' && buildStatus !== 'pending'">开始构建</span>
+              <span x-show="buildStatus === 'running' || buildStatus === 'pending'">构建中...</span>
+            </button>
+            <span class="text-[12px]" style="color:var(--fg-muted)">
+              状态: <span :style="buildStatusColor(buildStatus)" class="font-medium" x-text="buildStatus || '空闲'"></span>
+            </span>
+            <span class="text-[12px]" style="color:var(--fg-muted)">
+              目标: <span class="font-medium" style="color:var(--fg)" x-text="buildTargetText(buildTarget)"></span>
+            </span>
+            <span x-show="buildError" class="text-[12px]" style="color:var(--red)" x-text="buildError"></span>
+          </div>
+          <div class="terminal text-[12px] p-3 flex-1 overflow-y-auto leading-5 rounded-lg" style="background:#020408;color:var(--green);min-height:320px">
+            <template x-if="!buildLogs.length">
+              <div style="color:var(--fg-subtle)">点击“开始构建”启动 <code class="font-mono">docker build</code>。</div>
+            </template>
+            <template x-for="(line, i) in buildLogs" :key="i">
+              <div class="log-line" x-text="line"></div>
+            </template>
+            <div x-show="buildStatus === 'running'" class="animate-pulse" style="color:var(--yellow)">▊</div>
+            <div id="build-log-bottom"></div>
+          </div>
+        </div>
+      </div>

@@ -1,0 +1,37 @@
+      <!-- Environment Install Confirm Modal -->
+      <div x-show="installConfirmOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" style="background:var(--overlay-bg)" @keydown.escape.window="closeInstallConfirm()">
+        <div class="form-section w-[min(720px,calc(100vw-32px))] max-h-[88vh] overflow-y-auto" @click.stop>
+          <div class="flex items-center justify-between mb-4">
+            <div class="section-title m-0">确认安装</div>
+            <button @click="closeInstallConfirm()" :disabled="installRunning" class="btn-ghost text-[12px]">关闭</button>
+          </div>
+          <template x-if="installTarget">
+            <div class="space-y-4">
+              <div class="rounded-lg p-3" style="background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--yellow)">
+                <div class="text-[13px] font-medium">即将安装：<span x-text="installTarget.name"></span></div>
+                <div class="text-[12px] mt-1 opacity-90">后端只会执行白名单命令；安装前需要你在这里确认。</div>
+              </div>
+              <div>
+                <label class="label-text">命令摘要</label>
+                <div class="terminal text-[12px] p-3 rounded-lg overflow-x-auto" style="background:#020408;color:var(--green)">
+                  <span x-text="installCommandText(installTarget)"></span>
+                </div>
+              </div>
+              <div x-show="installOutput">
+                <label class="label-text">执行输出</label>
+                <div class="terminal text-[12px] p-3 rounded-lg whitespace-pre-wrap leading-5" style="background:#020408;color:var(--green);max-height:220px;overflow:auto" x-text="installOutput"></div>
+              </div>
+              <div x-show="installError">
+                <label class="label-text" style="color:var(--red)">错误信息</label>
+                <div class="terminal text-[12px] p-3 rounded-lg whitespace-pre-wrap leading-5" style="background:#020408;color:var(--red);max-height:160px;overflow:auto" x-text="installError"></div>
+              </div>
+              <div class="flex items-center justify-end gap-2">
+                <button @click="closeInstallConfirm()" :disabled="installRunning" class="btn-ghost">取消</button>
+                <button @click="confirmInstall()" :disabled="installRunning" class="btn-warm">
+                  <span x-text="installRunning ? '安装中...' : '确认安装'"></span>
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
