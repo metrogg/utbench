@@ -189,6 +189,7 @@ func buildJobSnapshot(job *BuildJob) map[string]any {
 		"target":     job.Target,
 		"dockerfile": job.Dockerfile,
 		"image_name": job.ImageName,
+		"build_args": job.BuildArgs,
 		"status":     string(job.Status),
 		"started_at": job.StartedAt.Format(time.RFC3339Nano),
 		"error":      job.Error,

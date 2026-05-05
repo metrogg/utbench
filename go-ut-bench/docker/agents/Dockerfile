@@ -9,6 +9,7 @@
 FROM node:22-bookworm-slim AS agent-clis
 
 ARG NPM_REGISTRY=
+ARG EXTRA_NPM_PACKAGES=
 RUN if [ -n "${NPM_REGISTRY}" ]; then npm config set registry "${NPM_REGISTRY}"; fi
 
 # OpenCode CLI
@@ -19,6 +20,10 @@ RUN npm install -g @tencent-ai/codebuddy-code
 
 # Claude Code CLI (Anthropic)
 RUN npm install -g @anthropic-ai/claude-code
+
+# Optional Agent CLI packages selected from the Web installer, for example:
+#   --build-arg EXTRA_NPM_PACKAGES="@openai/codex"
+RUN if [ -n "${EXTRA_NPM_PACKAGES}" ]; then npm install -g ${EXTRA_NPM_PACKAGES}; fi
 
 # ── Stage 2: Full runtime image ─────────────────────────────
 FROM python:3.11-slim-bookworm

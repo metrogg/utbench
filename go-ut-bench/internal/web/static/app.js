@@ -22,6 +22,9 @@ function app() {
     agentPreset: 'codex',
     agentRuntimeInstallConfirmed: false,
     agentAdvancedOpen: false,
+    agentChecking: false,
+    agentInstallingCLI: false,
+    agentCheckResults: {},
     agentForm: {
       name: '',
       image: 'utbench-agent-base:latest',
@@ -1279,6 +1282,7 @@ function app() {
           summary: '把 Codex 作为独立 Agent Runtime 接入，安装进 Agent 沙箱镜像后再参与评测。',
           image: 'utbench-agent-base:latest',
           installCommand: 'npm install -g @openai/codex',
+          installPackage: '@openai/codex',
           env_from_host: 'OPENAI_API_KEY',
           command: 'PROMPT="$(cat {{.ContainerPrompt}})" &&\ncodex exec --skip-git-repo-check --model "{{.ModelID}}" "$PROMPT"',
           output_globs: globs,
@@ -1294,6 +1298,7 @@ function app() {
           summary: '按产品运行时接入 Kilo，先把 CLI 安装进沙箱，再在高级适配里确认非交互命令。',
           image: 'utbench-agent-base:latest',
           installCommand: '在 docker/agents/Dockerfile 的 agent-clis 阶段加入 Kilo CLI 安装命令',
+          installPackage: '',
           env_from_host: 'KILO_API_KEY',
           command: '',
           output_globs: globs,
@@ -1310,6 +1315,7 @@ function app() {
           summary: 'Agent 沙箱镜像已内置 Claude Code，配置密钥后即可组合模型与 Skill。',
           image: 'utbench-agent-base:latest',
           installCommand: 'npm install -g @anthropic-ai/claude-code',
+          installPackage: '@anthropic-ai/claude-code',
           env_from_host: 'ANTHROPIC_API_KEY\nANTHROPIC_AUTH_TOKEN\nANTHROPIC_CUSTOM_HEADERS\nCLAUDE_CODE_USE_BEDROCK\nCLAUDE_CODE_USE_VERTEX\nCLAUDE_CODE_USE_FOUNDRY',
           command: 'mkdir -p "{{.ContainerWorkdir}}/.claude" &&\nPROMPT="$(cat {{.ContainerPrompt}})" &&\nclaude -p --output-format stream-json --verbose --permission-mode bypassPermissions --max-turns 50 --model "{{.ModelID}}" "$PROMPT"',
           output_globs: globs,
@@ -1325,6 +1331,7 @@ function app() {
           summary: 'OpenCode 已作为通用 Agent Runtime 内置，适合 OpenAI-compatible 模型端点。',
           image: 'utbench-agent-base:latest',
           installCommand: 'npm install -g opencode-ai opencode-linux-x64-baseline',
+          installPackage: 'opencode-ai opencode-linux-x64-baseline',
           env_from_host: 'DEEPSEEK_API_KEY\nDASHSCOPE_API_KEY\nMINIMAX_API_KEY\nARK_API_KEY\nBIGMODEL_API_KEY',
           command: 'PROMPT="$(cat {{.ContainerPrompt}})" &&\nopencode run --print-logs --dangerously-skip-permissions --model "{{.ModelID}}" "$PROMPT"',
           output_globs: globs,
@@ -1340,6 +1347,7 @@ function app() {
           summary: 'CodeBuddy 已内置到 Agent 沙箱，适合用自定义模型端点做单测生成。',
           image: 'utbench-agent-base:latest',
           installCommand: 'npm install -g @tencent-ai/codebuddy-code',
+          installPackage: '@tencent-ai/codebuddy-code',
           env_from_host: 'CODEBUDDY_API_KEY\nCODEBUDDY_INTERNET_ENVIRONMENT\nDEEPSEEK_API_KEY\nDASHSCOPE_API_KEY\nMINIMAX_API_KEY\nARK_API_KEY\nBIGMODEL_API_KEY',
           command: 'mkdir -p "{{.ContainerWorkdir}}/.codebuddy" &&\nPROMPT="$(cat {{.ContainerPrompt}})" &&\ncodebuddy -p -y --output-format stream-json --max-turns 50 "$PROMPT"',
           output_globs: globs,
@@ -1355,6 +1363,7 @@ function app() {
           summary: '用于接入公司内部 Agent 或未预置产品，需要提供安装方式和非交互命令。',
           image: 'utbench-agent-base:latest',
           installCommand: '在 docker/agents/Dockerfile 安装你的 Agent CLI',
+          installPackage: '',
           env_from_host: 'MY_AGENT_API_KEY',
           command: 'PROMPT="$(cat {{.ContainerPrompt}})" &&\nagent-cli run --model "{{.ModelID}}" --prompt "$PROMPT"',
           output_globs: globs,
@@ -1397,6 +1406,92 @@ function app() {
     agentRuntimeImageStyle() {
       if (this.agentRuntimeImagePresent()) return 'background:var(--success-bg);color:var(--green)'
       return 'background:var(--warn-bg);color:var(--yellow)'
+    },
+    agentCheckKey(id = this.agentPreset) {
+      const spec = this.agentRuntimeSpec(id)
+      return (spec?.image || 'utbench-agent-base:latest') + '::' + (spec?.commandName || '')
+    },
+    agentCheckResult(id = this.agentPreset) {
+      return this.agentCheckResults[this.agentCheckKey(id)]
+    },
+    agentCheckText(id = this.agentPreset) {
+      const result = this.agentCheckResult(id)
+      if (!result) return '尚未检查'
+      return result.ok ? 'CLI 已安装' : 'CLI 未安装'
+    },
+    agentCheckStyle(id = this.agentPreset) {
+      const result = this.agentCheckResult(id)
+      if (!result) return 'background:var(--badge-bg);color:var(--fg-muted)'
+      return result.ok ? 'background:var(--success-bg);color:var(--green)' : 'background:var(--error-bg);color:var(--red)'
+    },
+    agentCheckMessage(id = this.agentPreset) {
+      const result = this.agentCheckResult(id)
+      if (!result) return ''
+      if (result.ok) return result.version || result.output || 'agent cli found'
+      return result.error || result.output || 'agent cli not found'
+    },
+    agentCanInstallCLI() {
+      const spec = this.agentRuntimeSpec()
+      return !!spec?.installPackage && !this.agentInstallingCLI && this.env?.docker_available
+    },
+    agentInstallCLIText() {
+      if (this.agentInstallingCLI) return '安装中...'
+      const spec = this.agentRuntimeSpec()
+      if (!spec?.installPackage) return '未配置安装包'
+      return '安装 CLI 到镜像'
+    },
+    async installAgentCLI() {
+      const spec = this.agentRuntimeSpec()
+      if (!spec?.installPackage) { this.showToast('这个 Agent 还没有配置可自动安装的 CLI 包', 'warn'); return }
+      if (!this.env?.docker_available) { this.showToast('Docker 还不可用，无法安装 CLI', 'warn'); return }
+      this.agentInstallingCLI = true
+      this.agentFormError = ''
+      try {
+        const r = await fetch('/api/agents/install-cli', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runtime: spec.id, image: this.agentForm.image || spec.image, package: spec.installPackage }),
+        })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.buildModalOpen = true
+        this.buildTarget = data.target || 'agent'
+        this.buildId = data.build_id || ''
+        this.buildStatus = data.status || 'pending'
+        this.buildError = data.error || ''
+        this.buildLogs = []
+        if (this.buildId) this.startBuildSSE(this.buildId)
+        this.showToast('开始安装 ' + spec.title + ' CLI 到 Agent 镜像', 'ok')
+      } catch (e) {
+        this.agentFormError = e.message || String(e)
+        this.showToast('安装 Agent CLI 失败：' + this.agentFormError, 'err', 6000)
+      } finally {
+        this.agentInstallingCLI = false
+      }
+    },
+    async checkAgentRuntime() {
+      const spec = this.agentRuntimeSpec()
+      if (!spec?.commandName) { this.showToast('没有可检查的 Agent CLI', 'warn'); return }
+      if (!this.agentRuntimeImagePresent()) { this.showToast('Agent 镜像还没有构建', 'warn'); return }
+      this.agentChecking = true
+      this.agentFormError = ''
+      try {
+        const r = await fetch('/api/agents/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: this.agentForm.image || spec.image, command: spec.commandName }),
+        })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.agentCheckResults = { ...this.agentCheckResults, [this.agentCheckKey()]: data }
+        if (data.ok) this.showToast(spec.title + ' CLI 已安装：' + (data.version || data.command), 'ok')
+        else this.showToast(spec.title + ' CLI 未安装：' + (data.error || data.output || 'not found'), 'err', 6000)
+      } catch (e) {
+        this.agentFormError = e.message || String(e)
+        this.showToast('检查 Agent 失败：' + this.agentFormError, 'err', 6000)
+      } finally {
+        this.agentChecking = false
+      }
     },
     selectAgentRuntime(id) {
       this.agentFormError = ''

@@ -23,6 +23,18 @@ models:
                 top_p: 0.9
         enabled: true
         provider: mimo
+    chat-gpt:
+        config:
+            anthropic_endpoint: ""
+            api_endpoint: https://api.onefaka.com/v1
+            api_key_env: CHAT_GPT_API_KEY
+            model: gpt-5.5
+            parameters:
+                max_tokens: 4096
+                temperature: 0.7
+                top_p: 0.9
+        enabled: true
+        provider: openai
     deepseek:
         config:
             anthropic_endpoint: https://api.deepseek.com/anthropic

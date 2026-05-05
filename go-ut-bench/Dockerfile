@@ -39,24 +39,10 @@ RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update && apt-get
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Add LLVM official repository for LLVM 19
-RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
-    add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" && \
-    if [ -n "${UBUNTU_MIRROR}" ]; then \
-      MIRROR_HOST=$(echo "${UBUNTU_MIRROR}" | sed 's|https\?://||;s|/$||'); \
-      if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
-        sed -i "s|archive.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list.d/ubuntu.sources && \
-        sed -i "s|security.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list.d/ubuntu.sources; \
-      fi; \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i "s|archive.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list && \
-        sed -i "s|security.ubuntu.com/ubuntu|${MIRROR_HOST}|g" /etc/apt/sources.list; \
-      fi; \
-    fi && \
-    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update
-
-# System dependencies - Install LLVM 19 for Mull 19 compatibility
-RUN apt-get install -y --fix-missing --no-install-recommends \
+# System dependencies. Keep apt-get update in the same layer as install so a
+# cached repository setup layer never leaves this step with stale package lists.
+RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update && \
+    apt-get install -y --fix-missing --no-install-recommends \
     build-essential \
     gcc \
     g++ \
@@ -70,19 +56,30 @@ RUN apt-get install -y --fix-missing --no-install-recommends \
     python3-six \
     python3-dateutil \
     python3-venv \
-    openjdk-21-jdk \
+    default-jdk \
     maven \
     libgtest-dev \
     gdb \
     sudo \
+    libstdc++6 \
+    libgcc-s1 && \
+    cd /usr/src/gtest && cmake . && make && cp lib/*.a /usr/lib/
+
+# Add LLVM official repository for LLVM 19 only after base dependencies are
+# installed. This keeps temporary apt.llvm.org failures from breaking the large
+# Ubuntu package layer above.
+RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
+    add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main"
+
+# LLVM/Clang 19 is installed separately so failures from apt.llvm.org are
+# easier to diagnose than a single very long apt-get install command.
+RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update && \
+    apt-get install -y --fix-missing --no-install-recommends \
     clang-19 \
     llvm-19 \
     llvm-19-dev \
     libclang-19-dev \
     lld-19 \
-    libstdc++6 \
-    libgcc-s1 \
-    && cd /usr/src/gtest && cmake . && make && cp lib/*.a /usr/lib/ \
     && rm -rf /var/lib/apt/lists/*
 
 # Configure Maven to use Aliyun mirror for faster downloads in China

@@ -160,6 +160,7 @@ func (s *Server) handleEnvironmentInstall(w http.ResponseWriter, r *http.Request
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, plan.Command, plan.Args...)
+	hideCommandWindow(cmd)
 	out, runErr := cmd.CombinedOutput()
 	output := trimCommandOutput(string(out), 12000)
 	resp := environmentInstallResponse{
@@ -463,7 +464,9 @@ func detectPythonCommand() (envCommand, bool, string) {
 func runCheckCommand(command string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), detectTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, command, args...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, command, args...)
+	hideCommandWindow(cmd)
+	out, err := cmd.CombinedOutput()
 	return trimCommandOutput(string(out), 1200), err
 }
 

@@ -70,10 +70,20 @@
                     <code x-text="agentRuntimeSpec().commandName"></code>
                   </div>
                   <div>
+                    <span>CLI 状态</span>
+                    <strong :style="agentCheckStyle()" x-text="agentCheckText()"></strong>
+                  </div>
+                  <div>
                     <span>安装方式</span>
                     <code x-text="agentRuntimeSpec().installCommand"></code>
                   </div>
+                  <button class="btn-primary text-[12px]" :disabled="!agentCanInstallCLI()" @click="installAgentCLI()" x-text="agentInstallCLIText()"></button>
+                  <button class="btn-ghost text-[12px]" :disabled="agentChecking || !agentRuntimeImagePresent()" @click="checkAgentRuntime()" x-text="agentChecking ? '检查中...' : '检查 Agent'"></button>
                 </div>
+              </div>
+
+              <div x-show="agentCheckMessage()" class="agent-runtime-note mt-3">
+                <span x-text="agentCheckMessage()"></span>
               </div>
 
               <label x-show="agentRuntimeSpec().needsInstall || agentRuntimeSpec().needsAdapter" class="agent-confirm-line mt-4">

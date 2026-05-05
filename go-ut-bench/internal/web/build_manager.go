@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -25,15 +26,16 @@ const (
 // It deliberately mirrors RunEntry's log + subscribe shape so the SSE handler
 // can reuse the same pattern.
 type BuildJob struct {
-	BuildID    string        `json:"build_id"`
-	Target     string        `json:"target"`
-	Dockerfile string        `json:"dockerfile,omitempty"`
-	ImageName  string        `json:"image_name"`
-	Status     BuildStatus   `json:"status"`
-	StartedAt  time.Time     `json:"started_at"`
-	EndedAt    *time.Time    `json:"ended_at,omitempty"`
-	Error      string        `json:"error,omitempty"`
-	Done       chan struct{} `json:"-"`
+	BuildID    string            `json:"build_id"`
+	Target     string            `json:"target"`
+	Dockerfile string            `json:"dockerfile,omitempty"`
+	ImageName  string            `json:"image_name"`
+	BuildArgs  map[string]string `json:"build_args,omitempty"`
+	Status     BuildStatus       `json:"status"`
+	StartedAt  time.Time         `json:"started_at"`
+	EndedAt    *time.Time        `json:"ended_at,omitempty"`
+	Error      string            `json:"error,omitempty"`
+	Done       chan struct{}     `json:"-"`
 
 	logs   []string
 	mu     sync.RWMutex
@@ -149,6 +151,7 @@ type BuildProfile struct {
 	Target     string
 	ImageName  string
 	Dockerfile string
+	BuildArgs  map[string]string
 }
 
 // NewBuildManager creates a BuildManager rooted at projectRoot (the directory
@@ -178,6 +181,7 @@ func (m *BuildManager) Submit(profile BuildProfile) *BuildJob {
 		Target:     target,
 		Dockerfile: dockerfile,
 		ImageName:  profile.ImageName,
+		BuildArgs:  copyStringMap(profile.BuildArgs),
 		Status:     BuildPending,
 		StartedAt:  time.Now(),
 		Done:       make(chan struct{}),
@@ -218,7 +222,8 @@ func (m *BuildManager) execute(job *BuildJob) {
 	job.Status = BuildRunning
 	job.mu.Unlock()
 
-	job.appendLog(fmt.Sprintf("[%s] docker build -f %s -t %s %s", logTS(), job.Dockerfile, job.ImageName, m.projectRoot))
+	buildArgs := dockerBuildArgs(job, m.projectRoot)
+	job.appendLog(fmt.Sprintf("[%s] docker %s", logTS(), redactBuildArgs(buildArgs)))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 	defer cancel()
@@ -226,7 +231,7 @@ func (m *BuildManager) execute(job *BuildJob) {
 	job.cancel = cancel
 	job.mu.Unlock()
 
-	cmd := exec.CommandContext(ctx, "docker", "build", "-f", job.Dockerfile, "-t", job.ImageName, m.projectRoot)
+	cmd := exec.CommandContext(ctx, "docker", buildArgs...)
 	hideCommandWindow(cmd)
 	lw := &buildLineWriter{job: job}
 	cmd.Stdout = lw
@@ -255,6 +260,39 @@ func (m *BuildManager) execute(job *BuildJob) {
 	} else {
 		job.appendLog(fmt.Sprintf("[%s] build completed", logTS()))
 	}
+}
+
+func dockerBuildArgs(job *BuildJob, projectRoot string) []string {
+	args := []string{"build", "-f", job.Dockerfile, "-t", job.ImageName}
+	keys := make([]string, 0, len(job.BuildArgs))
+	for key := range job.BuildArgs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := strings.TrimSpace(job.BuildArgs[key])
+		if value == "" {
+			continue
+		}
+		args = append(args, "--build-arg", key+"="+value)
+	}
+	args = append(args, projectRoot)
+	return args
+}
+
+func redactBuildArgs(args []string) string {
+	return strings.Join(args, " ")
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func defaultBuildProfile(target string, cfg DockerConfig) (BuildProfile, error) {

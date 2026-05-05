@@ -1,5 +1,5 @@
       <!-- MODEL FORM MODAL -->
-      <div x-show="modelFormOpen" x-transition.opacity class="fixed inset-0 z-50 flex items-center justify-center" style="background:var(--overlay-bg)">
+      <div x-show="modelFormOpen" x-cloak class="model-modal-backdrop flex items-center justify-center">
         <div @click.outside="closeModelForm()" class="form-section w-[min(920px,calc(100vw-32px))] m-4" style="max-height:90vh;overflow-y:auto">
           <div class="flex items-center justify-between mb-4">
             <div class="text-[14px] font-medium" x-text="modelFormMode === 'create' ? '添加模型' : '编辑模型：' + modelForm.name"></div>

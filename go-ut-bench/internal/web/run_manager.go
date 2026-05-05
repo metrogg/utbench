@@ -175,7 +175,7 @@ type RunManager struct {
 	outputRoot       string
 	dbPath           string
 	// dockerCfg is used when a run is submitted with UseDocker=true.
-	dockerCfg DockerConfig
+	dockerCfg   DockerConfig
 	stopCleaner chan struct{}
 }
 
@@ -456,7 +456,9 @@ func (m *RunManager) Cancel(runID string) error {
 
 // dockerControl 封装 `docker <action> <container>`。
 func dockerControl(action, container string) error {
-	out, err := exec.Command("docker", action, container).CombinedOutput()
+	cmd := exec.Command("docker", action, container)
+	hideCommandWindow(cmd)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("docker %s %s: %v: %s", action, container, err, string(out))
 	}
@@ -469,7 +471,9 @@ func killSandboxContainers(runID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	// 查找所有带 utbench-run=<runID> label 的容器（包括已停止的）
-	out, err := exec.CommandContext(ctx, "docker", "ps", "-a", "--filter", "label=utbench-run="+runID, "-q").CombinedOutput()
+	cmd := exec.CommandContext(ctx, "docker", "ps", "-a", "--filter", "label=utbench-run="+runID, "-q")
+	hideCommandWindow(cmd)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return
 	}
@@ -479,9 +483,13 @@ func killSandboxContainers(runID string) {
 	}
 	args := strings.Fields(ids)
 	// kill 正在运行的
-	exec.CommandContext(ctx, "docker", append([]string{"kill"}, args...)...).CombinedOutput()
+	killCmd := exec.CommandContext(ctx, "docker", append([]string{"kill"}, args...)...)
+	hideCommandWindow(killCmd)
+	killCmd.CombinedOutput()
 	// rm 已停止的
-	exec.CommandContext(ctx, "docker", append([]string{"rm", "-f"}, args...)...).CombinedOutput()
+	rmCmd := exec.CommandContext(ctx, "docker", append([]string{"rm", "-f"}, args...)...)
+	hideCommandWindow(rmCmd)
+	rmCmd.CombinedOutput()
 }
 
 // killAllUtbenchSandboxes 兜底清理：kill 所有带 utbench-run label 的容器。
@@ -489,7 +497,9 @@ func killSandboxContainers(runID string) {
 func killAllUtbenchSandboxes() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", "ps", "-a", "--filter", "label=utbench-run", "-q").CombinedOutput()
+	cmd := exec.CommandContext(ctx, "docker", "ps", "-a", "--filter", "label=utbench-run", "-q")
+	hideCommandWindow(cmd)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return
 	}
@@ -498,8 +508,12 @@ func killAllUtbenchSandboxes() {
 		return
 	}
 	args := strings.Fields(ids)
-	exec.CommandContext(ctx, "docker", append([]string{"kill"}, args...)...).CombinedOutput()
-	exec.CommandContext(ctx, "docker", append([]string{"rm", "-f"}, args...)...).CombinedOutput()
+	killCmd := exec.CommandContext(ctx, "docker", append([]string{"kill"}, args...)...)
+	hideCommandWindow(killCmd)
+	killCmd.CombinedOutput()
+	rmCmd := exec.CommandContext(ctx, "docker", append([]string{"rm", "-f"}, args...)...)
+	hideCommandWindow(rmCmd)
+	rmCmd.CombinedOutput()
 }
 
 // executeInProcess runs the orchestrator in the same Go process.

@@ -6,10 +6,12 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -217,6 +219,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("/api/models/test-all", s.handleTestAllModels)
 	s.mux.HandleFunc("/api/models/", s.handleModelsSub)
+	s.mux.HandleFunc("/api/agents/check", s.handleAgentCheck)
+	s.mux.HandleFunc("/api/agents/install-cli", s.handleAgentInstallCLI)
 	s.mux.HandleFunc("/api/agents/frameworks", s.handleAgentFrameworks)
 	s.mux.HandleFunc("/api/settings/api-keys", s.handleAPIKeys)
 	// 数据库管理API
@@ -253,7 +257,11 @@ func (s *Server) registerRoutes() {
 	if err != nil {
 		panic(err)
 	}
-	s.mux.Handle("/", http.FileServer(http.FS(sub)))
+	staticHandler := http.FileServer(http.FS(sub))
+	s.mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		staticHandler.ServeHTTP(w, r)
+	}))
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -915,6 +923,203 @@ type createAgentFrameworkRequest struct {
 	CompatibleModels    []string `json:"compatible_models"`
 	CompatibleLanguages []string `json:"compatible_languages"`
 	OutputGlobs         []string `json:"output_globs"`
+}
+
+type agentCheckRequest struct {
+	Image   string `json:"image"`
+	Command string `json:"command"`
+}
+
+type agentInstallCLIRequest struct {
+	Runtime string `json:"runtime"`
+	Image   string `json:"image"`
+	Package string `json:"package"`
+}
+
+type agentCheckResponse struct {
+	OK        bool   `json:"ok"`
+	Image     string `json:"image"`
+	Command   string `json:"command"`
+	Version   string `json:"version,omitempty"`
+	Output    string `json:"output,omitempty"`
+	Error     string `json:"error,omitempty"`
+	CheckedAt string `json:"checked_at"`
+}
+
+func (s *Server) handleAgentInstallCLI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if latest := s.bld.Latest(); latest != nil {
+		latest.mu.RLock()
+		active := latest.Status == BuildPending || latest.Status == BuildRunning
+		latest.mu.RUnlock()
+		if active {
+			writeJSON(w, http.StatusOK, buildJobSnapshot(latest))
+			return
+		}
+	}
+	if !isDockerReady(s.dockerCfg) {
+		errJSON(w, http.StatusPreconditionFailed, "docker daemon is not available on the host")
+		return
+	}
+	var req agentInstallCLIRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errJSON(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	image := strings.TrimSpace(req.Image)
+	if image == "" {
+		image = defaultAgentImageName
+	}
+	if !isSafeDockerImageRef(image) {
+		errJSON(w, http.StatusBadRequest, "invalid docker image")
+		return
+	}
+	pkg := strings.TrimSpace(req.Package)
+	if pkg == "" {
+		pkg = defaultAgentCLIPackage(req.Runtime)
+	}
+	if !isSafeNpmPackageList(pkg) {
+		errJSON(w, http.StatusBadRequest, "invalid agent cli package")
+		return
+	}
+	profile := BuildProfile{
+		Target:     "agent",
+		ImageName:  image,
+		Dockerfile: "docker/agents/Dockerfile",
+		BuildArgs:  map[string]string{"EXTRA_NPM_PACKAGES": pkg},
+	}
+	job := s.bld.Submit(profile)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"build_id":   job.BuildID,
+		"image_name": job.ImageName,
+		"target":     job.Target,
+		"status":     string(job.Status),
+		"package":    pkg,
+	})
+}
+
+func defaultAgentCLIPackage(runtime string) string {
+	switch strings.ToLower(strings.TrimSpace(runtime)) {
+	case "codex":
+		return "@openai/codex"
+	case "claudecode":
+		return "@anthropic-ai/claude-code"
+	case "opencode":
+		return "opencode-ai opencode-linux-x64-baseline"
+	case "codebuddy":
+		return "@tencent-ai/codebuddy-code"
+	default:
+		return ""
+	}
+}
+
+func (s *Server) handleAgentCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req agentCheckRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errJSON(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	image := strings.TrimSpace(req.Image)
+	if image == "" {
+		image = defaultAgentImageName
+	}
+	command := strings.TrimSpace(req.Command)
+	if !isSafeAgentCLIName(command) {
+		errJSON(w, http.StatusBadRequest, "invalid agent command")
+		return
+	}
+	if !isSafeDockerImageRef(image) {
+		errJSON(w, http.StatusBadRequest, "invalid docker image")
+		return
+	}
+	if ok, _, _ := detectDocker(); !ok {
+		writeJSON(w, http.StatusOK, agentCheckResponse{
+			OK:        false,
+			Image:     image,
+			Command:   command,
+			Error:     "docker daemon is not available",
+			CheckedAt: time.Now().Format(time.RFC3339Nano),
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	script := fmt.Sprintf("command -v %s >/dev/null 2>&1 && %s --version", command, command)
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--entrypoint", "sh", image, "-lc", script)
+	hideCommandWindow(cmd)
+	out, err := cmd.CombinedOutput()
+	output := trimCommandOutput(string(out), 4000)
+	resp := agentCheckResponse{
+		OK:        err == nil,
+		Image:     image,
+		Command:   command,
+		Output:    output,
+		CheckedAt: time.Now().Format(time.RFC3339Nano),
+	}
+	if err == nil {
+		resp.Version = firstOutputLine(output)
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		resp.Error = "agent check timed out"
+	} else if output == "" {
+		resp.Error = err.Error()
+	} else {
+		resp.Error = output
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func isSafeAgentCLIName(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func isSafeDockerImageRef(value string) bool {
+	if value == "" || len(value) > 180 || strings.ContainsAny(value, " \t\r\n\"'`$\\") {
+		return false
+	}
+	return true
+}
+
+func isSafeNpmPackageList(value string) bool {
+	if value == "" || len(value) > 240 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == '@' || r == '/' || r == '-' || r == '_' || r == '.' || r == ' ' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func firstOutputLine(output string) string {
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 func (s *Server) handleAgentFrameworks(w http.ResponseWriter, r *http.Request) {

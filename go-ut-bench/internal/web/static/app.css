@@ -121,6 +121,7 @@ body>main>.flex-1{flex:1 1 auto;min-height:0;overflow-y:auto}
 .agent-row-actions{display:flex;flex-direction:column;gap:8px;align-items:stretch;justify-content:center}
 .agent-empty{border:1px dashed var(--border);border-radius:10px;padding:28px;text-align:center;color:var(--fg-muted);font-size:13px}
 .agent-modal-backdrop{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--overlay-bg)}
+.model-modal-backdrop{position:fixed;inset:0;z-index:70;padding:24px;background:var(--overlay-bg)}
 .build-modal-backdrop{position:fixed;inset:0;z-index:90;padding:24px;background:rgba(0,0,0,.65)}
 .agent-modal{width:min(1120px,96vw);max-height:90vh;overflow:hidden;border:1px solid var(--border);border-radius:10px;background:var(--bg-elevated);box-shadow:0 24px 80px rgba(0,0,0,.35)}
 .agent-modal-head{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border);padding:16px 18px}
