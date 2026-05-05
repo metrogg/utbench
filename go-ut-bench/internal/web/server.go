@@ -10,11 +10,13 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"go-ut-bench/internal/agentconfig"
@@ -40,6 +42,7 @@ type Server struct {
 	dockerCfg  DockerConfig
 	mux        *http.ServeMux
 	db         *store.SQLiteStore // 持久化的数据库连接，避免每次请求重新打开
+	httpServer *http.Server       // 用于优雅关闭
 
 	// 缓存层：避免重复读磁盘/解析YAML
 	cacheMu       sync.RWMutex
@@ -96,7 +99,69 @@ func NewServer(mgr *RunManager, bld *BuildManager, configPath, outputRoot, dbPat
 // Start begins listening on addr (e.g. ":8080").
 func (s *Server) Start(addr string) error {
 	fmt.Printf("UTBench Web UI  →  http://localhost%s\n", addr)
-	return http.ListenAndServe(addr, s)
+	s.httpServer = &http.Server{Addr: addr, Handler: s}
+	return s.httpServer.ListenAndServe()
+}
+
+// StartGraceful 启动 HTTP 服务并监听 SIGINT/SIGTERM 信号，收到后优雅关闭。
+// 确保所有运行中的任务被取消、Docker 容器被清理、数据库连接被关闭。
+func (s *Server) StartGraceful(addr string) error {
+	fmt.Printf("UTBench Web UI  →  http://localhost%s\n", addr)
+	s.httpServer = &http.Server{Addr: addr, Handler: s}
+
+	// 在 goroutine 中启动服务
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.httpServer.ListenAndServe()
+	}()
+
+	// 监听 SIGINT (Ctrl+C) 和 SIGTERM (docker stop / kill)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case sig := <-sigCh:
+		fmt.Fprintf(os.Stderr, "\n收到信号 %v，正在优雅关闭...\n", sig)
+	case err := <-errCh:
+		// HTTP 服务自身出错（端口占用等）
+		s.Close()
+		return err
+	}
+
+	// 给在途请求 5 秒完成时间
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "HTTP shutdown: %v\n", err)
+	}
+
+	// 清理所有运行中的任务和容器
+	s.Close()
+
+	// 等待所有运行中任务的 goroutine 完成（最多 30 秒）
+	s.waitForRunningEntries(30 * time.Second)
+
+	fmt.Println("清理完成，退出。")
+	return nil
+}
+
+// waitForRunningEntries 等待所有 status=running 的 entry 的 Done channel 关闭。
+func (s *Server) waitForRunningEntries(timeout time.Duration) {
+	deadline := time.After(timeout)
+	for _, entry := range s.mgr.List() {
+		entry.mu.RLock()
+		status := entry.Status
+		done := entry.Done
+		entry.mu.RUnlock()
+		if status == StatusRunning || status == StatusPending {
+			select {
+			case <-done:
+			case <-deadline:
+				fmt.Fprintf(os.Stderr, "等待超时，部分任务可能未完成清理\n")
+				return
+			}
+		}
+	}
 }
 
 // Close cancels all running tasks, cleans up Docker containers, and closes the database connection.
@@ -360,6 +425,53 @@ type dbReportRequest struct {
 	Models            []string `json:"models"`
 	Languages         []string `json:"languages"`
 	ScoreEligibleOnly bool     `json:"score_eligible_only"`
+	// DedupMode 去重模式：
+	// - "merge" (默认): 合并所有结果，同名样本可能有多条记录
+	// - "overwrite": 按 (model, language, sample_id) 去重，保留最新 run_id 的结果
+	DedupMode string `json:"dedup_mode,omitempty"`
+}
+
+// dbReportSummary 是写入 _db_report 目录下 run_summary.json 的结构，
+// 使合并报告能被 /api/runs 发现并显示在 Web UI 中。
+type dbReportSummary struct {
+	RunID           string            `json:"run_id"`
+	CreatedAtUTC    string            `json:"created_at_utc"`
+	SchemaVersion   string            `json:"schema_version"`
+	Phase           string            `json:"phase"`
+	SourceRunIDs    []string          `json:"source_run_ids"`
+	ResultCount     int               `json:"result_count"`
+	ReportJSONPath  string            `json:"report_json_path"`
+	ReportHTMLPath  string            `json:"report_html_path"`
+	IsMergedReport  bool              `json:"is_merged_report"`
+	Spec            contracts.RunSpec `json:"spec"`
+}
+
+// dedupResultsByLatestRun 按 (model, language, sample_id) 去重，保留最新 run_id 的结果。
+// 用于 "overwrite" 模式，确保同一模型+语言+样本只保留最新运行的结果。
+func dedupResultsByLatestRun(results []contracts.EvaluationResult) []contracts.EvaluationResult {
+	type dedupKey struct {
+		Model    string
+		Language string
+		SampleID string
+	}
+	// 按 run_id 排序（run_id 是时间戳格式，字典序即时间序），后面的会覆盖前面的
+	seen := make(map[dedupKey]int) // key -> index in result slice
+	for i, r := range results {
+		key := dedupKey{Model: r.Model, Language: r.Language, SampleID: r.SampleID}
+		if prevIdx, exists := seen[key]; exists {
+			// 比较 run_id，保留最新的
+			if r.RunID > results[prevIdx].RunID {
+				seen[key] = i
+			}
+		} else {
+			seen[key] = i
+		}
+	}
+	deduped := make([]contracts.EvaluationResult, 0, len(seen))
+	for _, idx := range seen {
+		deduped = append(deduped, results[idx])
+	}
+	return deduped
 }
 
 func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
@@ -376,13 +488,34 @@ func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
 	if outRunID == "" {
 		outRunID = contracts.NewRunID() + "_db_report"
 	}
+
+	// 增量合并：如果指定了 run_id 且该目录下已有 run_summary.json，
+	// 读取其 source_run_ids 与本次新选的合并（去重）。
+	allSourceRunIDs := append([]string{}, req.SourceRunIDs...)
+	summaryPath := filepath.Join(s.outputRoot, "runs", outRunID, "run_summary.json")
+	if existing, err := os.ReadFile(summaryPath); err == nil {
+		var prev dbReportSummary
+		if json.Unmarshal(existing, &prev) == nil && len(prev.SourceRunIDs) > 0 {
+			seen := make(map[string]bool, len(allSourceRunIDs))
+			for _, id := range allSourceRunIDs {
+				seen[id] = true
+			}
+			for _, id := range prev.SourceRunIDs {
+				if !seen[id] {
+					allSourceRunIDs = append(allSourceRunIDs, id)
+					seen[id] = true
+				}
+			}
+		}
+	}
+
 	db, err := s.openStore(r.Context())
 	if err != nil {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	set, err := db.SelectEvaluationResultSet(r.Context(), outRunID, store.DBReportFilter{
-		RunIDs:            req.SourceRunIDs,
+		RunIDs:            allSourceRunIDs,
 		EvaluationRunIDs:  req.EvaluationRunIDs,
 		Models:            req.Models,
 		Languages:         req.Languages,
@@ -392,6 +525,16 @@ func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// 按去重模式处理结果
+	dedupMode := strings.TrimSpace(req.DedupMode)
+	if dedupMode == "" {
+		dedupMode = "merge"
+	}
+	if dedupMode == "overwrite" {
+		set.Results = dedupResultsByLatestRun(set.Results)
+	}
+
 	logger := obs.NewLogger(false, filepath.Join(s.outputRoot, "runs", outRunID, "logs"))
 	out, err := reporter.NewService(logger, &runner.DefaultPromptMetaProvider{}).GenerateFromResultSet(contracts.RunSpec{
 		RunID:      outRunID,
@@ -406,11 +549,61 @@ func (s *Server) handleDBReport(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusInternalServerError, "report generated but ingest failed: "+err.Error())
 		return
 	}
+
+	// 写入 run_summary.json，使合并报告出现在 /api/runs 列表中。
+	// 收集涉及的模型和语言。
+	modelSet := make(map[string]bool)
+	langSet := make(map[string]bool)
+	for _, res := range set.Results {
+		modelSet[res.Model] = true
+		langSet[res.Language] = true
+	}
+	models := make([]string, 0, len(modelSet))
+	for m := range modelSet {
+		models = append(models, m)
+	}
+	languages := make([]string, 0, len(langSet))
+	for l := range langSet {
+		languages = append(languages, l)
+	}
+	sort.Strings(models)
+	sort.Strings(languages)
+
+	summary := dbReportSummary{
+		RunID:          outRunID,
+		CreatedAtUTC:   time.Now().UTC().Format(time.RFC3339Nano),
+		SchemaVersion:  "v0.1.0",
+		Phase:          "report",
+		SourceRunIDs:   allSourceRunIDs,
+		ResultCount:    len(set.Results),
+		ReportJSONPath: out.ReportJSONPath,
+		ReportHTMLPath: out.ReportHTMLPath,
+		IsMergedReport: true,
+		Spec: contracts.RunSpec{
+			RunID:        outRunID,
+			Models:       models,
+			Languages:    languages,
+			OutputRoot:   s.outputRoot,
+			ConfigPath:   s.configPath,
+			CreatedAtUTC: time.Now().UTC(),
+		},
+	}
+	if data, err := json.MarshalIndent(summary, "", "  "); err == nil {
+		_ = os.MkdirAll(filepath.Dir(summaryPath), 0o755)
+		_ = os.WriteFile(summaryPath, data, 0o644)
+	}
+
+	// 使 runs 缓存失效，下次 loadRuns 能立即看到新合并报告。
+	s.cacheMu.Lock()
+	s.runsCache = nil
+	s.cacheMu.Unlock()
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"run_id":           outRunID,
 		"result_count":     len(set.Results),
 		"report_json_path": out.ReportJSONPath,
 		"report_html_path": out.ReportHTMLPath,
+		"source_run_ids":   allSourceRunIDs,
 	})
 }
 
@@ -674,14 +867,18 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 // ─── /api/runs ───────────────────────────────────────────────────────────────
 
 type runSummaryItem struct {
-	RunID     string            `json:"run_id"`
-	Status    RunStatus         `json:"status"`
-	Paused    bool              `json:"paused,omitempty"`
-	StartedAt time.Time         `json:"started_at"`
-	EndedAt   *time.Time        `json:"ended_at,omitempty"`
-	Error     string            `json:"error,omitempty"`
-	Spec      contracts.RunSpec `json:"spec"`
-	UseDocker bool              `json:"use_docker,omitempty"`
+	RunID          string            `json:"run_id"`
+	Label          string            `json:"label,omitempty"`
+	Status         RunStatus         `json:"status"`
+	Paused         bool              `json:"paused,omitempty"`
+	StartedAt      time.Time         `json:"started_at"`
+	EndedAt        *time.Time        `json:"ended_at,omitempty"`
+	Error          string            `json:"error,omitempty"`
+	Spec           contracts.RunSpec `json:"spec"`
+	UseDocker      bool              `json:"use_docker,omitempty"`
+	IsMergedReport bool              `json:"is_merged_report,omitempty"`
+	SourceRunIDs   []string          `json:"source_run_ids,omitempty"`
+	ResultCount    int               `json:"result_count,omitempty"`
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
@@ -750,10 +947,14 @@ func (s *Server) listRunsFromDisk(w http.ResponseWriter, activeRuns []*RunEntry,
 	matches, _ := filepath.Glob(pattern)
 	for _, path := range matches {
 		var raw struct {
-			RunID        string            `json:"run_id"`
-			CreatedAtUTC string            `json:"created_at_utc"`
-			Spec         contracts.RunSpec `json:"spec"`
-			Backend      string            `json:"backend"`
+			RunID          string            `json:"run_id"`
+			Label          string            `json:"label"`
+			CreatedAtUTC   string            `json:"created_at_utc"`
+			Spec           contracts.RunSpec `json:"spec"`
+			Backend        string            `json:"backend"`
+			IsMergedReport bool              `json:"is_merged_report"`
+			SourceRunIDs   []string          `json:"source_run_ids"`
+			ResultCount    int               `json:"result_count"`
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -769,11 +970,15 @@ func (s *Server) listRunsFromDisk(w http.ResponseWriter, activeRuns []*RunEntry,
 		if _, exists := byID[runID]; !exists {
 			t, _ := time.Parse(time.RFC3339Nano, raw.CreatedAtUTC)
 			byID[runID] = runSummaryItem{
-				RunID:     runID,
-				Status:    StatusCompleted,
-				StartedAt: t,
-				Spec:      raw.Spec,
-				UseDocker: strings.EqualFold(strings.TrimSpace(raw.Backend), "docker"),
+				RunID:          runID,
+				Label:          raw.Label,
+				Status:         StatusCompleted,
+				StartedAt:      t,
+				Spec:           raw.Spec,
+				UseDocker:      strings.EqualFold(strings.TrimSpace(raw.Backend), "docker"),
+				IsMergedReport: raw.IsMergedReport,
+				SourceRunIDs:   raw.SourceRunIDs,
+				ResultCount:    raw.ResultCount,
 			}
 		}
 	}
@@ -1005,7 +1210,14 @@ func (s *Server) handleRunSub(w http.ResponseWriter, r *http.Request) {
 	case "pause", "resume", "cancel":
 		s.handleRunControl(w, r, runID, sub)
 	default:
-		s.handleRunGet(w, r, runID)
+		switch r.Method {
+		case http.MethodDelete:
+			s.handleRunDelete(w, r, runID)
+		case http.MethodPatch:
+			s.handleRunRename(w, r, runID)
+		default:
+			s.handleRunGet(w, r, runID)
+		}
 	}
 }
 
@@ -1122,6 +1334,21 @@ func (s *Server) loadRunSpec(runID string) (contracts.RunSpec, error) {
 	return raw.Spec, nil
 }
 
+func (s *Server) loadRunLabel(runID string) string {
+	path := filepath.Join(s.outputRoot, "runs", runID, "run_summary.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var raw struct {
+		Label string `json:"label"`
+	}
+	if json.Unmarshal(data, &raw) != nil {
+		return ""
+	}
+	return raw.Label
+}
+
 func (s *Server) normalizeRunSpec(runID string, spec contracts.RunSpec) contracts.RunSpec {
 	spec.RunID = runID
 	spec.OutputRoot = s.outputRoot
@@ -1156,10 +1383,25 @@ func (s *Server) handleRunReevaluate(w http.ResponseWriter, r *http.Request, run
 		errJSON(w, http.StatusConflict, "Docker image is not ready; reevaluate requires Docker so evaluator tools are complete")
 		return
 	}
-	// 异步执行评测，避免阻塞 HTTP 响应。使用 background context 确保客户端断开不会取消任务。
+	// 异步执行评测，避免阻塞 HTTP 响应。
+	// 使用 s.mgr 的 stopCleaner channel 作为取消信号，确保服务器关闭时任务也会终止。
+	reevalCtx, reevalCancel := context.WithCancel(context.Background())
 	go func() {
-		out, err := runEvaluateInDocker(context.Background(), runID, spec, s.dockerCfg)
+		defer reevalCancel()
+		// 监听服务器关闭信号
+		go func() {
+			select {
+			case <-s.mgr.stopCleaner:
+				reevalCancel()
+			case <-reevalCtx.Done():
+			}
+		}()
+		out, err := runEvaluateInDocker(reevalCtx, runID, spec, s.dockerCfg)
 		if err != nil {
+			if reevalCtx.Err() != nil {
+				fmt.Printf("[reevaluate] run=%s canceled (server shutdown)\n", runID)
+				return
+			}
 			fmt.Printf("[reevaluate] run=%s failed: %v\n%s\n", runID, err, tailString(string(out), 500))
 			return
 		}
@@ -1287,8 +1529,98 @@ func (s *Server) handleRunRegenerateReport(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// handleRunDelete 删除一个已完成的 run 及其磁盘数据。
+// 只允许删除终态（completed/failed/canceled）的 run，运行中的不能删。
+func (s *Server) handleRunDelete(w http.ResponseWriter, r *http.Request, runID string) {
+	// 检查内存中的活跃 run
+	if entry, ok := s.mgr.Get(runID); ok {
+		entry.mu.RLock()
+		status := entry.Status
+		entry.mu.RUnlock()
+		if status == StatusRunning || status == StatusPending {
+			errJSON(w, http.StatusConflict, "cannot delete a running or pending task")
+			return
+		}
+	}
+
+	runDir := filepath.Join(s.outputRoot, "runs", runID)
+	if _, err := os.Stat(runDir); os.IsNotExist(err) {
+		errJSON(w, http.StatusNotFound, "run not found: "+runID)
+		return
+	}
+
+	if err := os.RemoveAll(runDir); err != nil {
+		errJSON(w, http.StatusInternalServerError, "delete failed: "+err.Error())
+		return
+	}
+
+	// 从内存中移除
+	s.mgr.mu.Lock()
+	delete(s.mgr.runs, runID)
+	s.mgr.mu.Unlock()
+
+	// 清除列表缓存
+	s.cacheMu.Lock()
+	s.runsCache = nil
+	s.cacheMu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "run_id": runID})
+}
+
+// handleRunRename 为 run 设置/更新自定义标签名。
+// 标签名写入 run_summary.json 的 "label" 字段。
+func (s *Server) handleRunRename(w http.ResponseWriter, r *http.Request, runID string) {
+	var req struct {
+		Label string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errJSON(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+
+	runDir := filepath.Join(s.outputRoot, "runs", runID)
+	summaryPath := filepath.Join(runDir, "run_summary.json")
+
+	data, err := os.ReadFile(summaryPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			errJSON(w, http.StatusNotFound, "run not found: "+runID)
+		} else {
+			errJSON(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	// 解析为 map 以保留未知字段
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		errJSON(w, http.StatusInternalServerError, "invalid run_summary.json: "+err.Error())
+		return
+	}
+
+	raw["label"] = strings.TrimSpace(req.Label)
+
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := os.WriteFile(summaryPath, out, 0o644); err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// 清除列表缓存
+	s.cacheMu.Lock()
+	s.runsCache = nil
+	s.cacheMu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "run_id": runID, "label": req.Label})
+}
+
 type runDetailResponse struct {
 	RunID     string            `json:"run_id"`
+	Label     string            `json:"label,omitempty"`
 	Status    RunStatus         `json:"status"`
 	Paused    bool              `json:"paused,omitempty"`
 	StartedAt time.Time         `json:"started_at"`
@@ -1310,8 +1642,10 @@ func (s *Server) handleRunGet(w http.ResponseWriter, r *http.Request, runID stri
 			errJSON(w, http.StatusNotFound, "run not found: "+runID)
 			return
 		}
+		label := s.loadRunLabel(runID)
 		writeJSON(w, http.StatusOK, runDetailResponse{
 			RunID:  runID,
+			Label:  label,
 			Status: StatusCompleted,
 			Spec:   spec,
 			Logs:   []string{},

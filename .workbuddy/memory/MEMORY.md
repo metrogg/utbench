@@ -76,6 +76,16 @@
 - **成本**: Agent模式token消耗~50x(API 4k vs Agent 195k)
 - **异常**: MiniMax Java变异得分负增益(-12.8pp), Agent循环引入错误
 
+## 新Agent接入决策 (2026-05-05)
+- **Claude Code胜出, Codex CLI出局**: Codex v0.80.0+强制Responses API,第三方模型全不兼容
+- **Claude Code多模型方案**: 各厂商均提供Anthropic兼容端点(`/anthropic`),只需3个环境变量(BASE_URL+AUTH_TOKEN+MODEL)
+- **厂商兼容接口**: DeepSeek(api.deepseek.com/anthropic)、百炼(dashscope.aliyuncs.com/apps/anthropic)、智谱(open.bigmodel.cn/api/anthropic)、MiniMax(api.minimaxi.com/anthropic 国内/api.minimax.io 国际)、豆包(ark.cn-beijing.volces.com/api/coding Coding Plan或/api/compatible)
+- **Claude Code headless**: `claude -p --bare --output-format stream-json --verbose --max-turns 50 --permission-mode bypassPermissions`
+- **优势vs CodeBuddy**: 零配置文件(纯env注入)、NDJSON丰富事件流、原生total_cost_usd/token追踪
+- **stream-json陷阱**: assistant事件同一message.id多次发射需去重; tool_result在user事件中不在assistant中; result字段是total_cost_usd不是cost_usd
+- **6层适配**: agents.yaml + Dockerfile + injectAgentNativeSkill(.claude/skills/) + parseAgentOutput(stream-json) + sessionExport(按需) + smoke test
+- **完整参考文档**: docs/CLAUDE_CODE_REFERENCE.md
+
 ## CodeBuddy Agent 接入 (2026-05-04)
 - 已完成代码层面接入: docker/agents/codebuddy/Dockerfile + configs/agents.yaml + Go解析代码
 - CodeBuddy模型配置: models.json({id,url(/chat/completions结尾),apiKey:${ENV_VAR}}), 非简单env var

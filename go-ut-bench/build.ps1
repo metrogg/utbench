@@ -49,11 +49,11 @@ function Build-Eval {
 
 function Build-Sandbox {
     Write-Host "==========================================" -ForegroundColor Cyan
-    Write-Host "构建统一 Agent 沙箱: utbench-agent-opencode:latest"
+    Write-Host "构建统一 Agent 沙箱: utbench-agent-base:latest"
     Write-Host "==========================================" -ForegroundColor Cyan
-    docker build @AgentArgs -f docker/agents/opencode/Dockerfile -t utbench-agent-opencode:latest docker/agents/opencode/
+    docker build @AgentArgs -f docker/agents/Dockerfile -t utbench-agent-base:latest docker/agents/
     if ($LASTEXITCODE -ne 0) { throw "沙箱镜像构建失败" }
-    Write-Host "✅ utbench-agent-opencode:latest 构建完成" -ForegroundColor Green
+    Write-Host "✅ utbench-agent-base:latest 构建完成" -ForegroundColor Green
     Write-Host ""
 }
 
@@ -65,7 +65,7 @@ function Verify-Images {
 
     $Images = @(
         "utbench:latest",
-        "utbench-agent-opencode:latest"
+        "utbench-agent-base:latest"
     )
 
     foreach ($img in $Images) {
@@ -106,7 +106,7 @@ switch ($Target) {
         Write-Host "Target:"
         Write-Host "  all         构建全部镜像（评测 + 沙箱）"
         Write-Host "  eval        仅构建评测镜像 (utbench:latest)"
-        Write-Host "  sandbox     仅构建统一 Agent 沙箱 (utbench-agent-opencode:latest)"
+        Write-Host "  sandbox     仅构建统一 Agent 沙箱 (utbench-agent-base:latest)"
         Write-Host "  verify      验证镜像状态"
         Write-Host ""
         Write-Host "选项:"

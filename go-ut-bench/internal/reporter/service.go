@@ -110,6 +110,7 @@ func (s *Service) GenerateFromResultSet(spec contracts.RunSpec, set contracts.Ev
 	errorDiagnosis := buildErrorDiagnosis(set.Results)
 	agentComparisons := buildAgentComparisons(set.Results)
 	skillUplifts := buildSkillUplifts(set.Results)
+	comparisonViews := buildComparisonViews(set.Results)
 
 	payload := contracts.ReportPayload{
 		SchemaVersion:     contracts.SchemaVersion,
@@ -145,6 +146,7 @@ func (s *Service) GenerateFromResultSet(spec contracts.RunSpec, set contracts.Ev
 		RuntimeSummary:   buildRuntimeSummary(manifest, set),
 		AgentComparisons: agentComparisons,
 		SkillUplifts:     skillUplifts,
+		ComparisonViews:  comparisonViews,
 	}
 
 	jsonPath := filepath.Join(reportRoot, "report_summary.json")
@@ -177,6 +179,7 @@ func (s *Service) GenerateFromResultSet(spec contracts.RunSpec, set contracts.Ev
 		"runtime_summary":     payload.RuntimeSummary,
 		"agent_comparisons":   payload.AgentComparisons,
 		"skill_uplifts":       payload.SkillUplifts,
+		"comparison_views":    payload.ComparisonViews,
 	}
 	if err := contracts.WriteJSON(jsonPath, summaryJSON); err != nil {
 		return Output{}, err

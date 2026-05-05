@@ -14,14 +14,15 @@ import (
 // modelConfig 单个模型的配置信息
 // 包含 API 调用所需的所有参数
 type modelConfig struct {
-	Name      string         // 模型名称（配置文件中的键）
-	Provider  string         // 提供商类型（openai、dashscope、volcengine 等）
-	Endpoint  string         // API 端点 URL
-	Model     string         // 实际调用的模型 ID
-	APIKeyEnv string         // API 密钥环境变量名
-	Enabled   bool           // 是否启用
-	Params    map[string]any // 额外参数（temperature、max_tokens 等）
-	Pricing   modelPricing   // 可选的成本配置
+	Name              string         // 模型名称（配置文件中的键）
+	Provider          string         // 提供商类型（openai、dashscope、volcengine 等）
+	Endpoint          string         // API 端点 URL（OpenAI 兼容）
+	AnthropicEndpoint string         // Anthropic 兼容端点 URL（Claude Code 使用）
+	Model             string         // 实际调用的模型 ID
+	APIKeyEnv         string         // API 密钥环境变量名
+	Enabled           bool           // 是否启用
+	Params            map[string]any // 额外参数（temperature、max_tokens 等）
+	Pricing           modelPricing   // 可选的成本配置
 }
 
 type modelPricing struct {
@@ -36,10 +37,11 @@ type modelsFile struct {
 		Enabled  bool   `yaml:"enabled"`   // 是否启用
 		Provider string `yaml:"provider"`  // 提供商类型
 		Config   struct {
-			APIEndpoint string         `yaml:"api_endpoint"` // API 端点
-			Model       string         `yaml:"model"`        // 模型 ID
-			APIKeyEnv   string         `yaml:"api_key_env"`  // 密钥环境变量
-			Parameters  map[string]any `yaml:"parameters"`   // 额外参数
+			APIEndpoint      string         `yaml:"api_endpoint"`       // API 端点（OpenAI 兼容）
+			AnthropicEndpoint string      `yaml:"anthropic_endpoint"` // Anthropic 兼容端点（Claude Code 使用）
+			Model            string         `yaml:"model"`              // 模型 ID
+			APIKeyEnv        string         `yaml:"api_key_env"`        // 密钥环境变量
+			Parameters       map[string]any `yaml:"parameters"`         // 额外参数
 			Pricing     struct {
 				PromptPer1KUSD     float64 `yaml:"prompt_per_1k_usd"`
 				CompletionPer1KUSD float64 `yaml:"completion_per_1k_usd"`
@@ -94,13 +96,14 @@ func loadModelConfigs(configPath string, selected []string) ([]modelConfig, erro
 			return nil, fmt.Errorf("model %s missing api_key_env", name)
 		}
 		out = append(out, modelConfig{
-			Name:      name,
-			Provider:  strings.ToLower(strings.TrimSpace(item.Provider)),
-			Endpoint:  strings.TrimSuffix(strings.TrimSpace(item.Config.APIEndpoint), "/"),
-			Model:     strings.TrimSpace(item.Config.Model),
-			APIKeyEnv: strings.TrimSpace(item.Config.APIKeyEnv),
-			Enabled:   item.Enabled,
-			Params:    item.Config.Parameters,
+			Name:              name,
+			Provider:          strings.ToLower(strings.TrimSpace(item.Provider)),
+			Endpoint:          strings.TrimSuffix(strings.TrimSpace(item.Config.APIEndpoint), "/"),
+			AnthropicEndpoint: strings.TrimSuffix(strings.TrimSpace(item.Config.AnthropicEndpoint), "/"),
+			Model:             strings.TrimSpace(item.Config.Model),
+			APIKeyEnv:         strings.TrimSpace(item.Config.APIKeyEnv),
+			Enabled:           item.Enabled,
+			Params:            item.Config.Parameters,
 			Pricing: modelPricing{
 				PromptPer1KUSD:     item.Config.Pricing.PromptPer1KUSD,
 				CompletionPer1KUSD: item.Config.Pricing.CompletionPer1KUSD,

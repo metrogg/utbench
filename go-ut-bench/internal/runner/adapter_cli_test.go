@@ -283,3 +283,52 @@ func TestParseUsageAndSessionWithCodeBuddy(t *testing.T) {
 		t.Fatalf("usage_source_detail = %q, want %q", got, want)
 	}
 }
+
+func TestParseClaudeCodeJSONOutput(t *testing.T) {
+	trace := &AgentTrace{Framework: "claudecode"}
+	stdout := `{"session_id":"sess_claude","usage":{"input_tokens":4100,"output_tokens":900,"total_tokens":5000}}`
+	parseClaudeCodeJSONOutput(trace, stdout)
+
+	if trace.SessionID != "sess_claude" {
+		t.Fatalf("session_id = %q, want %q", trace.SessionID, "sess_claude")
+	}
+	if trace.PromptTokens == nil || *trace.PromptTokens != 4100 {
+		t.Fatalf("prompt_tokens = %v, want 4100", trace.PromptTokens)
+	}
+	if trace.CompletionTokens == nil || *trace.CompletionTokens != 900 {
+		t.Fatalf("completion_tokens = %v, want 900", trace.CompletionTokens)
+	}
+	if trace.TotalTokens == nil || *trace.TotalTokens != 5000 {
+		t.Fatalf("total_tokens = %v, want 5000", trace.TotalTokens)
+	}
+	if got, want := trace.UsageSourceDetail, "claudecode_json_output"; got != want {
+		t.Fatalf("usage_source_detail = %q, want %q", got, want)
+	}
+}
+
+func TestParseUsageAndSessionWithClaudeCodeJSONL(t *testing.T) {
+	trace := &AgentTrace{Framework: "claudecode"}
+	stdout := strings.Join([]string{
+		`{"type":"init","session_id":"sess_stream"}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"bash","input":{"command":"go test ./..."}}]}}`,
+		`{"type":"result","usage":{"input_tokens":1200,"output_tokens":300,"total_tokens":1500}}`,
+	}, "\n")
+	parseUsageAndSession(trace, stdout, "")
+
+	if trace.SessionID != "sess_stream" {
+		t.Fatalf("session_id = %q, want %q", trace.SessionID, "sess_stream")
+	}
+	if trace.PromptTokens == nil || *trace.PromptTokens != 1200 {
+		t.Fatalf("prompt_tokens = %v, want 1200", trace.PromptTokens)
+	}
+	if trace.CompletionTokens == nil || *trace.CompletionTokens != 300 {
+		t.Fatalf("completion_tokens = %v, want 300", trace.CompletionTokens)
+	}
+	if got, want := trace.UsageSourceDetail, "claudecode_jsonl_lines"; got != want {
+		t.Fatalf("usage_source_detail = %q, want %q", got, want)
+	}
+	tools := parseClaudeCodeToolCalls(stdout, "")
+	if len(tools) != 1 || tools[0].Tool != "bash" {
+		t.Fatalf("unexpected tools: %+v", tools)
+	}
+}

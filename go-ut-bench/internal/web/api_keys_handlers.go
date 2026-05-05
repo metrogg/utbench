@@ -28,6 +28,30 @@ var knownAPIKeys = []apiKeyDef{
 		Description: "中国版设为 internal，海外版留空或 public，iOA 版设为 ioa。",
 		Required:    false,
 	},
+	{
+		Key:         "ANTHROPIC_API_KEY",
+		Label:       "Anthropic API Key",
+		Category:    "agent",
+		Description: "Claude Code 直连 Anthropic API 时使用。",
+		DocURL:      "https://docs.anthropic.com/en/docs/claude-code/quickstart",
+		Required:    false,
+	},
+	{
+		Key:         "ANTHROPIC_AUTH_TOKEN",
+		Label:       "Anthropic Auth Token",
+		Category:    "agent",
+		Description: "Claude Code 通过 Gateway 或代理访问时可使用的鉴权令牌。",
+		DocURL:      "https://code.claude.com/docs/en/llm-gateway",
+		Required:    false,
+	},
+	{
+		Key:         "ANTHROPIC_BASE_URL",
+		Label:       "Anthropic Base URL",
+		Category:    "agent",
+		Description: "Claude Code 第三方 Gateway / Proxy 入口地址。",
+		DocURL:      "https://code.claude.com/docs/en/third-party-integrations",
+		Required:    false,
+	},
 	// 模型服务商
 	{
 		Key:         "DEEPSEEK_API_KEY",

@@ -358,6 +358,47 @@ func TestBuildSampleEnvironmentSetupCommandsWorkspaceFiles(t *testing.T) {
 	}
 }
 
+func TestInjectAgentNativeSkillForClaudeCodeRenamesInstructionToSkillMD(t *testing.T) {
+	tmp := t.TempDir()
+	skillSrc := filepath.Join(tmp, "instructions.md")
+	refDir := filepath.Join(tmp, "references")
+	if err := os.WriteFile(skillSrc, []byte("# unit test skill\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(refDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(refDir, "checklist.md"), []byte("- check\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	workRoot := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dest, err := injectAgentNativeSkill(workRoot, "claudecode", contracts.SkillSpec{
+		Name:            "unit_test_skill",
+		Enabled:         true,
+		InstructionPath: skillSrc,
+		Files:           []string{refDir},
+	})
+	if err != nil {
+		t.Fatalf("injectAgentNativeSkill returned error: %v", err)
+	}
+
+	wantDir := filepath.Join(workRoot, ".claude", "skills", "unit_test_skill")
+	if dest != wantDir {
+		t.Fatalf("dest = %q, want %q", dest, wantDir)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "SKILL.md")); err != nil {
+		t.Fatalf("expected SKILL.md to exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "references", "checklist.md")); err != nil {
+		t.Fatalf("expected copied references dir to exist: %v", err)
+	}
+}
+
 func TestGenerateWithCLIAgentFailsOnSandboxPreflight(t *testing.T) {
 	tmp := t.TempDir()
 	samplePath := filepath.Join(tmp, "sample.py")

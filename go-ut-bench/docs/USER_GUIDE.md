@@ -1,5 +1,40 @@
 # UT-Bench 用户指南
 
+## 0. 快速开始
+
+### 环境要求
+
+- Go 1.21+
+- Docker（推荐，用于隔离评测环境）
+- Python 3.10+、Java 17+、g++（按需，用于各语言评测）
+
+### 三步上手
+
+```bash
+# 1. 配置 API Key
+cp .env.example .env
+# 编辑 .env，填入你使用的模型对应的 API Key
+
+# 2. 检查环境
+utbench doctor --langs python
+
+# 3. 启动 Web UI
+utbench web --addr :8080
+# 浏览器打开 http://localhost:8080
+```
+
+### CLI 快速运行
+
+```bash
+# dry-run：不调用 API，验证流程是否通畅
+utbench run --models deepseek --langs python --max-samples 2 --dry-run
+
+# 正式运行
+utbench run --models deepseek --langs python --max-samples 5 --config ./configs/models.yaml
+```
+
+> 提示：首次使用建议先执行 `utbench doctor` 检查评测工具链是否就绪。
+
 ## 1. 定位
 
 UT-Bench 现在评测的不是单一模型，而是统一被测对象 `subject`：
@@ -182,13 +217,10 @@ UT-Bench 现在会把生成结果和评测结果索引到本地 SQLite。生成�
 
 示例见 [configs/agents.example.yaml](/C:/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/go-ut-bench/configs/agents.example.yaml)。
 
-如果使用当前仓库提供的 `OpenCode` 示例，还要先构建对应的 Agent 沙箱镜像（详见 [DOCKER_GUIDE.md](./DOCKER_GUIDE.md)）：
+如果使用当前仓库提供的 CLI Agent 示例，还要先构建统一 Agent 沙箱镜像（详见 [DOCKER_GUIDE.md](./DOCKER_GUIDE.md)）：
 
 ```bash
-docker build -t utbench-agent-opencode-python:latest -f docker/agents/opencode/python.Dockerfile docker/agents/opencode/
-docker build -t utbench-agent-opencode-go:latest -f docker/agents/opencode/go.Dockerfile docker/agents/opencode/
-docker build -t utbench-agent-opencode-java:latest -f docker/agents/opencode/java.Dockerfile docker/agents/opencode/
-docker build -t utbench-agent-opencode-cpp:latest -f docker/agents/opencode/cpp.Dockerfile docker/agents/opencode/
+docker build -t utbench-agent-base:latest -f docker/agents/Dockerfile docker/agents/
 ```
 
 核心结构（新版 sandbox 配置块）：
@@ -298,7 +330,7 @@ skills:
 |------|------|
 | `prompt_append` | 将 `instruction_path` 内容追加到 prompt 末尾，辅助文件复制到 `.utbench/skills/` |
 | `workspace_mount` | 仅将 `files` 中的文件复制到 `.utbench/skills/`，不修改 prompt |
-| `agent_native` | 转换为 Agent 框架原生 skill 格式写入 workspace：CodeBuddy → `.codebuddy/skills/<name>/SKILL.md`，OpenCode → `.opencode/skills/<name>.md`。Agent 启动后自动加载原生 skill，无需手动注入 prompt |
+| `agent_native` | 转换为 Agent 框架原生 skill 格式写入 workspace：CodeBuddy → `.codebuddy/skills/<name>/SKILL.md`，Claude Code → `.claude/skills/<name>/SKILL.md`，OpenCode → `.opencode/skills/<name>/...`。Agent 启动后自动加载原生 skill，无需手动注入 prompt |
 
 ## 7. CLI Agent 的调用约定
 
@@ -324,6 +356,14 @@ skills:
 - `{{.ContainerPrompt}}`
 - `{{.ContainerOutput}}`
 - `{{.ContainerSkillDir}}`
+
+模型端点变量（用于 `env` 中配置自定义模型端点）：
+
+- `{{.ModelID}}` — 模型 ID，如 `deepseek-v4-pro`
+- `{{.ModelEndpoint}}` — 模型 API 端点 URL（OpenAI 兼容），如 `https://api.deepseek.com`
+- `{{.AnthropicEndpoint}}` — Anthropic 兼容端点 URL，如 `https://api.deepseek.com/anthropic`（Claude Code 使用，为空时回退到 ModelEndpoint）
+- `{{.ModelAPIKeyEnv}}` — API key 环境变量名，如 `DEEPSEEK_API_KEY`
+- `{{.ModelProvider}}` — Provider 名称，如 `deepseek`
 
 ### 执行契约
 
@@ -464,7 +504,46 @@ docker run utbench-control:latest web ...
 1. `OpenCode`
 2. `Claude Code`
 
-## 12. 常见问题
+## 12. Claude Code 接入自定义模型端点
+
+Claude Code 支持通过 Anthropic 兼容端点接入非 Claude 模型（如 DeepSeek、MiniMax）。
+
+### 配置方式
+
+1. 在 `configs/models.yaml` 中配置模型：
+   - `api_endpoint` — OpenAI 兼容端点（OpenCode/CodeBuddy 使用）
+   - `anthropic_endpoint` — Anthropic 兼容端点（Claude Code 使用，如 `https://api.deepseek.com/anthropic`）
+   - `api_key_env` — API key 环境变量名
+2. 在 `.env` 中设置 `ANTHROPIC_AUTH_TOKEN` 为对应 provider 的 API key：
+
+```bash
+# 例如使用 DeepSeek
+export ANTHROPIC_AUTH_TOKEN=$DEEPSEEK_API_KEY
+```
+
+UT-Bench 会自动：
+- 将 `models.yaml` 中的 `endpoint` 注入为 `ANTHROPIC_BASE_URL`
+- 将 `models.yaml` 中的 `model_id` 注入为 `ANTHROPIC_MODEL`
+- 将模型的 API key 映射到 `ANTHROPIC_AUTH_TOKEN`（当宿主机未显式设置时）
+
+### 运行示例
+
+```bash
+# 使用 Claude Code + DeepSeek 模型
+./utbench run --models deepseek-v4-pro --frameworks claudecode --langs python --max-samples 2
+
+# 使用 Claude Code + skill
+./utbench run --models deepseek-v4-pro --frameworks claudecode --skills unit_test_skill --langs python --max-samples 2
+```
+
+### 注意事项
+
+- `compatible_models` 限制已移除，任何有 Anthropic 兼容端点的模型都可通过 Claude Code 使用
+- `ANTHROPIC_AUTH_TOKEN` 优先级高于自动映射；如果宿主机已设置，不会被覆盖
+- Docker 沙箱中 Claude Code 使用 `bypassPermissions` 模式，无需交互式授权
+- **`--bare` 标志**：无 skill 基线测试时自动启用（加快启动），有 skill 测试时自动跳过（确保 skill 被发现和加载）
+
+## 13. 常见问题
 
 ### `--models` 和 `--subjects` 要不要同时传
 
@@ -483,4 +562,3 @@ docker run utbench-control:latest web ...
 ### `sandbox_mode: local` 有什么用
 
 主要用于本地调试和测试。正式跑 Agent 横评时，应该优先用 `sandbox_mode: docker`。
-

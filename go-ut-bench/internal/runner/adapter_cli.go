@@ -74,7 +74,7 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 	}
 
 	// 5. 写入 Agent 任务说明
-	agentPrompt := buildAgentPrompt(req.Prompt, sample, sourceHint, outputHint, skillHint)
+	agentPrompt := buildAgentPrompt(req.Prompt, sample, sourceHint, outputHint, skillHint, req.Subject.Spec.Framework, skill.Name)
 	promptFile := filepath.Join(workRoot, "utbench_agent_prompt.md")
 	if err := os.WriteFile(promptFile, []byte(agentPrompt), 0o644); err != nil {
 		return agentError("workspace_error", err)
@@ -101,6 +101,7 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 		ModelID:           req.Model.Model,
 		ModelProvider:     req.Model.Provider,
 		ModelEndpoint:     req.Model.Endpoint,
+		AnthropicEndpoint: req.Model.AnthropicEndpoint,
 		ModelAPIKeyEnv:    req.Model.APIKeyEnv,
 		Framework:         req.Subject.Spec.Framework,
 		SubjectID:         subjectID,
@@ -413,9 +414,12 @@ func parseAgentOutput(trace *AgentTrace, stdout, stderr string) {
 	trace.CommandsExecuted = parseCommands(fullOutput)
 
 	// 解析工具调用（根据框架选择不同解析策略）
-	if strings.EqualFold(trace.Framework, "codebuddy") {
+	switch {
+	case strings.EqualFold(trace.Framework, "codebuddy"):
 		trace.ToolCalls = parseCodeBuddyToolCalls(stdout, stderr)
-	} else {
+	case strings.EqualFold(trace.Framework, "claudecode"), strings.EqualFold(trace.Framework, "claude_code"), strings.EqualFold(trace.Framework, "claude-code"):
+		trace.ToolCalls = parseClaudeCodeToolCalls(stdout, stderr)
+	default:
 		trace.ToolCalls = parseToolCalls(fullOutput)
 	}
 
@@ -648,58 +652,7 @@ var (
 // 解析 session_id 和 token usage。
 // CodeBuddy 在 -p 模式下输出 JSON（可能是对象或数组），包含消息和 usage 等字段。
 func parseCodeBuddyJSONOutput(trace *AgentTrace, stdout string) {
-	jsonStr := extractFinalJSON(stdout)
-	if jsonStr == "" {
-		return
-	}
-
-	var payload any
-	if err := json.Unmarshal([]byte(jsonStr), &payload); err != nil {
-		return
-	}
-
-	// 如果是数组，遍历每个元素查找 session_id 和 usage
-	if arr, ok := payload.([]any); ok {
-		for _, item := range arr {
-			if m, ok := item.(map[string]any); ok {
-				if sid, ok := m["session_id"]; ok {
-					if s, ok := sid.(string); ok && s != "" && trace.SessionID == "" {
-						trace.SessionID = s
-					}
-				}
-			}
-		}
-		records := extractUsageRecords(payload)
-		if len(records) == 0 {
-			return
-		}
-		accumulateUsage(trace, records)
-		trace.TokenSource = "actual"
-		trace.UsageSourceDetail = "codebuddy_json_output"
-		return
-	}
-
-	// 如果是对象，直接处理
-	m, ok := payload.(map[string]any)
-	if !ok {
-		return
-	}
-
-	// 提取 session_id
-	if sid, ok := m["session_id"]; ok {
-		if s, ok := sid.(string); ok && s != "" && trace.SessionID == "" {
-			trace.SessionID = s
-		}
-	}
-
-	// 提取 usage
-	records := extractUsageRecords(m)
-	if len(records) == 0 {
-		return
-	}
-	accumulateUsage(trace, records)
-	trace.TokenSource = "actual"
-	trace.UsageSourceDetail = "codebuddy_json_output"
+	parseStructuredAgentJSONOutput(trace, stdout, "codebuddy_json_output")
 }
 
 // accumulateUsage 将 usageRecord 累加到 trace 的 token 字段。
@@ -736,6 +689,49 @@ func accumulateUsage(trace *AgentTrace, records []usageRecord) {
 
 // parseCodeBuddyJSONLUsage 从 CodeBuddy 的 stream-json (JSONL) 输出行中累加 token usage。
 func parseCodeBuddyJSONLUsage(trace *AgentTrace, output string) {
+	parseStructuredAgentJSONLUsage(trace, output, "codebuddy_jsonl_lines")
+}
+
+// parseCodeBuddyToolCalls 从 CodeBuddy 的 stream-json (JSONL) 输出中解析工具调用。
+// 每行是一个 JSON 对象，助手消息的 content 数组中包含 type:"tool_use" 的块。
+func parseCodeBuddyToolCalls(stdout, stderr string) []ToolCall {
+	return parseStructuredJSONToolCalls(stdout, stderr)
+}
+
+func parseClaudeCodeJSONOutput(trace *AgentTrace, stdout string) {
+	parseStructuredAgentJSONOutput(trace, stdout, "claudecode_json_output")
+}
+
+func parseClaudeCodeJSONLUsage(trace *AgentTrace, output string) {
+	parseStructuredAgentJSONLUsage(trace, output, "claudecode_jsonl_lines")
+}
+
+func parseClaudeCodeToolCalls(stdout, stderr string) []ToolCall {
+	return parseStructuredJSONToolCalls(stdout, stderr)
+}
+
+func parseStructuredAgentJSONOutput(trace *AgentTrace, stdout, usageDetail string) {
+	jsonStr := extractFinalJSON(stdout)
+	if jsonStr == "" {
+		return
+	}
+
+	var payload any
+	if err := json.Unmarshal([]byte(jsonStr), &payload); err != nil {
+		return
+	}
+
+	assignSessionID(trace, payload)
+	records := extractUsageRecords(payload)
+	if len(records) == 0 {
+		return
+	}
+	accumulateUsage(trace, records)
+	trace.TokenSource = "actual"
+	trace.UsageSourceDetail = usageDetail
+}
+
+func parseStructuredAgentJSONLUsage(trace *AgentTrace, output, usageDetail string) {
 	var promptSum, completionSum, totalSum int
 	var promptSeen, completionSeen, totalSeen bool
 
@@ -749,19 +745,10 @@ func parseCodeBuddyJSONLUsage(trace *AgentTrace, output string) {
 		if err := json.Unmarshal([]byte(line), &payload); err != nil {
 			continue
 		}
-		// 提取 session_id（init 或 result 消息中）
-		if trace.SessionID == "" {
-			if sid, ok := payload["session_id"]; ok {
-				if s, ok := sid.(string); ok && s != "" {
-					trace.SessionID = s
-				}
-			}
-		}
-		// result 消息的 usage 在顶层
+		assignSessionID(trace, payload)
 		if typ, _ := payload["type"].(string); typ == "result" {
 			if usage, ok := payload["usage"].(map[string]any); ok {
-				records := extractUsageRecords(usage)
-				for _, r := range records {
+				for _, r := range extractUsageRecords(usage) {
 					if r.Prompt != nil {
 						promptSum += *r.Prompt
 						promptSeen = true
@@ -778,9 +765,7 @@ func parseCodeBuddyJSONLUsage(trace *AgentTrace, output string) {
 				continue
 			}
 		}
-		// 尝试从顶层或嵌套的 usage/tokens 字段提取
-		records := extractUsageRecords(payload)
-		for _, r := range records {
+		for _, r := range extractUsageRecords(payload) {
 			if r.Prompt != nil {
 				promptSum += *r.Prompt
 				promptSeen = true
@@ -810,13 +795,11 @@ func parseCodeBuddyJSONLUsage(trace *AgentTrace, output string) {
 	}
 	if promptSeen || completionSeen || totalSeen {
 		trace.TokenSource = "actual"
-		trace.UsageSourceDetail = "codebuddy_jsonl_lines"
+		trace.UsageSourceDetail = usageDetail
 	}
 }
 
-// parseCodeBuddyToolCalls 从 CodeBuddy 的 stream-json (JSONL) 输出中解析工具调用。
-// 每行是一个 JSON 对象，助手消息的 content 数组中包含 type:"tool_use" 的块。
-func parseCodeBuddyToolCalls(stdout, stderr string) []ToolCall {
+func parseStructuredJSONToolCalls(stdout, stderr string) []ToolCall {
 	var calls []ToolCall
 	seen := map[string]struct{}{}
 
@@ -882,6 +865,36 @@ func parseCodeBuddyToolCalls(stdout, stderr string) []ToolCall {
 		}
 	}
 	return calls
+}
+
+func assignSessionID(trace *AgentTrace, value any) {
+	if trace == nil || trace.SessionID != "" {
+		return
+	}
+	switch v := value.(type) {
+	case map[string]any:
+		for _, key := range []string{"session_id", "sessionId"} {
+			if sid, ok := v[key]; ok {
+				if s, ok := sid.(string); ok && s != "" {
+					trace.SessionID = s
+					return
+				}
+			}
+		}
+		for _, child := range v {
+			assignSessionID(trace, child)
+			if trace.SessionID != "" {
+				return
+			}
+		}
+	case []any:
+		for _, child := range v {
+			assignSessionID(trace, child)
+			if trace.SessionID != "" {
+				return
+			}
+		}
+	}
 }
 
 // extractToolName 从 CodeBuddy JSON 事件中提取工具名称。
@@ -961,16 +974,24 @@ func extractFinalJSON(output string) string {
 func parseUsageAndSession(trace *AgentTrace, stdout, stderr string) {
 	fullOutput := stdout + "\n" + stderr
 
-	// CodeBuddy: 优先从 JSON 输出中提取精确数据
-	// 同时检查 stdout 和 stderr，因为 CodeBuddy 可能将结果输出到任一流
+	// CodeBuddy / Claude Code: 优先从 JSON 输出中提取精确数据。
+	// 同时检查 stdout 和 stderr，因为框架可能将结果输出到任一流。
 	if strings.EqualFold(trace.Framework, "codebuddy") {
 		parseCodeBuddyJSONOutput(trace, stdout)
 		if trace.PromptTokens == nil && trace.CompletionTokens == nil && trace.TotalTokens == nil {
 			parseCodeBuddyJSONOutput(trace, stderr)
 		}
-		// 如果还没找到，尝试从 JSONL 行中累加 usage
-		if trace.PromptTokens == nil && trace.CompletionTokens == nil && trace.TotalTokens == nil {
+		// 如果 session 或 usage 仍不完整，再尝试从 JSONL 行中补齐
+		if trace.SessionID == "" || trace.PromptTokens == nil && trace.CompletionTokens == nil && trace.TotalTokens == nil {
 			parseCodeBuddyJSONLUsage(trace, fullOutput)
+		}
+	} else if strings.EqualFold(trace.Framework, "claudecode") || strings.EqualFold(trace.Framework, "claude_code") || strings.EqualFold(trace.Framework, "claude-code") {
+		parseClaudeCodeJSONOutput(trace, stdout)
+		if trace.PromptTokens == nil && trace.CompletionTokens == nil && trace.TotalTokens == nil {
+			parseClaudeCodeJSONOutput(trace, stderr)
+		}
+		if trace.SessionID == "" || trace.PromptTokens == nil && trace.CompletionTokens == nil && trace.TotalTokens == nil {
+			parseClaudeCodeJSONLUsage(trace, fullOutput)
 		}
 	}
 

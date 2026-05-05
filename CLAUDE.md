@@ -220,6 +220,7 @@ JSON 读写辅助函数位于 `internal/contracts/`。
 | `MINIMAX_API_KEY` | MiniMax |
 | `VOLCENGINE_API_KEY` | doubao-seed (original) |
 | `ARK_API_KEY` | doubao-seed-2.0-lite/1.6/2.0-pro-v2, glm-4.7, deepseek-v3.2 |
+| `ANTHROPIC_AUTH_TOKEN` | Claude Code 自定义模型端点认证（设为对应 provider 的 API key） |
 
 # Supported Languages and Tools
 

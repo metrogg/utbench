@@ -23,17 +23,18 @@ var modelsMu sync.Mutex
 // 注意：api_key 字段仅写入 .env（或运行时环境变量）约定的变量名，
 // 真实密钥值不会落盘到 YAML；YAML 只保留 api_key_env 字段名。
 type modelEntry struct {
-	Name        string            `json:"name"`
-	Enabled     bool              `json:"enabled"`
-	Provider    string            `json:"provider"`
-	ModelID     string            `json:"model_id"`
-	APIEndpoint string            `json:"api_endpoint"`
-	APIKeyEnv   string            `json:"api_key_env"`
-	APIKey      string            `json:"api_key,omitempty"` // 仅 POST/PUT 时接收，用于写入 .env
-	APIKeySet   bool              `json:"api_key_set"`       // GET 时标示对应 env 变量是否已设置
-	Parameters  map[string]any    `json:"parameters,omitempty"`
-	Extra       map[string]any    `json:"extra,omitempty"` // 保留未识别字段
-	_           map[string]string `json:"-"`
+	Name              string            `json:"name"`
+	Enabled           bool              `json:"enabled"`
+	Provider          string            `json:"provider"`
+	ModelID           string            `json:"model_id"`
+	APIEndpoint       string            `json:"api_endpoint"`
+	AnthropicEndpoint string            `json:"anthropic_endpoint,omitempty"` // Anthropic 兼容端点（Claude Code 使用）
+	APIKeyEnv         string            `json:"api_key_env"`
+	APIKey            string            `json:"api_key,omitempty"` // 仅 POST/PUT 时接收，用于写入 .env
+	APIKeySet         bool              `json:"api_key_set"`       // GET 时标示对应 env 变量是否已设置
+	Parameters        map[string]any    `json:"parameters,omitempty"`
+	Extra             map[string]any    `json:"extra,omitempty"` // 保留未识别字段
+	_                 map[string]string `json:"-"`
 }
 
 // handleModels 路由 GET/POST /api/models。
@@ -461,6 +462,7 @@ func extractEntries(root map[string]any) []modelEntry {
 		if cfg != nil {
 			entry.ModelID, _ = cfg["model"].(string)
 			entry.APIEndpoint, _ = cfg["api_endpoint"].(string)
+			entry.AnthropicEndpoint, _ = cfg["anthropic_endpoint"].(string)
 			entry.APIKeyEnv, _ = cfg["api_key_env"].(string)
 			if p, ok := cfg["parameters"].(map[string]any); ok {
 				entry.Parameters = p
@@ -489,6 +491,7 @@ func upsertModelNode(models map[string]any, in modelEntry) {
 	}
 	cfg["model"] = in.ModelID
 	cfg["api_endpoint"] = in.APIEndpoint
+	cfg["anthropic_endpoint"] = strings.TrimSpace(in.AnthropicEndpoint)
 	normalizeModelEntry(&in)
 	cfg["api_key_env"] = in.APIKeyEnv
 	if in.Parameters != nil {

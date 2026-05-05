@@ -46,6 +46,7 @@ type commandTemplateData struct {
 	ModelID           string
 	ModelProvider     string
 	ModelEndpoint     string
+	AnthropicEndpoint string // Anthropic 兼容端点（Claude Code 使用）
 	ModelAPIKeyEnv    string
 	Framework         string
 	SubjectID         string
@@ -290,8 +291,9 @@ func injectSkillWorkspace(workRoot string, skill contracts.SkillSpec) (string, e
 // injectAgentNativeSkill 将 skill 文件原样复制到 Agent 框架的原生 skill 目录。
 // 不做任何格式转换，由 Agent 自行发现和加载。
 //
-// CodeBuddy: workspace/.codebuddy/skills/<name>/（SKILL.md + references/ 等）
-// OpenCode:  workspace/.opencode/skills/<name>/（指令文件 + 辅助文件）
+// CodeBuddy:   workspace/.codebuddy/skills/<name>/（主说明写为 SKILL.md）
+// OpenCode:    workspace/.opencode/skills/<name>/（保留原始文件名）
+// Claude Code: workspace/.claude/skills/<name>/（主说明写为 SKILL.md）
 func injectAgentNativeSkill(workRoot, framework string, skill contracts.SkillSpec) (string, error) {
 	if skill.Name == "" || skill.Name == agentconfig.NoSkill {
 		return "", nil
@@ -299,9 +301,11 @@ func injectAgentNativeSkill(workRoot, framework string, skill contracts.SkillSpe
 
 	switch strings.ToLower(framework) {
 	case "codebuddy":
-		return copySkillToNativeDir(workRoot, skill, ".codebuddy", "skills")
+		return copySkillToNativeDir(workRoot, skill, ".codebuddy", "skills", true)
 	case "opencode":
-		return copySkillToNativeDir(workRoot, skill, ".opencode", "skills")
+		return copySkillToNativeDir(workRoot, skill, ".opencode", "skills", false)
+	case "claudecode", "claude_code", "claude-code":
+		return copySkillToNativeDir(workRoot, skill, ".claude", "skills", true)
 	default:
 		return "", nil
 	}
@@ -310,7 +314,7 @@ func injectAgentNativeSkill(workRoot, framework string, skill contracts.SkillSpe
 // copySkillToNativeDir 将 skill 的 instruction_path + files 原样复制到
 // <workRoot>/<topDir>/<subDir>/<skillName>/ 目录。
 // Agent 启动后通过其原生机制发现并加载这些文件。
-func copySkillToNativeDir(workRoot string, skill contracts.SkillSpec, topDir, subDir string) (string, error) {
+func copySkillToNativeDir(workRoot string, skill contracts.SkillSpec, topDir, subDir string, renameInstructionToSkill bool) (string, error) {
 	destDir := filepath.Join(workRoot, topDir, subDir, safePathName(skill.Name))
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", err
@@ -333,7 +337,11 @@ func copySkillToNativeDir(workRoot string, skill contracts.SkillSpec, topDir, su
 		if err != nil {
 			continue
 		}
-		dst := filepath.Join(destDir, filepath.Base(src))
+		dstName := filepath.Base(src)
+		if renameInstructionToSkill && skill.InstructionPath != "" && samePath(src, skill.InstructionPath) && !info.IsDir() {
+			dstName = "SKILL.md"
+		}
+		dst := filepath.Join(destDir, dstName)
 		if info.IsDir() {
 			if err := copyDir(src, dst); err != nil {
 				return "", err
@@ -345,6 +353,12 @@ func copySkillToNativeDir(workRoot string, skill contracts.SkillSpec, topDir, su
 		}
 	}
 	return destDir, nil
+}
+
+func samePath(left, right string) bool {
+	left = filepath.Clean(strings.TrimSpace(left))
+	right = filepath.Clean(strings.TrimSpace(right))
+	return left == right
 }
 
 func appendSkillInstruction(prompt string, skill contracts.SkillSpec) string {
@@ -374,7 +388,7 @@ func appendSkillInstruction(prompt string, skill contracts.SkillSpec) string {
 	return b.String()
 }
 
-func buildAgentPrompt(prompt string, sample contracts.SampleRef, sourceFile, outputFile, skillDir string) string {
+func buildAgentPrompt(prompt string, sample contracts.SampleRef, sourceFile, outputFile, skillDir string, framework string, skillName string) string {
 	var b strings.Builder
 	b.WriteString(prompt)
 	b.WriteString("\n\nAgent execution contract:\n")
@@ -389,10 +403,21 @@ func buildAgentPrompt(prompt string, sample contracts.SampleRef, sourceFile, out
 	b.WriteString("\n- Source file in workspace: ")
 	b.WriteString(sourceFile)
 	b.WriteString("\n")
-	if skillDir != "" {
-		b.WriteString("- Skill files are available at: ")
-		b.WriteString(skillDir)
-		b.WriteString("\n")
+
+	// Skill 调用指令
+	if skillDir != "" && skillName != "" && skillName != agentconfig.NoSkill {
+		// Claude Code 使用斜杠命令调用 skill
+		if strings.EqualFold(framework, "claudecode") || strings.EqualFold(framework, "claude_code") || strings.EqualFold(framework, "claude-code") {
+			b.WriteString("\nIMPORTANT: Use the /")
+			b.WriteString(strings.ReplaceAll(skillName, "-", "_"))
+			b.WriteString(" command to generate tests according to the skill methodology.\n")
+			b.WriteString("The skill provides structured guidelines for test generation.\n")
+		} else {
+			// 其他框架（OpenCode, CodeBuddy）使用原生 skill 机制
+			b.WriteString("- Skill files are available at: ")
+			b.WriteString(skillDir)
+			b.WriteString("\n")
+		}
 	}
 	return b.String()
 }
@@ -426,6 +451,17 @@ func buildAgentEnv(fw agentconfig.FrameworkSpec, model modelConfig, data command
 	envFromHost := append([]string{}, fw.EnvFromHost...)
 	if model.APIKeyEnv != "" {
 		envFromHost = append(envFromHost, model.APIKeyEnv)
+	}
+	// Claude Code 使用 Anthropic 兼容端点接入非 Claude 模型时，
+	// 需要将模型的 API key 映射到 ANTHROPIC_AUTH_TOKEN。
+	// 仅当宿主机尚未设置 ANTHROPIC_AUTH_TOKEN 时进行映射，
+	// 避免覆盖用户显式配置的 Anthropic 原生 key。
+	if strings.EqualFold(fw.Kind, "cli_agent") && strings.Contains(strings.ToLower(fw.Name), "claude") {
+		if model.APIKeyEnv != "" && os.Getenv("ANTHROPIC_AUTH_TOKEN") == "" {
+			if keyVal, ok := os.LookupEnv(model.APIKeyEnv); ok {
+				out["ANTHROPIC_AUTH_TOKEN"] = keyVal
+			}
+		}
 	}
 	return out, uniqueSortedStrings(envFromHost), nil
 }

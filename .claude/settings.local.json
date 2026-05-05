@@ -71,7 +71,18 @@
       "Bash(./utbench db *)",
       "Bash(find /c/Users/wzd/Desktop/速通ing/腾讯mini*/ut-bench/go-ut-bench/artifacts/runs/20260504T142354* -name \"*.trace.jsonl\")",
       "Bash(python3 -c \"import sys,json; d=json.loads\\(sys.stdin.readline\\(\\)\\); print\\('model:', d.get\\('model'\\)\\); print\\('command:', d.get\\('command',''\\)[:200]\\)\")",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(len\\(d['results']\\)\\)\")"
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(len\\(d['results']\\)\\)\")",
+      "Bash(git diff *)",
+      "Bash(grep -A 10 \"claude\" go-ut-bench/configs/models.yaml)",
+      "Bash(./build.ps1 agent *)",
+      "Bash(powershell -ExecutionPolicy Bypass -File ./build.ps1 agent)",
+      "Read(//etc/docker/**)",
+      "Bash(docker info *)",
+      "Bash(docker pull *)",
+      "Bash(docker tag *)",
+      "Bash(python3 *)",
+      "Bash(./utbench.exe help *)",
+      "Bash(git mv *)"
     ]
   }
 }
