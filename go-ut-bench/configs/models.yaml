@@ -1,6 +1,7 @@
 models:
     MiMo-V2.5:
         config:
+            anthropic_endpoint: https://token-plan-cn.xiaomimimo.com/anthropic
             api_endpoint: https://token-plan-cn.xiaomimimo.com/v1
             api_key_env: MIMO_V25_API_KEY
             model: mimo-v2.5
@@ -12,6 +13,7 @@ models:
         provider: mimo
     MiMo-V2.5-Pro:
         config:
+            anthropic_endpoint: https://token-plan-cn.xiaomimimo.com/anthropic
             api_endpoint: https://token-plan-cn.xiaomimimo.com/v1
             api_key_env: MIMO_V25_PRO_API_KEY
             model: mimo-v2.5-pro
@@ -23,6 +25,7 @@ models:
         provider: mimo
     deepseek:
         config:
+            anthropic_endpoint: https://api.deepseek.com/anthropic
             api_endpoint: https://api.deepseek.com
             api_key_env: DEEPSEEK_API_KEY
             model: deepseek-v4-flash
@@ -34,6 +37,7 @@ models:
         provider: deepseek
     doubao-seed:
         config:
+            anthropic_endpoint: https://ark.cn-beijing.volces.com/api/coding
             api_endpoint: https://ark.cn-beijing.volces.com/api/coding/v3
             api_key_env: VOLCENGINE_API_KEY
             model: doubao-seed-2.0-pro
@@ -56,6 +60,7 @@ models:
         provider: dashscope
     minimax:
         config:
+            anthropic_endpoint: https://api.minimaxi.com/anthropic
             api_endpoint: https://api.minimax.chat/v1
             api_key_env: MINIMAX_API_KEY
             model: MiniMax-M2.7
@@ -67,6 +72,7 @@ models:
         provider: minimax
     minimax2.5:
         config:
+            anthropic_endpoint: https://api.minimaxi.com/anthropic
             api_endpoint: https://api.minimax.chat/v1
             api_key_env: MINIMAX2.5_API_KEY
             model: minimax-M2.5

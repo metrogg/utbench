@@ -106,7 +106,7 @@ func (s *Server) handleTestModel(w http.ResponseWriter, r *http.Request, name st
 		errJSON(w, http.StatusNotFound, "model not found: "+name)
 		return
 	}
-	writeJSON(w, http.StatusOK, testModelConnection(r.Context(), entry))
+	writeJSON(w, http.StatusOK, s.testModelConnection(r.Context(), entry))
 }
 
 func (s *Server) handleTestAllModels(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +121,7 @@ func (s *Server) handleTestAllModels(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	entries := extractEntries(root)
+	entries := s.extractModelEntries(root)
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 
 	// 并发测试所有模型
@@ -131,7 +131,7 @@ func (s *Server) handleTestAllModels(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func(idx int, e modelEntry) {
 			defer wg.Done()
-			results[idx] = testModelConnection(r.Context(), e)
+			results[idx] = s.testModelConnection(r.Context(), e)
 		}(i, entry)
 	}
 	wg.Wait()
@@ -147,7 +147,7 @@ func findModelEntry(root map[string]any, name string) (modelEntry, bool) {
 	return modelEntry{}, false
 }
 
-func testModelConnection(parent context.Context, entry modelEntry) modelTestResult {
+func (s *Server) testModelConnection(parent context.Context, entry modelEntry) modelTestResult {
 	result := modelTestResult{
 		Name:      entry.Name,
 		Status:    "failed",
@@ -161,7 +161,7 @@ func testModelConnection(parent context.Context, entry modelEntry) modelTestResu
 		result.Message = "model id is empty"
 		return result
 	}
-	apiKey := strings.TrimSpace(os.Getenv(entry.APIKeyEnv))
+	apiKey := strings.TrimSpace(s.lookupAPIKey(entry.APIKeyEnv))
 	if !hasUsableAPIKey(apiKey) {
 		result.Status = "missing_key"
 		result.Message = "missing API key env var: " + entry.APIKeyEnv
@@ -321,7 +321,7 @@ func (s *Server) listModels(w http.ResponseWriter, _ *http.Request) {
 		errJSON(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := extractEntries(root)
+	out := s.extractModelEntries(root)
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	writeJSON(w, http.StatusOK, out)
 }
@@ -472,6 +472,16 @@ func extractEntries(root map[string]any) []modelEntry {
 			entry.APIKeySet = hasUsableAPIKey(os.Getenv(entry.APIKeyEnv))
 		}
 		out = append(out, entry)
+	}
+	return out
+}
+
+func (s *Server) extractModelEntries(root map[string]any) []modelEntry {
+	out := extractEntries(root)
+	for i := range out {
+		if out[i].APIKeyEnv != "" {
+			out[i].APIKeySet = hasUsableAPIKey(s.lookupAPIKey(out[i].APIKeyEnv))
+		}
 	}
 	return out
 }

@@ -75,6 +75,20 @@ var knownAPIKeys = []apiKeyDef{
 		Required:    false,
 	},
 	{
+		Key:         "MIMO_V25_API_KEY",
+		Label:       "MiMo V2.5 API Key",
+		Category:    "model",
+		Description: "小米 MiMo V2.5 模型 API 密钥。",
+		Required:    false,
+	},
+	{
+		Key:         "MIMO_V25_PRO_API_KEY",
+		Label:       "MiMo V2.5 Pro API Key",
+		Category:    "model",
+		Description: "小米 MiMo V2.5 Pro 模型 API 密钥。",
+		Required:    false,
+	},
+	{
 		Key:         "VOLCENGINE_API_KEY",
 		Label:       "火山引擎 API Key",
 		Category:    "model",
@@ -128,15 +142,9 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIKeysGet(w http.ResponseWriter, _ *http.Request) {
-	envFileVals := readEnvFileMap(s.dockerCfg.EnvFile)
 	statuses := make([]apiKeyStatus, 0, len(knownAPIKeys))
 	for _, def := range knownAPIKeys {
-		val := os.Getenv(def.Key)
-		if !hasUsableAPIKey(val) {
-			if v, ok := envFileVals[def.Key]; ok && hasUsableAPIKey(v) {
-				val = v
-			}
-		}
+		val := s.lookupAPIKey(def.Key)
 		st := apiKeyStatus{
 			apiKeyDef: def,
 			ValueSet:  hasUsableAPIKey(val),
@@ -145,6 +153,20 @@ func (s *Server) handleAPIKeysGet(w http.ResponseWriter, _ *http.Request) {
 		statuses = append(statuses, st)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"keys": statuses})
+}
+
+func (s *Server) lookupAPIKey(key string) string {
+	val := os.Getenv(key)
+	if hasUsableAPIKey(val) {
+		return val
+	}
+	if s == nil || s.dockerCfg.EnvFile == "" {
+		return val
+	}
+	if v, ok := readEnvFileMap(s.dockerCfg.EnvFile)[key]; ok && hasUsableAPIKey(v) {
+		return v
+	}
+	return val
 }
 
 type apiKeysPostRequest struct {
