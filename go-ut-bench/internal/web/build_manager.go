@@ -227,6 +227,7 @@ func (m *BuildManager) execute(job *BuildJob) {
 	job.mu.Unlock()
 
 	cmd := exec.CommandContext(ctx, "docker", "build", "-f", job.Dockerfile, "-t", job.ImageName, m.projectRoot)
+	hideCommandWindow(cmd)
 	lw := &buildLineWriter{job: job}
 	cmd.Stdout = lw
 	cmd.Stderr = lw

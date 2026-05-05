@@ -46,6 +46,7 @@ func runInDocker(ctx context.Context, entry *RunEntry, spec contracts.RunSpec, o
 	entry.appendLog(fmt.Sprintf("[%s] docker exec → docker %s", logTS(), redactArgs(args)))
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	hideCommandWindow(cmd)
 	// Windows Git Bash 的 MSYS 会把 -e 传的路径值自动转换（如 /c/Users → C:/Program Files/Git/c/Users），
 	// 导致容器内环境变量损坏。设置 MSYS_NO_PATHCONV=1 禁止此转换。
 	cmd.Env = append(os.Environ(), "MSYS_NO_PATHCONV=1")
@@ -273,6 +274,7 @@ func runEvaluateInDocker(ctx context.Context, runID string, spec contracts.RunSp
 	}
 	args := buildDockerRunArgs(spec, opts, cfg)
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	hideCommandWindow(cmd)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }

@@ -68,7 +68,9 @@ func DetectEnv(cfg DockerConfig) EnvStatus {
 func detectDocker() (bool, string, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), detectTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", "version", "--format", "{{.Server.Version}}").CombinedOutput()
+	cmd := exec.CommandContext(ctx, "docker", "version", "--format", "{{.Server.Version}}")
+	hideCommandWindow(cmd)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return false, "", strings.TrimSpace(string(out)) + " " + err.Error()
 	}
@@ -80,7 +82,9 @@ func detectDocker() (bool, string, string) {
 func detectImage(name string) (bool, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), detectTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", "image", "inspect", name, "--format", "{{.Id}}").Output()
+	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", name, "--format", "{{.Id}}")
+	hideCommandWindow(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return false, ""
 	}
