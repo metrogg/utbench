@@ -5,14 +5,14 @@
             <div class="db-eyebrow">Agent Workbench</div>
             <div class="db-title">Agent 接入与调配工作台</div>
             <div class="text-[12px] mt-2" style="color:var(--fg-muted)">
-              用一个入口完成新增 Agent、检查密钥与沙箱、选择 Subject 并跳转新建任务。
+              用一个入口安装 Agent Runtime、检查密钥与沙箱、选择 Subject 并跳转新建任务。
             </div>
             <div class="agent-pipeline mt-4">
               <span>配置</span><i></i><span>密钥</span><i></i><span>沙箱</span><i></i><span>试跑</span><i></i><span>评测</span>
             </div>
           </div>
           <div class="agent-hero-actions">
-            <button class="btn-primary" @click="openAgentWizard()">+ 添加 Agent</button>
+            <button class="btn-primary" @click="openAgentWizard()">+ 安装 Agent</button>
             <button class="btn-ghost" @click="loadConfig()">刷新配置</button>
             <button class="btn-ghost" @click="copyText(config?.agents_config_path || '', 'Agent 配置路径')">复制路径</button>
           </div>
@@ -50,14 +50,14 @@
             <div class="agent-pane-head">
               <div>
                 <div class="section-title m-0">接入向导</div>
-                <div class="agent-muted">后续新增 Agent 建议都按这个顺序配置。</div>
+                <div class="agent-muted">后续接入新 Agent 建议都按这个顺序落地。</div>
               </div>
             </div>
             <div class="agent-checklist">
-              <div><b>1</b><span><strong>先选运行外壳</strong><em>CLI Agent 统一注册为 framework。</em></span></div>
-              <div><b>2</b><span><strong>声明沙箱</strong><em>默认 Docker，镜像建议用 utbench-agent-base。</em></span></div>
-              <div><b>3</b><span><strong>透传密钥</strong><em>env_from_host 会在卡片中显示是否已设置。</em></span></div>
-              <div><b>4</b><span><strong>定义产物</strong><em>output_globs 决定 evaluator 读取哪些测试文件。</em></span></div>
+              <div><b>1</b><span><strong>选择 Agent 产品</strong><em>Codex、Kilo、Claude Code 等先作为 Runtime 管理。</em></span></div>
+              <div><b>2</b><span><strong>安装沙箱镜像</strong><em>默认 Docker，Agent 镜像使用 utbench-agent-base。</em></span></div>
+              <div><b>3</b><span><strong>绑定密钥</strong><em>env_from_host 会在卡片中显示是否已设置。</em></span></div>
+              <div><b>4</b><span><strong>确认评测产物</strong><em>output_globs 决定 evaluator 读取哪些测试文件。</em></span></div>
             </div>
         </div>
 

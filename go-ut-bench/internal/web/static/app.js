@@ -19,7 +19,9 @@ function app() {
     agentWizardOpen: false,
     agentSaving: false,
     agentFormError: '',
-    agentPreset: 'generic',
+    agentPreset: 'codex',
+    agentRuntimeInstallConfirmed: false,
+    agentAdvancedOpen: false,
     agentForm: {
       name: '',
       image: 'utbench-agent-base:latest',
@@ -95,9 +97,11 @@ function app() {
     },
     get activeBuildImageName() {
       if (!this.env) return 'utbench:latest'
+      if (this.buildTarget === 'agent') return this.env.agent_image_name || 'utbench-agent-base:latest'
       return this.env.eval_image_name || 'utbench:latest'
     },
     get activeBuildDockerfile() {
+      if (this.buildTarget === 'agent') return 'docker/agents/Dockerfile'
       return 'Dockerfile'
     },
     buildModalOpen: false,
@@ -210,7 +214,7 @@ function app() {
         const r = await fetch(force ? '/api/env?refresh=1' : '/api/env')
         const prev = this.env
         this.env = await r.json()
-        if (!prev && this.env.docker_available && this.env.image_present) {
+        if (!prev && this.env.docker_available && this.env.eval_image_present) {
           const needDocker = this.env.os === 'windows' && !this.env.native_tools?.mutmut
           if (needDocker) this.form.use_docker = true
         }
@@ -367,7 +371,18 @@ function app() {
       this._toastTimer = setTimeout(() => { this.toast = '' }, ms)
     },
 
-    openBuildImage(target = 'eval') { this.buildTarget = target || 'eval'; this.buildModalOpen = true; this.reattachBuild() },
+    openBuildImage(target = 'eval') {
+      const nextTarget = target || 'eval'
+      if (this.buildTarget !== nextTarget) {
+        this.buildId = ''
+        this.buildStatus = ''
+        this.buildLogs = []
+        this.buildError = ''
+      }
+      this.buildTarget = nextTarget
+      this.buildModalOpen = true
+      this.reattachBuild(this.buildTarget)
+    },
     closeBuildModal() { this.buildModalOpen = false; this.stopBuildSSE() },
 
     buildStatusColor(s) {
@@ -380,7 +395,13 @@ function app() {
     },
 
     buildTargetText(target) {
-      return '评测镜像'
+      const map = {
+        eval: '评测镜像',
+        evaluation: '评测镜像',
+        agent: 'Agent 沙箱镜像',
+        agents: 'Agent 沙箱镜像',
+      }
+      return map[target || 'eval'] || 'Docker 镜像'
     },
 
     envTopologyText(mode) {
@@ -412,18 +433,20 @@ function app() {
         : 'background:rgba(245,158,11,.12);color:var(--yellow)'
     },
 
-    async reattachBuild() {
+    async reattachBuild(preferredTarget = '') {
       try {
         const r = await fetch('/api/env/build-image')
         const data = await r.json()
         if (data && data.build_id) {
+          const active = data.status === 'running' || data.status === 'pending'
+          if (preferredTarget && data.target && data.target !== preferredTarget && !active) return
           this.buildId = data.build_id
           this.buildTarget = data.target || this.buildTarget || 'eval'
           this.buildStatus = data.status
           this.buildError = data.error || ''
           const detail = await fetch('/api/env/build-image/' + this.buildId)
           if (detail.ok) { const d = await detail.json(); this.buildLogs = d.logs || [] }
-          if (this.buildStatus === 'running' || this.buildStatus === 'pending') { this.startBuildSSE(this.buildId) }
+          if (active) { this.startBuildSSE(this.buildId) }
         }
       } catch(e) { console.error('reattach build', e) }
     },
@@ -1243,40 +1266,173 @@ function app() {
         error: rows.filter(f => !['可运行', '需补密钥', '需 Docker'].includes(this.agentFrameworkStatus(f))).length,
       }
     },
+    agentRuntimeCatalog() {
+      const globs = 'generated_test.py\ntest_*.py\n*_test.go\n*Test.java\n*test*.cpp'
+      return [
+        {
+          id: 'codex',
+          title: 'Codex CLI',
+          vendor: 'OpenAI',
+          framework: 'codex',
+          commandName: 'codex',
+          badge: '需安装',
+          summary: '把 Codex 作为独立 Agent Runtime 接入，安装进 Agent 沙箱镜像后再参与评测。',
+          image: 'utbench-agent-base:latest',
+          installCommand: 'npm install -g @openai/codex',
+          env_from_host: 'OPENAI_API_KEY',
+          command: 'PROMPT="$(cat {{.ContainerPrompt}})" &&\ncodex exec --skip-git-repo-check --model "{{.ModelID}}" "$PROMPT"',
+          output_globs: globs,
+          needsInstall: true,
+        },
+        {
+          id: 'kilo',
+          title: 'Kilo Code',
+          vendor: 'Kilo',
+          framework: 'kilo',
+          commandName: 'kilo',
+          badge: '待适配',
+          summary: '按产品运行时接入 Kilo，先把 CLI 安装进沙箱，再在高级适配里确认非交互命令。',
+          image: 'utbench-agent-base:latest',
+          installCommand: '在 docker/agents/Dockerfile 的 agent-clis 阶段加入 Kilo CLI 安装命令',
+          env_from_host: 'KILO_API_KEY',
+          command: '',
+          output_globs: globs,
+          needsInstall: true,
+          needsAdapter: true,
+        },
+        {
+          id: 'claudecode',
+          title: 'Claude Code',
+          vendor: 'Anthropic',
+          framework: 'claudecode',
+          commandName: 'claude',
+          badge: '镜像内置',
+          summary: 'Agent 沙箱镜像已内置 Claude Code，配置密钥后即可组合模型与 Skill。',
+          image: 'utbench-agent-base:latest',
+          installCommand: 'npm install -g @anthropic-ai/claude-code',
+          env_from_host: 'ANTHROPIC_API_KEY\nANTHROPIC_AUTH_TOKEN\nANTHROPIC_CUSTOM_HEADERS\nCLAUDE_CODE_USE_BEDROCK\nCLAUDE_CODE_USE_VERTEX\nCLAUDE_CODE_USE_FOUNDRY',
+          command: 'mkdir -p "{{.ContainerWorkdir}}/.claude" &&\nPROMPT="$(cat {{.ContainerPrompt}})" &&\nclaude -p --output-format stream-json --verbose --permission-mode bypassPermissions --max-turns 50 --model "{{.ModelID}}" "$PROMPT"',
+          output_globs: globs,
+          bundled: true,
+        },
+        {
+          id: 'opencode',
+          title: 'OpenCode',
+          vendor: 'SST',
+          framework: 'opencode',
+          commandName: 'opencode',
+          badge: '镜像内置',
+          summary: 'OpenCode 已作为通用 Agent Runtime 内置，适合 OpenAI-compatible 模型端点。',
+          image: 'utbench-agent-base:latest',
+          installCommand: 'npm install -g opencode-ai opencode-linux-x64-baseline',
+          env_from_host: 'DEEPSEEK_API_KEY\nDASHSCOPE_API_KEY\nMINIMAX_API_KEY\nARK_API_KEY\nBIGMODEL_API_KEY',
+          command: 'PROMPT="$(cat {{.ContainerPrompt}})" &&\nopencode run --print-logs --dangerously-skip-permissions --model "{{.ModelID}}" "$PROMPT"',
+          output_globs: globs,
+          bundled: true,
+        },
+        {
+          id: 'codebuddy',
+          title: 'CodeBuddy',
+          vendor: 'Tencent',
+          framework: 'codebuddy',
+          commandName: 'codebuddy',
+          badge: '镜像内置',
+          summary: 'CodeBuddy 已内置到 Agent 沙箱，适合用自定义模型端点做单测生成。',
+          image: 'utbench-agent-base:latest',
+          installCommand: 'npm install -g @tencent-ai/codebuddy-code',
+          env_from_host: 'CODEBUDDY_API_KEY\nCODEBUDDY_INTERNET_ENVIRONMENT\nDEEPSEEK_API_KEY\nDASHSCOPE_API_KEY\nMINIMAX_API_KEY\nARK_API_KEY\nBIGMODEL_API_KEY',
+          command: 'mkdir -p "{{.ContainerWorkdir}}/.codebuddy" &&\nPROMPT="$(cat {{.ContainerPrompt}})" &&\ncodebuddy -p -y --output-format stream-json --max-turns 50 "$PROMPT"',
+          output_globs: globs,
+          bundled: true,
+        },
+        {
+          id: 'custom',
+          title: '自定义 Agent Runtime',
+          vendor: 'Custom',
+          framework: 'custom-agent',
+          commandName: 'agent-cli',
+          badge: '高级',
+          summary: '用于接入公司内部 Agent 或未预置产品，需要提供安装方式和非交互命令。',
+          image: 'utbench-agent-base:latest',
+          installCommand: '在 docker/agents/Dockerfile 安装你的 Agent CLI',
+          env_from_host: 'MY_AGENT_API_KEY',
+          command: 'PROMPT="$(cat {{.ContainerPrompt}})" &&\nagent-cli run --model "{{.ModelID}}" --prompt "$PROMPT"',
+          output_globs: globs,
+          needsInstall: true,
+          needsAdapter: true,
+        },
+      ]
+    },
+    agentRuntimeSpec(id = this.agentPreset) {
+      return this.agentRuntimeCatalog().find(item => item.id === id) || this.agentRuntimeCatalog()[0]
+    },
+    agentFrameworkByName(name) {
+      return (this.config?.frameworks ?? []).find(f => f.name === name)
+    },
+    agentRuntimeInstalled(id = this.agentPreset) {
+      const spec = this.agentRuntimeSpec(id)
+      return !!this.agentFrameworkByName(spec?.framework)
+    },
+    agentRuntimeStatusText(id = this.agentPreset) {
+      const spec = this.agentRuntimeSpec(id)
+      if (this.agentRuntimeInstalled(id)) return '已接入'
+      if (spec?.needsAdapter) return '待适配'
+      if (spec?.needsInstall) return '需安装'
+      if (spec?.bundled) return '镜像内置'
+      return '可接入'
+    },
+    agentRuntimeStatusStyle(id = this.agentPreset) {
+      const text = this.agentRuntimeStatusText(id)
+      if (text === '已接入' || text === '镜像内置') return 'background:var(--success-bg);color:var(--green)'
+      if (text === '需安装' || text === '待适配') return 'background:var(--warn-bg);color:var(--yellow)'
+      return 'background:var(--badge-bg);color:var(--fg-muted)'
+    },
+    agentRuntimeImagePresent() {
+      return !!this.env?.agent_image_present
+    },
+    agentRuntimeImageText() {
+      if (!this.env?.docker_available) return 'Docker 未就绪'
+      return this.agentRuntimeImagePresent() ? 'Agent 镜像已构建' : 'Agent 镜像未构建'
+    },
+    agentRuntimeImageStyle() {
+      if (this.agentRuntimeImagePresent()) return 'background:var(--success-bg);color:var(--green)'
+      return 'background:var(--warn-bg);color:var(--yellow)'
+    },
+    selectAgentRuntime(id) {
+      this.agentFormError = ''
+      this.agentRuntimeInstallConfirmed = false
+      this.applyAgentPreset(id)
+    },
     openAgentWizard() {
       this.agentFormError = ''
       this.agentWizardOpen = true
-      if (!this.agentForm.command) this.applyAgentPreset(this.agentPreset || 'generic')
+      this.selectAgentRuntime(this.agentPreset || 'codex')
     },
     closeAgentWizard() { this.agentWizardOpen = false },
     applyAgentPreset(preset) {
       this.agentPreset = preset
-      const base = {
-        image: 'utbench-agent-base:latest',
+      const spec = this.agentRuntimeSpec(preset)
+      const next = {
+        name: spec.framework,
+        image: spec.image || 'utbench-agent-base:latest',
         timeout_seconds: 600,
         network_disabled: false,
         compatible_languages: ['python', 'go', 'java', 'cpp'],
-        output_globs: 'generated_test.py\ntest_*.py\n*_test.go\n*Test.java\n*test*.cpp',
+        compatible_models: [],
+        output_globs: spec.output_globs || 'generated_test.py\ntest_*.py\n*_test.go\n*Test.java\n*test*.cpp',
+        env_from_host: spec.env_from_host || '',
+        command: spec.command || '',
       }
-      const presets = {
-        generic: {
-          name: this.agentForm.name || 'my-agent',
-          env_from_host: this.agentForm.env_from_host || 'MY_AGENT_API_KEY',
-          command: 'PROMPT="$(cat {{.ContainerPrompt}})" && my-agent --model "{{.ModelID}}" --prompt "$PROMPT"',
-        },
-        claudecode: {
-          name: this.agentForm.name || 'claudecode-custom',
-          env_from_host: 'ANTHROPIC_API_KEY\nANTHROPIC_AUTH_TOKEN\nANTHROPIC_BASE_URL',
-          command: 'mkdir -p "{{.ContainerWorkdir}}/.claude" &&\nPROMPT="$(cat {{.ContainerPrompt}})" &&\nclaude -p --output-format stream-json --verbose --permission-mode bypassPermissions "$PROMPT"',
-        },
-        opencode: {
-          name: this.agentForm.name || 'opencode-custom',
-          env_from_host: 'DEEPSEEK_API_KEY\nDASHSCOPE_API_KEY\nMINIMAX_API_KEY\nARK_API_KEY\nBIGMODEL_API_KEY',
-          command: 'PROMPT="$(cat {{.ContainerPrompt}})" &&\nopencode run --print-logs --dangerously-skip-permissions --model "{{.ModelID}}" "$PROMPT"',
-        },
-      }
-      const next = { ...base, ...(presets[preset] || presets.generic) }
+      this.agentAdvancedOpen = !!spec.needsAdapter
       this.agentForm = { ...this.agentForm, ...next }
+    },
+    agentCanInstallSelected() {
+      const spec = this.agentRuntimeSpec()
+      if (!spec || this.agentSaving || this.agentRuntimeInstalled(spec.id)) return false
+      if (!String(this.agentForm.name || '').trim()) return false
+      if (!String(this.agentForm.command || '').trim()) return false
+      if ((spec.needsInstall || spec.needsAdapter) && !this.agentRuntimeInstallConfirmed) return false
+      return true
     },
     toggleAgentLanguage(lang) {
       const set = new Set(this.agentForm.compatible_languages || [])
@@ -1295,9 +1451,19 @@ function app() {
     },
     async saveAgentFramework() {
       this.agentFormError = ''
+      const spec = this.agentRuntimeSpec()
+      if (this.agentRuntimeInstalled(spec?.id)) {
+        this.showToast((spec?.title || 'Agent') + ' 已经接入，无需重复安装', 'warn')
+        this.agentWizardOpen = false
+        return
+      }
       const f = this.agentForm
       if (!f.name.trim()) { this.agentFormError = '请填写 Agent 名称'; return }
       if (!f.command.trim()) { this.agentFormError = '请填写启动命令'; return }
+      if ((spec?.needsInstall || spec?.needsAdapter) && !this.agentRuntimeInstallConfirmed) {
+        this.agentFormError = '请先确认该 Agent CLI 已安装到沙箱镜像，并且高级适配命令可非交互运行'
+        return
+      }
       this.agentSaving = true
       try {
         const payload = {
@@ -1314,12 +1480,12 @@ function app() {
         const r = await fetch('/api/agents/frameworks', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
         const data = await r.json()
         if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
-        this.showToast('Agent 已添加：' + data.name, 'ok')
+        this.showToast('Agent Runtime 已接入：' + data.name, 'ok')
         this.agentWizardOpen = false
         await this.loadConfig()
       } catch (e) {
         this.agentFormError = e.message || String(e)
-        this.showToast('添加 Agent 失败：' + this.agentFormError, 'err', 6000)
+        this.showToast('接入 Agent 失败：' + this.agentFormError, 'err', 6000)
       } finally {
         this.agentSaving = false
       }

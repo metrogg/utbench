@@ -264,7 +264,13 @@ func defaultBuildProfile(target string, cfg DockerConfig) (BuildProfile, error) 
 			ImageName:  cfg.EffectiveEvalImage(),
 			Dockerfile: "Dockerfile",
 		}, nil
+	case "agent", "agents", "sandbox":
+		return BuildProfile{
+			Target:     "agent",
+			ImageName:  defaultAgentImageName,
+			Dockerfile: "docker/agents/Dockerfile",
+		}, nil
 	default:
-		return BuildProfile{}, fmt.Errorf("unknown build target: %s (supported: eval)", target)
+		return BuildProfile{}, fmt.Errorf("unknown build target: %s (supported: eval, agent)", target)
 	}
 }
