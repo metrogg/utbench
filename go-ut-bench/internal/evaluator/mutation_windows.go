@@ -17,6 +17,7 @@ func runCommandLocal(ctx context.Context, name string, args []string, workdir st
 	logMutation("DEBUG-3", "run_command_start", "name", name, "args", args, "workdir", workdir)
 
 	cmd := exec.Command(name, args...)
+	hideCommandWindow(cmd)
 	cmd.Dir = workdir
 	if len(env) > 0 {
 		cmd.Env = env
@@ -44,6 +45,7 @@ func runCommandLocal(ctx context.Context, name string, args []string, workdir st
 			// 使用 taskkill /T 杀掉整个进程树（包括子进程）
 			pid := strconv.Itoa(cmd.Process.Pid)
 			killCmd := exec.Command("taskkill", "/T", "/F", "/PID", pid)
+			hideCommandWindow(killCmd)
 			_ = killCmd.Run()
 			logMutation("INFO", "run_command_killed_windows_tree", "pid", pid)
 		}

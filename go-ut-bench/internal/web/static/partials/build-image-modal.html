@@ -18,7 +18,7 @@
           <div class="flex items-center gap-2 mb-3 flex-wrap">
             <button @click="buildTarget='eval'" class="chip" :class="(buildTarget || 'eval') === 'eval' ? 'active' : ''">评测镜像</button>
             <button @click="buildTarget='agent'" class="chip" :class="buildTarget === 'agent' ? 'active' : ''">Agent 沙箱镜像</button>
-            <span class="text-[11px]" style="color:var(--fg-subtle)" x-text="buildTarget === 'agent' ? '包含 Agent CLI 与生成期语言工具链' : '包含编译、测试、覆盖率与变异测试工具链'"></span>
+            <span class="text-[11px]" style="color:var(--fg-subtle)" x-text="buildTarget === 'agent' ? '包含 Agent CLI 与生成期基础工具；评测工具链在评测镜像中' : '包含编译、测试、覆盖率与变异测试工具链'"></span>
           </div>
           <div class="agent-install-panel mb-3">
             <div>

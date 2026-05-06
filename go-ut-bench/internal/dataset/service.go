@@ -505,8 +505,9 @@ else:
             print(f"  ... and {len(info['samples'])-3} more")
         hint = install_hints.get(mod, f'pip install {mod}')
         print(f'  Install: {hint}')
-`
+	`
 	cmd := exec.Command("python3", "-c", script)
+	hideCommandWindow(cmd)
 	cmd.Dir = datasetRoot
 	out, err := cmd.CombinedOutput()
 	if err != nil {

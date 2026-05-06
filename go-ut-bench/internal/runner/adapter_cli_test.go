@@ -218,6 +218,23 @@ func TestParseCodeBuddyJSONOutputWithMixedOutput(t *testing.T) {
 	}
 }
 
+func TestSummarizeAgentCommandErrorPrefersActionableTail(t *testing.T) {
+	stderr := strings.Join([]string{
+		"Reading additional input from stdin...",
+		"OpenAI Codex v0.43.0",
+		"2026-05-06T04:59:11.123Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses",
+		"ERROR: Reconnecting... 5/5",
+	}, "\n")
+
+	got := summarizeAgentCommandError(stderr, "exit status 1", 300)
+	if strings.Contains(got, "Reading additional input") {
+		t.Fatalf("summary kept startup prefix: %q", got)
+	}
+	if !strings.Contains(got, "401 Unauthorized") {
+		t.Fatalf("summary = %q, want actionable 401 detail", got)
+	}
+}
+
 func TestExtractFinalJSON(t *testing.T) {
 	tests := []struct {
 		name  string

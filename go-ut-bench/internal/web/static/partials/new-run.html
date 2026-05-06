@@ -67,18 +67,7 @@
               <br>当前仅支持 model_api（纯 API 模式）。如需 Framework/Skill，请确保启动时指定了 <code class="font-mono">--agents-config</code>。
             </div>
 
-            <div class="space-y-2" id="combo-rows">
-              <template x-for="(combo, idx) in form.combinations" :key="`${_comboKey}-${idx}`">
-                <div class="flex items-center gap-2">
-                  <div class="flex-1" x-html="renderSelectFw(idx, combo.framework)"></div>
-                  <div class="flex-1" x-html="renderSelectModel(idx, combo.framework, combo.model)"></div>
-                  <div class="flex-1" x-html="renderSelectSkill(idx, combo.framework, combo.skill)"></div>
-                  <span class="font-mono text-[11px] px-2 py-1 rounded" style="background:var(--bg-overlay);color:var(--fg-subtle)" x-text="buildSubjectId(combo)"></span>
-                  <button type="button" class="text-[12px] px-1.5 py-0.5 rounded" style="color:var(--fg-muted);background:var(--bg-overlay)"
-                    @click="form.combinations.splice(idx, 1)" :disabled="form.combinations.length <= 1">&times;</button>
-                </div>
-              </template>
-            </div>
+            <div class="space-y-2" id="combo-rows" x-html="renderCombinationRows()" @change="handleComboRowsChange($event)" @click="handleComboRowsClick($event)"></div>
 
             <button type="button" class="btn-pill mt-2" style="background:var(--accent);color:var(--accent-fg)"
               @click="addCombination()">+ 添加组合</button>
@@ -96,10 +85,13 @@
 
           <div class="form-section" x-show="form.phase === 'full' || form.phase === 'generate'">
             <div class="section-title">模型 Baseline / 兼容回退</div>
+            <div x-show="selectedSubjectCount > 0" class="text-[12px] mb-3" style="color:var(--fg-muted)">
+              当前已选择 Subject 组合，模型配置会随 Subject 自动补齐；Baseline 勾选只在未选择 Subject 时启用。
+            </div>
             <div class="flex flex-wrap gap-2.5">
               <template x-for="m in config?.models ?? []" :key="m.name">
-                <label :class="form.models.includes(m.name) ? 'active' : ''" class="chip" :title="m.api_key_set ? 'API Key 已配置' : 'API Key 未配置: ' + m.api_key_env">
-                  <input type="checkbox" :value="m.name" x-model="form.models" class="w-3.5 h-3.5">
+                <label :class="form.models.includes(m.name) ? 'active' : ''" class="chip" :style="selectedSubjectCount > 0 ? 'opacity:.55;pointer-events:none' : ''" :title="selectedSubjectCount > 0 ? 'Subject 模式下无需手动勾选模型' : (m.api_key_set ? 'API Key 已配置' : 'API Key 未配置: ' + m.api_key_env)">
+                  <input type="checkbox" :value="m.name" x-model="form.models" class="w-3.5 h-3.5" :disabled="selectedSubjectCount > 0">
                   <span class="inline-block w-2 h-2 rounded-full shrink-0" :style="m.api_key_set ? 'background:var(--green)' : 'background:var(--red)'"></span>
                   <span x-text="m.name" class="font-medium"></span>
                   <span x-text="m.model_id" class="text-[11px]" style="color:var(--fg-muted)"></span>

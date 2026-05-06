@@ -1005,6 +1005,8 @@ func defaultAgentCLIPackage(runtime string) string {
 	switch strings.ToLower(strings.TrimSpace(runtime)) {
 	case "codex":
 		return "@openai/codex"
+	case "kilo":
+		return "@kilocode/cli"
 	case "claudecode":
 		return "@anthropic-ai/claude-code"
 	case "opencode":

@@ -19,16 +19,13 @@ frameworks:
       cpu: "2"
     preflight:
       python:
-        - python3 --version
-        - pytest --version
+        - command -v opencode
       go:
-        - go version
+        - command -v opencode
       java:
-        - java -version
-        - mvn -version
+        - command -v opencode
       cpp:
-        - g++ --version
-        - cmake --version
+        - command -v opencode
     forbidden_command_patterns:
       - apt-get update
       - apt-get install
@@ -108,16 +105,13 @@ frameworks:
       cpu: "2"
     preflight:
       python:
-        - python3 --version
-        - pytest --version
+        - command -v codebuddy
       go:
-        - go version
+        - command -v codebuddy
       java:
-        - java -version
-        - mvn -version
+        - command -v codebuddy
       cpp:
-        - g++ --version
-        - cmake --version
+        - command -v codebuddy
     forbidden_command_patterns:
       - apt-get update
       - apt-get install
@@ -193,20 +187,13 @@ frameworks:
       cpu: "2"
     preflight:
       python:
-        - claude --version
-        - python3 --version
-        - pytest --version
+        - command -v claude
       go:
-        - claude --version
-        - go version
+        - command -v claude
       java:
-        - claude --version
-        - java -version
-        - mvn -version
+        - command -v claude
       cpp:
-        - claude --version
-        - g++ --version
-        - cmake --version
+        - command -v claude
     forbidden_command_patterns:
       - apt-get update
       - apt-get install
@@ -298,6 +285,7 @@ skills:
       - opencode
       - codebuddy
       - claudecode
+      - codex
     compatible_languages:
       - python
       - go
@@ -319,6 +307,7 @@ skills:
     compatible_frameworks:
       - codebuddy
       - claudecode
+      - codex
     compatible_languages:
       - python
       - go

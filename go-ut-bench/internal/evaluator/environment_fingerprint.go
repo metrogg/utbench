@@ -107,6 +107,7 @@ func (fp EnvironmentFingerprint) ToJSON() string {
 // getToolVersion 获取工具版本
 func getToolVersion(ctx context.Context, tool string, args ...string) string {
 	cmd := exec.CommandContext(ctx, tool, args...)
+	hideCommandWindow(cmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return ""
@@ -125,6 +126,7 @@ func getToolVersion(ctx context.Context, tool string, args ...string) string {
 // getDockerImageDigest 获取Docker镜像digest
 func getDockerImageDigest(ctx context.Context, image string) string {
 	cmd := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.Id}}", image)
+	hideCommandWindow(cmd)
 	output, err := cmd.Output()
 	if err != nil {
 		return ""

@@ -128,6 +128,7 @@ func runDockerSandbox(ctx context.Context, req SandboxRunRequest, timeout int) (
 	args = append(args, image, sandboxShell(), "-c", req.Command)
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	hideCommandWindow(cmd)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err = cmd.Run()
@@ -198,6 +199,7 @@ func runLocalSandbox(ctx context.Context, req SandboxRunRequest) (SandboxRunResu
 	}
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, name, args...)
+	hideCommandWindow(cmd)
 	cmd.Dir = req.Workspace
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

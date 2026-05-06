@@ -316,7 +316,7 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 			LatencyMS:   latency,
 			Error: &contracts.ErrorInfo{
 				Kind:      "agent_execution_error",
-				Message:   fmt.Sprintf("agent command failed: %s", trimText(runOutput.Stderr+"\n"+runErr.Error(), 1000)),
+				Message:   fmt.Sprintf("agent command failed: %s", summarizeAgentCommandError(runOutput.Stderr, runErr.Error(), 1000)),
 				Retryable: false,
 			},
 		}
@@ -408,6 +408,54 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 
 // parseAgentOutput 从 Agent 的 stdout/stderr 中解析结构化信息。
 // 支持解析 OpenCode、Claude Code、CodeBuddy 等 CLI Agent 的日志格式。
+func summarizeAgentCommandError(stderr, errText string, max int) string {
+	combined := strings.TrimSpace(strings.TrimSpace(stderr) + "\n" + strings.TrimSpace(errText))
+	if combined == "" {
+		return ""
+	}
+
+	lines := strings.Split(combined, "\n")
+	keywords := []string{
+		"ERROR",
+		"error:",
+		"failed",
+		"Unauthorized",
+		"401",
+		"403",
+		"404",
+		"timed out",
+		"timeout",
+	}
+	picked := make([]string, 0, 8)
+	for i := len(lines) - 1; i >= 0 && len(picked) < 8; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		for _, keyword := range keywords {
+			if strings.Contains(line, keyword) {
+				picked = append(picked, line)
+				break
+			}
+		}
+	}
+	if len(picked) > 0 {
+		for i, j := 0, len(picked)-1; i < j; i, j = i+1, j-1 {
+			picked[i], picked[j] = picked[j], picked[i]
+		}
+		return trimText(strings.Join(picked, "\n"), max)
+	}
+
+	return tailText(combined, max)
+}
+
+func tailText(value string, max int) string {
+	if max <= 0 || len(value) <= max {
+		return value
+	}
+	return value[len(value)-max:]
+}
+
 func parseAgentOutput(trace *AgentTrace, stdout, stderr string) {
 	fullOutput := stdout + "\n" + stderr
 

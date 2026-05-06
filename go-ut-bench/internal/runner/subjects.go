@@ -294,6 +294,7 @@ func injectSkillWorkspace(workRoot string, skill contracts.SkillSpec) (string, e
 // CodeBuddy:   workspace/.codebuddy/skills/<name>/（主说明写为 SKILL.md）
 // OpenCode:    workspace/.opencode/skills/<name>/（保留原始文件名）
 // Claude Code: workspace/.claude/skills/<name>/（主说明写为 SKILL.md）
+// Codex:       workspace/.codex/skills/<name>/（主说明写为 SKILL.md）
 func injectAgentNativeSkill(workRoot, framework string, skill contracts.SkillSpec) (string, error) {
 	if skill.Name == "" || skill.Name == agentconfig.NoSkill {
 		return "", nil
@@ -306,6 +307,12 @@ func injectAgentNativeSkill(workRoot, framework string, skill contracts.SkillSpe
 		return copySkillToNativeDir(workRoot, skill, ".opencode", "skills", false)
 	case "claudecode", "claude_code", "claude-code":
 		return copySkillToNativeDir(workRoot, skill, ".claude", "skills", true)
+	case "codex", "codex_cli", "codex-cli":
+		dest, err := copySkillToNativeDir(workRoot, skill, ".codex", "skills", true)
+		if err != nil {
+			return "", err
+		}
+		return dest, ensureCodexSkillFrontmatter(filepath.Join(dest, "SKILL.md"), skill)
 	default:
 		return "", nil
 	}
@@ -361,6 +368,24 @@ func samePath(left, right string) bool {
 	return left == right
 }
 
+func ensureCodexSkillFrontmatter(path string, skill contracts.SkillSpec) error {
+	raw, err := os.ReadFile(path)
+	if err != nil || hasYAMLFrontmatter(raw) {
+		return err
+	}
+	description := strings.TrimSpace(skill.Description)
+	if description == "" {
+		description = "UT-Bench skill package"
+	}
+	description = strings.Join(strings.Fields(description), " ")
+	prefix := fmt.Sprintf("---\nname: %s\ndescription: %q\n---\n\n", safePathName(skill.Name), description)
+	return os.WriteFile(path, append([]byte(prefix), raw...), 0o644)
+}
+
+func hasYAMLFrontmatter(raw []byte) bool {
+	return strings.HasPrefix(string(raw), "---\n") || strings.HasPrefix(string(raw), "---\r\n")
+}
+
 func appendSkillInstruction(prompt string, skill contracts.SkillSpec) string {
 	if skill.Name == "" || skill.Name == agentconfig.NoSkill || !strings.EqualFold(defaultString(skill.InjectMode, "prompt_append"), "prompt_append") {
 		return prompt
@@ -413,10 +438,13 @@ func buildAgentPrompt(prompt string, sample contracts.SampleRef, sourceFile, out
 			b.WriteString(" command to generate tests according to the skill methodology.\n")
 			b.WriteString("The skill provides structured guidelines for test generation.\n")
 		} else {
-			// 其他框架（OpenCode, CodeBuddy）使用原生 skill 机制
+			// 其他框架使用原生 skill 机制或工作区可见的 skill 文件目录。
 			b.WriteString("- Skill files are available at: ")
 			b.WriteString(skillDir)
 			b.WriteString("\n")
+			if strings.EqualFold(framework, "codex") || strings.EqualFold(framework, "codex_cli") || strings.EqualFold(framework, "codex-cli") {
+				b.WriteString("- Read and follow the skill instructions in that directory before writing tests.\n")
+			}
 		}
 	}
 	return b.String()

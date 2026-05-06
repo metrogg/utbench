@@ -315,6 +315,7 @@ func dockerImageDigest(image string) string {
 		return cached.(string)
 	}
 	cmd := exec.Command("docker", "inspect", "--format", "{{.Id}}", image)
+	hideCommandWindow(cmd)
 	output, err := cmd.Output()
 	if err != nil {
 		dockerImageDigestCache.Store(image, "")

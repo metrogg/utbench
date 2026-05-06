@@ -99,6 +99,7 @@ func (b *DockerBackend) RunCommand(ctx context.Context, workdir string, command 
 
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	hideCommandWindow(cmd)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()

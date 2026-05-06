@@ -81,7 +81,7 @@ function app() {
     dbReportFilter: { run_id:'' },
     dbRunArtifactFilter: { run_id:'' },
     form: {
-      run_id:'', models:[], subjects:[], combinations:[{framework:'model_api',model:'deepseek-v4-flash',skill:'no_skill'}], languages:[], class:'self_contained', scenario:'', level:'',
+      run_id:'', models:[], subjects:[], combinations:[{_id:1,framework:'model_api',model:'deepseek-v4-flash',skill:'no_skill'}], languages:[], class:'self_contained', scenario:'', level:'',
       max_samples:1, workers:4, mode:'full', phase:'full', source_run_id:'', manifest_path:'', evaluation_path:'',
       dry_run:false, reuse_generated:true, reuse_evaluation:false, mutation_enabled:true,
       mutation_timeout:360, mutation_policy:'warn', ingest:true, use_docker:true,
@@ -154,6 +154,8 @@ function app() {
     _timerEnv: null,
     _logCount: 0,
     _comboKey: 0,
+    _comboSeq: 1,
+    _comboAddLocked: false,
     partialsLoaded: false,
 
     async init() {
@@ -165,7 +167,6 @@ function app() {
       await this.loadRuns()
       await this.loadDatabase()
       this._startTimers()
-      this.$nextTick(() => this._initComboDelegation())
     },
     async loadPartials() {
       const nodes = Array.from(document.querySelectorAll('[data-partial]'))
@@ -1246,6 +1247,7 @@ function app() {
     useAgentSubject(subject) {
       if (!subject) return
       this.form.combinations = [{
+        _id: ++this._comboSeq,
         framework: subject.framework || 'model_api',
         model: subject.model || '',
         skill: subject.skill || 'no_skill',
@@ -1284,7 +1286,7 @@ function app() {
           installCommand: 'npm install -g @openai/codex',
           installPackage: '@openai/codex',
           env_from_host: 'OPENAI_API_KEY',
-          command: 'PROMPT="$(cat {{.ContainerPrompt}})" &&\ncodex exec --skip-git-repo-check --model "{{.ModelID}}" "$PROMPT"',
+          command: 'PROMPT="$(cat {{.ContainerPrompt}})" &&\ncodex exec --skip-git-repo-check --sandbox workspace-write \\\n  -c \'model_provider="utbench"\' \\\n  -c \'model_providers.utbench.name="{{.ModelProvider}} via UT-Bench"\' \\\n  -c \'model_providers.utbench.base_url="{{.ModelEndpoint}}"\' \\\n  -c \'model_providers.utbench.env_key="{{.ModelAPIKeyEnv}}"\' \\\n  -c \'model_providers.utbench.wire_api="chat"\' \\\n  --model "{{.ModelID}}" "$PROMPT"',
           output_globs: globs,
           needsInstall: true,
         },
@@ -1297,13 +1299,12 @@ function app() {
           badge: '待适配',
           summary: '按产品运行时接入 Kilo，先把 CLI 安装进沙箱，再在高级适配里确认非交互命令。',
           image: 'utbench-agent-base:latest',
-          installCommand: '在 docker/agents/Dockerfile 的 agent-clis 阶段加入 Kilo CLI 安装命令',
-          installPackage: '',
-          env_from_host: 'KILO_API_KEY',
-          command: '',
+          installCommand: 'npm install -g @kilocode/cli',
+          installPackage: '@kilocode/cli',
+          env_from_host: 'KILO_API_KEY\nKILO_PROVIDER\nKILOCODE_MODEL\nKILO_ORG_ID',
+          command: 'mkdir -p "$XDG_CONFIG_HOME/kilo" &&\nprintf \'{"permission":"allow"}\' > "$XDG_CONFIG_HOME/kilo/opencode.json" &&\nPROMPT="$(cat {{.ContainerPrompt}})" &&\nkilo run --auto --timeout 600 "$PROMPT"',
           output_globs: globs,
           needsInstall: true,
-          needsAdapter: true,
         },
         {
           id: 'claudecode',
@@ -1526,7 +1527,6 @@ function app() {
       if (!spec || this.agentSaving || this.agentRuntimeInstalled(spec.id)) return false
       if (!String(this.agentForm.name || '').trim()) return false
       if (!String(this.agentForm.command || '').trim()) return false
-      if ((spec.needsInstall || spec.needsAdapter) && !this.agentRuntimeInstallConfirmed) return false
       return true
     },
     toggleAgentLanguage(lang) {
@@ -1720,10 +1720,11 @@ function app() {
         const r = await fetch('/api/runs/' + encodeURIComponent(runID) + '/rerun', { method: 'POST' })
         const data = await r.json()
         if (!r.ok) { this.showToast('重跑失败：' + (data.error || 'HTTP ' + r.status), 'err'); return }
-        this.showToast('已创建 Docker 重跑任务 ' + data.run_id, 'ok')
-        await this.loadRuns()
-        // 切到任务列表方便查看新任务状态
-        this.stopSSE(); this.page = 'runs'
+        const newRunId = data.run_id || data.runId || data.id
+        if (!newRunId) { this.showToast('重跑失败：backend did not return run_id', 'err'); return }
+        this.showToast('已创建 Docker 重跑任务 ' + newRunId, 'ok')
+        await this.openRun(newRunId)
+        this.loadRuns()
       } catch (e) { this.showToast('重跑失败：' + e.message, 'err') }
     },
 
@@ -1865,47 +1866,53 @@ function app() {
       }
       return skills
     },
-    renderSelectFw(idx, current) {
-      const opts = this._comboFrameworks().map(fw =>
+    comboModelOptionLabel(name) {
+      return String(name || '')
+    },
+    renderFrameworkOptions(current) {
+      return this._comboFrameworks().map(fw =>
         `<option value="${this._escapeHtml(fw.value)}" ${fw.value===current?'selected':''}>${this._escapeHtml(fw.label)}</option>`
       ).join('')
-      return `<select class="input-base text-[12px]" data-combo-idx="${idx}" data-combo-type="fw">${opts}</select>`
     },
-    renderSelectModel(idx, framework, current) {
+    renderModelOptions(framework, current) {
       const models = this._comboModels(framework)
       if (!models.includes(current) && models.length) current = models[0]
-      const modelMap = {}
-      ;this._modelRows().forEach(m => { modelMap[m.name] = m })
-      const opts = models.map(m => {
-        const info = modelMap[m]
-        const keyOk = info?.api_key_set
-        const marker = keyOk ? ' ✓' : ' ✗'
-        return `<option value="${this._escapeHtml(m)}" ${m===current?'selected':''}>${this._escapeHtml(m)}${marker}</option>`
-      }).join('')
-      return `<select class="input-base text-[12px]" data-combo-idx="${idx}" data-combo-type="model">${opts}</select>`
+      return models.map(m =>
+        `<option value="${this._escapeHtml(m)}" ${m===current?'selected':''}>${this._escapeHtml(this.comboModelOptionLabel(m))}</option>`
+      ).join('')
     },
-    renderSelectSkill(idx, framework, current) {
+    renderSkillOptions(framework, current) {
       const skills = this._comboSkills(framework)
       if (!skills.includes(current)) current = 'no_skill'
-      const opts = skills.map(s =>
+      return skills.map(s =>
         `<option value="${this._escapeHtml(s)}" ${s===current?'selected':''}>${this._escapeHtml(s)}</option>`
       ).join('')
-      return `<select class="input-base text-[12px]" data-combo-idx="${idx}" data-combo-type="skill">${opts}</select>`
     },
-    _initComboDelegation() {
-      const container = document.getElementById('combo-rows')
-      if (!container || container._delegated) return
-      container._delegated = true
-      container.addEventListener('change', (e) => {
-        const sel = e.target.closest('select[data-combo-idx]')
-        if (!sel) return
-        const idx = parseInt(sel.dataset.comboIdx, 10)
-        const type = sel.dataset.comboType
-        const val = sel.value
-        if (type === 'fw') { this.form.combinations[idx].framework = val; this.onCombinationFrameworkChange(idx) }
-        else if (type === 'model') { this.form.combinations[idx].model = val }
-        else if (type === 'skill') { this.form.combinations[idx].skill = val }
-      })
+    renderCombinationRows() {
+      const rows = this.form.combinations || []
+      return rows.map((combo, idx) => {
+        const id = combo._id ?? idx
+        const disabled = rows.length <= 1 ? 'disabled' : ''
+        return `<div class="flex items-center gap-2" data-combo-row="${this._escapeHtml(id)}">
+          <select class="input-base text-[12px] flex-1" data-combo-id="${this._escapeHtml(id)}" data-combo-idx="${idx}" data-combo-type="framework">${this.renderFrameworkOptions(combo.framework)}</select>
+          <select class="input-base text-[12px] flex-1" data-combo-id="${this._escapeHtml(id)}" data-combo-idx="${idx}" data-combo-type="model">${this.renderModelOptions(combo.framework, combo.model)}</select>
+          <select class="input-base text-[12px] flex-1" data-combo-id="${this._escapeHtml(id)}" data-combo-idx="${idx}" data-combo-type="skill">${this.renderSkillOptions(combo.framework, combo.skill)}</select>
+          <span class="font-mono text-[11px] px-2 py-1 rounded" style="background:var(--bg-overlay);color:var(--fg-subtle)">${this._escapeHtml(this.buildSubjectId(combo))}</span>
+          <button type="button" data-combo-remove="${this._escapeHtml(id)}" class="text-[12px] px-1.5 py-0.5 rounded" style="color:var(--fg-muted);background:var(--bg-overlay)" ${disabled}>&times;</button>
+        </div>`
+      }).join('')
+    },
+    handleComboRowsChange(event) {
+      const sel = event.target?.closest?.('select[data-combo-id]')
+      if (!sel) return
+      this.setCombinationValue(sel.dataset.comboId, Number(sel.dataset.comboIdx || 0), sel.dataset.comboType, sel.value)
+    },
+    handleComboRowsClick(event) {
+      const btn = event.target?.closest?.('button[data-combo-remove]')
+      if (!btn || btn.disabled) return
+      const id = btn.dataset.comboRemove
+      const idx = (this.form.combinations || []).findIndex(c => String(c._id) === String(id))
+      if (idx >= 0 && this.form.combinations.length > 1) this.form.combinations.splice(idx, 1)
     },
     buildSubjectId(combo) {
       if (!combo.model) return ''
@@ -1920,9 +1927,30 @@ function app() {
       return `${fw}__${model}__${skill}`
     },
     addCombination() {
+      if (this._comboAddLocked) return
+      this._comboAddLocked = true
+      setTimeout(() => { this._comboAddLocked = false }, 0)
       const models = this._comboModels('model_api')
       const defaultModel = models.includes('deepseek-v4-flash') ? 'deepseek-v4-flash' : (models[0] || '')
-      this.form.combinations.push({ framework: 'model_api', model: defaultModel, skill: 'no_skill' })
+      this.form.models = []
+      this.form.combinations.push({ _id: ++this._comboSeq, framework: 'model_api', model: defaultModel, skill: 'no_skill' })
+    },
+    setCombinationValue(rowID, idx, type, value) {
+      let combo = null
+      if (rowID !== undefined && rowID !== null && rowID !== '') {
+        combo = (this.form.combinations || []).find(c => String(c._id) === String(rowID))
+      }
+      combo = combo || this.form.combinations[idx]
+      if (!combo) return
+      this.form.models = []
+      if (type === 'framework') {
+        combo.framework = value
+        this.onCombinationFrameworkChange(this.form.combinations.indexOf(combo))
+      } else if (type === 'model') {
+        combo.model = value
+      } else if (type === 'skill') {
+        combo.skill = value
+      }
     },
     onCombinationFrameworkChange(idx) {
       const combo = this.form.combinations[idx]
@@ -1964,8 +1992,15 @@ function app() {
         const r = await fetch('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.form) })
         const data = await r.json()
         if (!r.ok) { this.formError = data.error || '提交失败'; return }
-        await this.loadRuns()
-        await this.openRun(data.run_id)
+        const runId = data.run_id || data.runId || data.id
+        if (!runId) { this.formError = 'backend did not return run_id'; return }
+        await this.openRun(runId)
+        this.loadRuns().then(() => {
+          if (this.page === 'run-detail' && this.currentRun?.run_id === runId) {
+            const found = this.runs.find(r => r.run_id === runId)
+            if (found) this.currentRun = { ...found }
+          }
+        })
       } catch(e) { this.formError = String(e) }
       finally { this.formSubmitting = false }
     },

@@ -22,16 +22,13 @@ frameworks:
             cpu: "2"
         preflight:
             python:
-                - python3 --version
-                - pytest --version
+                - command -v opencode
             go:
-                - go version
+                - command -v opencode
             java:
-                - java -version
-                - mvn -version
+                - command -v opencode
             cpp:
-                - g++ --version
-                - cmake --version
+                - command -v opencode
         forbidden_command_patterns:
             - apt-get update
             - apt-get install
@@ -106,16 +103,13 @@ frameworks:
             cpu: "2"
         preflight:
             python:
-                - python3 --version
-                - pytest --version
+                - command -v codebuddy
             go:
-                - go version
+                - command -v codebuddy
             java:
-                - java -version
-                - mvn -version
+                - command -v codebuddy
             cpp:
-                - g++ --version
-                - cmake --version
+                - command -v codebuddy
         forbidden_command_patterns:
             - apt-get update
             - apt-get install
@@ -187,20 +181,13 @@ frameworks:
             cpu: "2"
         preflight:
             python:
-                - claude --version
-                - python3 --version
-                - pytest --version
+                - command -v claude
             go:
-                - claude --version
-                - go version
+                - command -v claude
             java:
-                - claude --version
-                - java -version
-                - mvn -version
+                - command -v claude
             cpp:
-                - claude --version
-                - g++ --version
-                - cmake --version
+                - command -v claude
         forbidden_command_patterns:
             - apt-get update
             - apt-get install
@@ -278,16 +265,13 @@ frameworks:
             cpu: "2"
         preflight:
             python:
-                - python3 --version
-                - pytest --version
+                - command -v codex
             go:
-                - go version
+                - command -v codex
             java:
-                - java -version
-                - mvn -version
+                - command -v codex
             cpp:
-                - g++ --version
-                - cmake --version
+                - command -v codex
         forbidden_command_patterns:
             - apt-get update
             - apt-get install
@@ -306,7 +290,68 @@ frameworks:
             - OPENAI_API_KEY
         command: |-
             PROMPT="$(cat {{.ContainerPrompt}})" &&
-            codex exec --skip-git-repo-check --model "{{.ModelID}}" "$PROMPT"
+            codex exec --skip-git-repo-check --sandbox workspace-write \
+              -c 'model_provider="utbench"' \
+              -c 'model_providers.utbench.name="{{.ModelProvider}} via UT-Bench"' \
+              -c 'model_providers.utbench.base_url="{{.ModelEndpoint}}"' \
+              -c 'model_providers.utbench.env_key="{{.ModelAPIKeyEnv}}"' \
+              -c 'model_providers.utbench.wire_api="chat"' \
+              --model "{{.ModelID}}" "$PROMPT"
+        compatible_languages:
+            - python
+            - go
+            - java
+            - cpp
+        output_globs:
+            - generated_test.py
+            - test_*.py
+            - '*_test.go'
+            - '*Test.java'
+            - '*test*.cpp'
+    kilo:
+        enabled: true
+        kind: cli_agent
+        sandbox:
+            provider: docker
+            mode: docker
+            image: utbench-agent-base:latest
+            timeout_seconds: 600
+            network_disabled: false
+            memory: 2g
+            cpu: "2"
+        preflight:
+            python:
+                - command -v kilo
+            go:
+                - command -v kilo
+            java:
+                - command -v kilo
+            cpp:
+                - command -v kilo
+        forbidden_command_patterns:
+            - apt-get update
+            - apt-get install
+            - apt install
+            - apk add
+            - yum install
+            - dnf install
+            - pip install
+            - pip3 install
+            - python -m pip install
+            - python3 -m pip install
+            - npm install
+            - yarn add
+            - pnpm add
+        env_from_host:
+            - KILO_API_KEY
+            - KILO_PROVIDER
+            - KILOCODE_MODEL
+            - KILO_ORG_ID
+        command: |-
+            mkdir -p "$XDG_CONFIG_HOME/kilo" &&
+            printf '{"permission":"allow"}' > "$XDG_CONFIG_HOME/kilo/opencode.json" &&
+            PROMPT="$(cat {{.ContainerPrompt}})" &&
+            kilo run --auto --timeout 600 "$PROMPT"
         compatible_languages:
             - python
             - go
@@ -334,6 +379,7 @@ skills:
             - opencode
             - codebuddy
             - claudecode
+            - codex
         compatible_languages:
             - python
             - go
@@ -353,6 +399,7 @@ skills:
         compatible_frameworks:
             - codebuddy
             - claudecode
+            - codex
         compatible_languages:
             - python
             - go

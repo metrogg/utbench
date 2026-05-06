@@ -399,6 +399,40 @@ func TestInjectAgentNativeSkillForClaudeCodeRenamesInstructionToSkillMD(t *testi
 	}
 }
 
+func TestInjectAgentNativeSkillForCodexAddsFrontmatter(t *testing.T) {
+	tmp := t.TempDir()
+	skillSrc := filepath.Join(tmp, "instructions.md")
+	if err := os.WriteFile(skillSrc, []byte("# unit test skill\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workRoot := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dest, err := injectAgentNativeSkill(workRoot, "codex", contracts.SkillSpec{
+		Name:            "unit_test_skill",
+		Enabled:         true,
+		Description:     "Generate compact unit tests.",
+		InstructionPath: skillSrc,
+	})
+	if err != nil {
+		t.Fatalf("injectAgentNativeSkill returned error: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(dest, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("expected SKILL.md to exist: %v", err)
+	}
+	text := string(raw)
+	if !strings.HasPrefix(text, "---\nname: unit_test_skill\n") {
+		t.Fatalf("expected Codex skill frontmatter, got %q", text)
+	}
+	if !strings.Contains(text, "# unit test skill") {
+		t.Fatalf("expected original skill content to be preserved, got %q", text)
+	}
+}
+
 func TestGenerateWithCLIAgentFailsOnSandboxPreflight(t *testing.T) {
 	tmp := t.TempDir()
 	samplePath := filepath.Join(tmp, "sample.py")
