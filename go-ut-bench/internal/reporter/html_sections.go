@@ -19,6 +19,27 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 	heroLangs := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string { return r.Language }))
 	heroTypes := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string { return extractScenario(r.SampleID) }))
 	heroTypeLabels := scenarioLabels(heroTypes)
+	// 把 framework__model__skill 拆成三个维度展示，AgentFramework/AgentModel/SkillName
+	// 字段为空时回退到 Model 字段按 "__" 切分（兼容旧数据）。
+	heroFrameworks := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string {
+		if v := strings.TrimSpace(r.AgentFramework); v != "" {
+			return v
+		}
+		return splitSubjectPart(r.Model, 0)
+	}))
+	heroAgentModels := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string {
+		if v := strings.TrimSpace(r.AgentModel); v != "" {
+			return v
+		}
+		return splitSubjectPart(r.Model, 1)
+	}))
+	heroSkills := distinctSorted(stringsFromRows(rows, func(r contracts.EvaluationResult) string {
+		if v := strings.TrimSpace(r.SkillName); v != "" {
+			return v
+		}
+		return splitSubjectPart(r.Model, 2)
+	}))
+	_ = heroModels // 保留供其他区块使用
 
 	b.WriteString(`<!doctype html>
  <html lang="zh-CN">
@@ -47,9 +68,23 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
   </div>
   <div class="hero-cards">
     <div class="hero-card">
+      <div class="hero-card-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></div>
+      <div class="hero-card-content">
+        <div class="hero-card-label">平台</div>
+        <div class="hero-card-value">%s</div>
+      </div>
+    </div>
+    <div class="hero-card">
       <div class="hero-card-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg></div>
       <div class="hero-card-content">
-        <div class="hero-card-label">评测模型</div>
+        <div class="hero-card-label">模型</div>
+        <div class="hero-card-value">%s</div>
+      </div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-card-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
+      <div class="hero-card-content">
+        <div class="hero-card-label">Skill</div>
         <div class="hero-card-value">%s</div>
       </div>
     </div>
@@ -71,7 +106,9 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
 </div>`,
 		payload.GeneratedAtUTC.Format("2006-01-02 15:04"),
 		payload.Summary.TotalSamples,
-		escapeHTML(summarizeList(heroModels, 6)),
+		escapeHTML(summarizeList(heroFrameworks, 6)),
+		escapeHTML(summarizeList(heroAgentModels, 6)),
+		escapeHTML(summarizeList(heroSkills, 6)),
 		escapeHTML(summarizeList(heroLangs, 6)),
 		escapeHTML(summarizeList(heroTypeLabels, 6))))
 	_ = buildRuntimeSummarySection // 已停用：运行时拓扑 Runtime Topology
@@ -1670,17 +1707,18 @@ func buildChartsSection(models []contracts.ModelRank) string {
         </div>
       </div>
       <div class="chart-box efficiency-chart-box"><canvas id="efficiencyQualityChart"></canvas></div>
+      <div id="efficiencyQualityLegend" class="chart-legend-wrap"></div>
       <div id="efficiencyQualityNotes" class="efficiency-notes"></div>
     </div>
   </div>
   <div class="chart-grid-2" style="margin-top:16px;">
     <div class="panel">
       <h3>场景通过率柱状图</h3>
-      <div class="chart-box tall"><canvas id="scenarioBarChart"></canvas></div>
+      <div class="chart-box tall scenario-chart-box"><canvas id="scenarioBarChart"></canvas></div>
     </div>
     <div class="panel">
       <h3>场景覆盖与变异对比（柱状图）</h3>
-      <div class="chart-box tall"><canvas id="scenarioTrendChart"></canvas></div>
+      <div class="chart-box tall scenario-chart-box"><canvas id="scenarioTrendChart"></canvas></div>
     </div>
   </div>
 </div>`

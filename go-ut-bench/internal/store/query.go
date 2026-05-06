@@ -81,6 +81,35 @@ func (s *SQLiteStore) ListRuns(ctx context.Context, limit int) ([]DBRunItem, err
 	return out, rows.Err()
 }
 
+// IngestedRunIDs 返回给定 run_id 列表中哪些已在 generation_runs 表中（即已入库）。
+// 结果为 map[runID]true；未在 DB 中的 run_id 不出现在 map 里。
+func (s *SQLiteStore) IngestedRunIDs(ctx context.Context, runIDs []string) (map[string]bool, error) {
+	if len(runIDs) == 0 {
+		return map[string]bool{}, nil
+	}
+	placeholders := make([]string, len(runIDs))
+	args := make([]any, len(runIDs))
+	for i, id := range runIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	q := `SELECT run_id FROM generation_runs WHERE run_id IN (` + strings.Join(placeholders, ",") + `)`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]bool, len(runIDs))
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
 func (s *SQLiteStore) ListResults(ctx context.Context, runID, model, language string, limit int) ([]DBResultItem, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200

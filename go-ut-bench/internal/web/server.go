@@ -3,11 +3,13 @@
 package web
 
 import (
+	"archive/zip"
 	"context"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -216,12 +218,17 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/environment/install", s.handleEnvironmentInstall)
 	s.mux.HandleFunc("/api/runs", s.handleRuns)
 	s.mux.HandleFunc("/api/runs/", s.handleRunSub)
+	s.mux.HandleFunc("/api/assets/runs", s.handleAssets)
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("/api/models/test-all", s.handleTestAllModels)
 	s.mux.HandleFunc("/api/models/", s.handleModelsSub)
 	s.mux.HandleFunc("/api/agents/check", s.handleAgentCheck)
 	s.mux.HandleFunc("/api/agents/install-cli", s.handleAgentInstallCLI)
 	s.mux.HandleFunc("/api/agents/frameworks", s.handleAgentFrameworks)
+	s.mux.HandleFunc("/api/agents/skills", s.handleAgentSkills)
+	s.mux.HandleFunc("/api/agents/skills/upload", s.handleAgentSkillsUpload)
+	s.mux.HandleFunc("/api/agents/skills/command", s.handleAgentSkillsCommand)
+	s.mux.HandleFunc("/api/agents/skills/scan", s.handleAgentSkillsScan)
 	s.mux.HandleFunc("/api/settings/api-keys", s.handleAPIKeys)
 	// 数据库管理API
 	s.mux.HandleFunc("/api/db/overview", s.handleDBOverview)
@@ -1159,6 +1166,463 @@ func (s *Server) handleAgentFrameworks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"name": name, "config_path": agentsConfigPath})
 }
 
+type createAgentSkillRequest struct {
+	SkillRoot string   `json:"skill_root"`
+	Names     []string `json:"names"`
+}
+
+type runAgentSkillCommandRequest struct {
+	SkillRoot string `json:"skill_root"`
+	Command   string `json:"command"`
+}
+
+func (s *Server) handleAgentSkills(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req createAgentSkillRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errJSON(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	names := uniqueNonEmptyStrings(req.Names)
+	if len(names) == 0 {
+		errJSON(w, http.StatusBadRequest, "names is required")
+		return
+	}
+	agentsConfigPath := strings.TrimSpace(s.mgr.agentsConfigPath)
+	if agentsConfigPath == "" {
+		errJSON(w, http.StatusBadRequest, "agents config path is not configured")
+		return
+	}
+	skillRoot := strings.TrimSpace(req.SkillRoot)
+	if skillRoot == "" {
+		skillRoot = "./skills"
+	}
+
+	// 解析 skills 目录，构建包名 -> 路径映射
+	skillPaths, err := resolveSkillPaths(skillRoot)
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, "resolve skill paths: "+err.Error())
+		return
+	}
+
+	var installed []string
+	var errors []string
+	for _, name := range names {
+		resolved, ok := skillPaths[name]
+		if !ok {
+			errors = append(errors, fmt.Sprintf("skill %q not found in %s", name, skillRoot))
+			continue
+		}
+		// 读取 SKILL.md 提取 metadata
+		meta := parseSkillMeta(resolved)
+		if err := appendAgentSkillToYAML(agentsConfigPath, name, meta); err != nil {
+			errors = append(errors, fmt.Sprintf("skill %q: %v", name, err))
+			continue
+		}
+		installed = append(installed, name)
+	}
+
+	s.cacheMu.Lock()
+	s.catalogCache = nil
+	s.cacheMu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"installed": installed,
+		"errors":    errors,
+	})
+}
+
+// resolveSkillPaths 扫描 skillRoot 目录，返回 "包名 -> 目录路径" 映射。
+// 支持格式：
+//
+//	skills/xxx/           → 包名 xxx
+//	skills/@scope/xxx/   → 包名 @scope/xxx（@scope 为目录，xxx 为子目录）
+func (s *Server) handleAgentSkillsUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		errJSON(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
+		return
+	}
+	skillRoot := strings.TrimSpace(r.FormValue("skill_root"))
+	if skillRoot == "" {
+		skillRoot = "./skills"
+	}
+	root := filepath.Clean(skillRoot)
+	if err := os.MkdirAll(root, 0755); err != nil {
+		errJSON(w, http.StatusInternalServerError, "cannot create skill root: "+err.Error())
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		errJSON(w, http.StatusBadRequest, "file is required")
+		return
+	}
+	defer file.Close()
+	if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
+		errJSON(w, http.StatusBadRequest, "only .zip skill packages are supported")
+		return
+	}
+	tmp, err := os.CreateTemp("", "utbench-skill-*.zip")
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, "cannot create temp file: "+err.Error())
+		return
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := io.Copy(tmp, io.LimitReader(file, 64<<20)); err != nil {
+		tmp.Close()
+		errJSON(w, http.StatusInternalServerError, "cannot save upload: "+err.Error())
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		errJSON(w, http.StatusInternalServerError, "cannot close upload: "+err.Error())
+		return
+	}
+	extracted, err := extractSkillZip(tmpPath, root)
+	if err != nil {
+		errJSON(w, http.StatusBadRequest, "cannot extract zip: "+err.Error())
+		return
+	}
+	pkgs, err := scanSkillPackageMaps(root)
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, "scan after upload: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"uploaded":   header.Filename,
+		"skill_root": root,
+		"extracted":  extracted,
+		"packages":   pkgs,
+	})
+}
+
+func (s *Server) handleAgentSkillsCommand(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req runAgentSkillCommandRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errJSON(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	command := strings.TrimSpace(req.Command)
+	if command == "" {
+		errJSON(w, http.StatusBadRequest, "command is required")
+		return
+	}
+	skillRoot := strings.TrimSpace(req.SkillRoot)
+	if skillRoot == "" {
+		skillRoot = "./skills"
+	}
+	if err := os.MkdirAll(filepath.Clean(skillRoot), 0755); err != nil {
+		errJSON(w, http.StatusInternalServerError, "cannot create skill root: "+err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "cmd", "/C", command)
+	cmd.Dir = "."
+	cmd.Env = append(os.Environ(), "UTBENCH_SKILL_ROOT="+filepath.Clean(skillRoot))
+	out, err := cmd.CombinedOutput()
+	output := string(out)
+	if ctx.Err() == context.DeadlineExceeded {
+		errJSON(w, http.StatusGatewayTimeout, "command timed out\n"+output)
+		return
+	}
+	pkgs, scanErr := scanSkillPackageMaps(skillRoot)
+	if err != nil {
+		errJSON(w, http.StatusBadRequest, fmt.Sprintf("command failed: %v\n%s", err, output))
+		return
+	}
+	if scanErr != nil {
+		errJSON(w, http.StatusInternalServerError, "command ok, scan failed: "+scanErr.Error()+"\n"+output)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"output":     output,
+		"skill_root": filepath.Clean(skillRoot),
+		"packages":   pkgs,
+	})
+}
+
+func resolveSkillPaths(skillRoot string) (map[string]string, error) {
+	out := make(map[string]string)
+	root := filepath.Clean(skillRoot)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, "@") {
+			// @scope 包：查找子目录
+			scopeDir := filepath.Join(root, name)
+			subEntries, _ := os.ReadDir(scopeDir)
+			for _, se := range subEntries {
+				if !se.IsDir() {
+					continue
+				}
+				pkgName := name + "/" + se.Name()
+				out[pkgName] = filepath.Join(scopeDir, se.Name())
+			}
+		} else {
+			out[name] = filepath.Join(root, name)
+		}
+	}
+	return out, nil
+}
+
+// handleAgentSkillsScan 处理 GET /api/agents/skills/scan，扫描 skillRoot 目录返回可用包列表。
+func scanSkillPackageMaps(skillRoot string) ([]map[string]string, error) {
+	skillPaths, err := resolveSkillPaths(skillRoot)
+	if err != nil {
+		return nil, err
+	}
+	pkgs := make([]map[string]string, 0, len(skillPaths))
+	for name, dir := range skillPaths {
+		meta := parseSkillMeta(dir)
+		pkgs = append(pkgs, map[string]string{
+			"name":        name,
+			"path":        dir,
+			"description": meta.Description,
+			"version":     meta.Version,
+		})
+	}
+	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i]["name"] < pkgs[j]["name"] })
+	return pkgs, nil
+}
+
+func extractSkillZip(zipPath, destRoot string) ([]string, error) {
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	rootAbs, err := filepath.Abs(destRoot)
+	if err != nil {
+		return nil, err
+	}
+	var extracted []string
+	for _, f := range zr.File {
+		cleanName := filepath.Clean(filepath.FromSlash(f.Name))
+		if cleanName == "." || strings.HasPrefix(cleanName, "..") || filepath.IsAbs(cleanName) {
+			return extracted, fmt.Errorf("unsafe zip path: %s", f.Name)
+		}
+		target := filepath.Join(destRoot, cleanName)
+		targetAbs, err := filepath.Abs(target)
+		if err != nil {
+			return extracted, err
+		}
+		if targetAbs != rootAbs && !strings.HasPrefix(targetAbs, rootAbs+string(os.PathSeparator)) {
+			return extracted, fmt.Errorf("zip path escapes skill root: %s", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return extracted, err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return extracted, err
+		}
+		src, err := f.Open()
+		if err != nil {
+			return extracted, err
+		}
+		dst, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
+		if err != nil {
+			src.Close()
+			return extracted, err
+		}
+		_, copyErr := io.Copy(dst, src)
+		closeErr := dst.Close()
+		src.Close()
+		if copyErr != nil {
+			return extracted, copyErr
+		}
+		if closeErr != nil {
+			return extracted, closeErr
+		}
+		extracted = append(extracted, target)
+	}
+	return extracted, nil
+}
+
+func (s *Server) handleAgentSkillsScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	skillRoot := strings.TrimSpace(r.URL.Query().Get("skill_root"))
+	if skillRoot == "" {
+		skillRoot = "./skills"
+	}
+	if err := os.MkdirAll(filepath.Clean(skillRoot), 0755); err != nil {
+		errJSON(w, http.StatusInternalServerError, "cannot create skill root: "+err.Error())
+		return
+	}
+	pkgs, err := scanSkillPackageMaps(skillRoot)
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, "cannot read skill root: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"packages": pkgs, "skill_root": skillRoot})
+}
+
+// skillMeta 描述从 SKILL.md 提取的 skill 元信息。
+type skillMeta struct {
+	Description          string
+	Version              string
+	InjectMode           string
+	InstructionPath      string
+	Files                []string
+	CompatibleFrameworks []string
+	CompatibleLanguages  []string
+}
+
+// parseSkillMeta 扫描 skillDir，尝试从 SKILL.md / metadata.yaml 中提取元信息。
+// instruction_path 优先取 metadata.yaml 中的路径，回退到 {skillDir}/SKILL.md。
+func parseSkillMeta(skillDir string) skillMeta {
+	meta := skillMeta{InjectMode: "agent_native", Version: "1"}
+	// 优先读 metadata.yaml
+	metaPath := filepath.Join(skillDir, "metadata.yaml")
+	if data, err := os.ReadFile(metaPath); err == nil {
+		var raw yaml.Node
+		if yaml.Unmarshal(data, &raw) == nil {
+			if v := mappingChild(&raw, "description"); v != nil {
+				meta.Description = v.Value
+			}
+			if v := mappingChild(&raw, "version"); v != nil {
+				meta.Version = v.Value
+			}
+			if v := mappingChild(&raw, "inject_mode"); v != nil {
+				meta.InjectMode = v.Value
+			}
+			if v := mappingChild(&raw, "instruction_path"); v != nil {
+				meta.InstructionPath = v.Value
+			}
+			if v := mappingChild(&raw, "compatible_frameworks"); v != nil && v.Kind == yaml.SequenceNode {
+				for i := 0; i+1 < len(v.Content); i++ {
+					meta.CompatibleFrameworks = append(meta.CompatibleFrameworks, v.Content[i+1].Value)
+					i++
+				}
+			}
+			if v := mappingChild(&raw, "compatible_languages"); v != nil && v.Kind == yaml.SequenceNode {
+				for i := 0; i+1 < len(v.Content); i++ {
+					meta.CompatibleLanguages = append(meta.CompatibleLanguages, v.Content[i+1].Value)
+					i++
+				}
+			}
+		}
+	}
+	// 默认 instruction_path 为 SKILL.md（如果 metadata.yaml 没有覆盖）
+	if meta.InstructionPath == "" {
+		sk := filepath.Join(skillDir, "SKILL.md")
+		if _, err := os.Stat(sk); err == nil {
+			meta.InstructionPath = sk
+		}
+	}
+	// 扫描目录下的 .md / 参考文件（排除 metadata.yaml）
+	if entries, err := os.ReadDir(skillDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() || e.Name() == "metadata.yaml" {
+				continue
+			}
+			if strings.HasSuffix(e.Name(), ".md") || strings.HasSuffix(e.Name(), ".py") {
+				meta.Files = append(meta.Files, filepath.Join(skillDir, e.Name()))
+			}
+		}
+	}
+	// 默认兼容语言
+	if len(meta.CompatibleLanguages) == 0 {
+		meta.CompatibleLanguages = []string{"python", "go", "java", "cpp"}
+	}
+	return meta
+}
+
+func sanitizeAgentSkillName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	// 只允许字母、数字、连字符、下划线、斜杠（用于 @scope/name）
+	var b strings.Builder
+	for _, c := range name {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '/' {
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
+}
+
+func appendAgentSkillToYAML(path, name string, meta skillMeta) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("cannot read agents config: %w", err)
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(raw, &root); err != nil {
+		return fmt.Errorf("cannot parse agents config: %w", err)
+	}
+	doc := ensureYAMLDocument(&root)
+	skills := ensureMappingChild(doc, "skills")
+	if mappingChild(skills, name) != nil {
+		return fmt.Errorf("skill %q already exists", name)
+	}
+	skills.Content = append(skills.Content, scalarNode(name), buildAgentSkillYAMLNode(meta))
+	out, err := yaml.Marshal(&root)
+	if err != nil {
+		return fmt.Errorf("cannot encode agents config: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0644); err != nil {
+		return fmt.Errorf("cannot write agents config: %w", err)
+	}
+	return nil
+}
+
+func buildAgentSkillYAMLNode(meta skillMeta) *yaml.Node {
+	version := strings.TrimSpace(meta.Version)
+	if version == "" {
+		version = "1"
+	}
+	injectMode := strings.TrimSpace(meta.InjectMode)
+	if injectMode == "" {
+		injectMode = "agent_native"
+	}
+	compatFrameworks := uniqueNonEmptyStrings(meta.CompatibleFrameworks)
+	if len(compatFrameworks) == 0 {
+		compatFrameworks = []string{"opencode", "codebuddy", "claudecode", "codex"}
+	}
+	compatLangs := uniqueNonEmptyStrings(meta.CompatibleLanguages)
+	if len(compatLangs) == 0 {
+		compatLangs = []string{"python", "go", "java", "cpp"}
+	}
+	node := mappingNode(
+		"enabled", boolNode(true),
+		"version", scalarNode(version),
+		"description", scalarNode(strings.TrimSpace(meta.Description)),
+		"inject_mode", scalarNode(injectMode),
+		"instruction_path", scalarNode(strings.TrimSpace(meta.InstructionPath)),
+		"compatible_frameworks", stringSeqNode(compatFrameworks),
+		"compatible_languages", stringSeqNode(compatLangs),
+	)
+	files := uniqueNonEmptyStrings(meta.Files)
+	if len(files) > 0 {
+		node.Content = append(node.Content, scalarNode("files"), stringSeqNode(files))
+	}
+	return node
+}
+
 func sanitizeAgentFrameworkName(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	var b strings.Builder
@@ -1843,18 +2307,24 @@ func (s *Server) loadRunSpec(runID string) (contracts.RunSpec, error) {
 		}
 	}
 
+	// 优先从 run_summary.json 恢复
 	path := filepath.Join(s.outputRoot, "runs", runID, "run_summary.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return contracts.RunSpec{}, fmt.Errorf("run not found or summary missing: %s", runID)
+	if data, err := os.ReadFile(path); err == nil {
+		var raw struct {
+			Spec contracts.RunSpec `json:"spec"`
+		}
+		if err := json.Unmarshal(data, &raw); err == nil && raw.Spec.RunID != "" {
+			return raw.Spec, nil
+		}
 	}
-	var raw struct {
-		Spec contracts.RunSpec `json:"spec"`
+
+	// fallback：从 generated_manifest.json 恢复 spec
+	manifestPath := filepath.Join(s.outputRoot, "runs", runID, "generated", "generated_manifest.json")
+	if manifest, err := contracts.ReadGeneratedManifest(manifestPath); err == nil && manifest.Spec.RunID != "" {
+		return manifest.Spec, nil
 	}
-	if err := json.Unmarshal(data, &raw); err != nil || raw.Spec.RunID == "" {
-		return contracts.RunSpec{}, fmt.Errorf("run_summary.json missing spec")
-	}
-	return raw.Spec, nil
+
+	return contracts.RunSpec{}, fmt.Errorf("run not found or summary missing: %s", runID)
 }
 
 func (s *Server) loadRunLabel(runID string) string {

@@ -81,7 +81,7 @@
       drawBars(ctx, width, height) {
         const labels = this.labels();
         const datasets = this.datasets();
-        const left = 42, right = width - 150, top = 18, bottom = height - 48;
+        const left = 42, right = width - 150, top = 18, bottom = height - 72;
         this.drawAxes(ctx, left, top, right, bottom);
         const groups = Math.max(1, labels.length);
         const groupW = (right - left) / groups;
@@ -101,7 +101,7 @@
         labels.slice(0, 14).forEach((label, i) => {
           const text = String(label).slice(0, 14);
           ctx.save();
-          ctx.translate(left + i * groupW + groupW * 0.2, bottom + 14);
+          ctx.translate(left + i * groupW + groupW * 0.2, bottom + 32);
           ctx.rotate(-0.35);
           ctx.fillText(text, 0, 0);
           ctx.restore();
@@ -301,9 +301,9 @@ function aggToMetrics(item) {
     total: item.total,
     compilePassRate: item.total ? item.compilePass / item.total : 0,
     testPassRate: item.testTotal ? item.testPass / item.testTotal : 0,
-    lineCoverage: item.lineCnt ? item.lineSum / item.lineCnt : 0,
-    branchCoverage: item.branchCnt ? item.branchSum / item.branchCnt : 0,
-    mutationScore: item.mutationCnt ? item.mutationSum / item.mutationCnt : 0
+    lineCoverage: item.lineCnt ? normalizeRateValue(item.lineSum / item.lineCnt) : 0,
+    branchCoverage: item.branchCnt ? normalizeRateValue(item.branchSum / item.branchCnt) : 0,
+    mutationScore: item.mutationCnt ? normalizeRateValue(item.mutationSum / item.mutationCnt) : 0
   };
 }
 
@@ -397,6 +397,63 @@ function upsertChart(instance, canvasId, type, labels, values, colors) {
   });
 }
 
+function chartAxisFont() {
+  return { size: 11, weight: '600' };
+}
+
+function normalizeRateValue(value) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num)) return 0;
+  const normalized = num > 1 ? num / 100 : num;
+  return Math.max(0, Math.min(1, normalized));
+}
+
+function scenarioAxisLabel(item) {
+  return scenarioLabel(item.scenario) + ' / ' + String(item.language || '').toUpperCase();
+}
+
+function compactChartLabel(value) {
+  if (Array.isArray(value)) return value.join(' / ');
+  return String(value || '');
+}
+
+function percentTick(value) {
+  return Math.round(value * 100) + '%';
+}
+
+function resizeScenarioChart(canvasId, count) {
+  const canvas = document.getElementById(canvasId);
+  const box = canvas ? canvas.closest('.chart-box') : null;
+  if (!box) return;
+  box.style.height = Math.max(340, Math.min(680, 128 + count * 28)) + 'px';
+}
+
+function scenarioChartOptions() {
+  return {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    layout: { padding: { top: 8, right: 16, bottom: 4, left: 0 } },
+    plugins: {
+      legend: { position: 'top', align: 'start', labels: { boxWidth: 12, boxHeight: 12, padding: 14 } },
+      tooltip: { callbacks: { title: items => items.map(item => compactChartLabel(item.label)).join(', ') } }
+    },
+    datasets: { bar: { categoryPercentage: 0.72, barPercentage: 0.82, maxBarThickness: 18 } },
+    scales: {
+      x: {
+        beginAtZero: true,
+        max: 1,
+        ticks: { callback: percentTick, font: chartAxisFont() },
+        grid: { color: '#d8e0e7' }
+      },
+      y: {
+        ticks: { autoSkip: false, font: chartAxisFont(), padding: 6 },
+        grid: { display: false }
+      }
+    }
+  };
+}
+
 function renderErrorCharts(items) {
   const typeData = buildPieData(items, 'errorType');
   const stageData = buildPieData(items, 'stage');
@@ -407,11 +464,12 @@ function renderErrorCharts(items) {
 }
 
 function renderScenarioCharts(items) {
-  const labels = items.map(item => scenarioLabel(item.scenario) + ' / ' + item.language.toUpperCase());
+  const labels = items.map(scenarioAxisLabel);
   const compileRates = items.map(item => item.compilePassRate);
   const testRates = items.map(item => item.testPassRate);
   const mutationRates = items.map(item => item.mutationScore);
 
+  resizeScenarioChart('scenarioBarChart', labels.length);
   if (scenarioBarChart) scenarioBarChart.destroy();
   scenarioBarChart = new Chart(document.getElementById('scenarioBarChart'), {
     type: 'bar',
@@ -422,30 +480,23 @@ function renderScenarioCharts(items) {
         { label: '测试通过率', data: testRates, backgroundColor: '#2f7d72' }
       ]
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { position: 'top' } },
-      scales: { y: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%' } } }
-    }
+    options: scenarioChartOptions()
   });
 
+  const lineRates = items.map(item => item.lineCoverage);
+
+  resizeScenarioChart('scenarioTrendChart', labels.length);
   if (scenarioTrendChart) scenarioTrendChart.destroy();
   scenarioTrendChart = new Chart(document.getElementById('scenarioTrendChart'), {
     type: 'bar',
     data: {
       labels,
       datasets: [
-        { label: '行覆盖率', data: items.map(item => item.lineCoverage), borderColor: '#315f9c', backgroundColor: 'rgba(49,95,156,.28)' },
+        { label: '行覆盖率', data: lineRates, borderColor: '#315f9c', backgroundColor: 'rgba(49,95,156,.28)' },
         { label: '变异分数', data: mutationRates, borderColor: '#d5902f', backgroundColor: 'rgba(213,144,47,.32)' }
       ]
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { position: 'top' } },
-      scales: { y: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%' } } }
-    }
+    options: scenarioChartOptions()
   });
 }
 
@@ -500,6 +551,17 @@ function shortModelName(value) {
   return String(value || '');
 }
 
+function renderEfficiencyLegend(datasets) {
+  const box = document.getElementById('efficiencyQualityLegend');
+  if (!box) return;
+  box.innerHTML = datasets.map(dataset =>
+    '<span class="chart-legend-item" title="' + safeText(dataset.label) + '">' +
+      '<i style="background:' + safeText(dataset.borderColor) + '"></i>' +
+      '<span>' + safeText(dataset.label) + '</span>' +
+    '</span>'
+  ).join('');
+}
+
 function renderEfficiencyQualityChart(axis = 'latency') {
   const canvas = document.getElementById('efficiencyQualityChart');
   if (!canvas) return;
@@ -535,8 +597,7 @@ function renderEfficiencyQualityChart(axis = 'latency') {
       interaction: { mode: 'nearest', intersect: false },
       plugins: {
         legend: {
-          position: 'bottom',
-          labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true }
+          display: false
         },
         tooltip: {
           callbacks: {
@@ -574,6 +635,7 @@ function renderEfficiencyQualityChart(axis = 'latency') {
     }
   });
 
+  renderEfficiencyLegend(points);
   renderEfficiencyNotes(axis);
 }
 
@@ -619,7 +681,16 @@ function renderModelCharts() {
       { label: '覆盖', data: lineRates, backgroundColor: '#d5902f' },
       { label: '变异', data: mutationRates, backgroundColor: '#c43d2f' }
     ]},
-    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%' } } } }
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { bottom: 18 } },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 12, boxHeight: 12, padding: 14 } } },
+      scales: {
+        x: { ticks: { autoSkip: false, maxRotation: 0, minRotation: 0, font: chartAxisFont(), padding: 8 } },
+        y: { beginAtZero: true, max: 1, ticks: { callback: percentTick } }
+      }
+    }
   });
 
   radarChart = new Chart(document.getElementById('radarChart'), {

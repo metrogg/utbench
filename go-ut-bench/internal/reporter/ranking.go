@@ -224,9 +224,9 @@ type subjectMetrics struct {
 }
 
 func (s *subjectMetrics) compileRate() float64 { return rate(int(s.compileSum), s.count) }
-func (s *subjectMetrics) testRate() float64     { return rate(int(s.testSum), s.count) }
-func (s *subjectMetrics) lineCov() float64      { return avg(s.lineSum, s.lineCnt) }
-func (s *subjectMetrics) mutScore() float64     { return avg(s.mutSum, s.mutCnt) }
+func (s *subjectMetrics) testRate() float64    { return rate(int(s.testSum), s.count) }
+func (s *subjectMetrics) lineCov() float64     { return avg(s.lineSum, s.lineCnt) }
+func (s *subjectMetrics) mutScore() float64    { return avg(s.mutSum, s.mutCnt) }
 func (s *subjectMetrics) composite() float64 {
 	return round(
 		s.compileRate()*contracts.DefaultWeights.Compile+
@@ -915,6 +915,17 @@ func summarizeList(values []string, max int) string {
 		return strings.Join(values, ", ")
 	}
 	return strings.Join(values[:max], ", ") + fmt.Sprintf(" 等%d项", len(values))
+}
+
+// splitSubjectPart 把 "framework__model__skill" 形式的复合 ID 按下划线段切分，返回第 idx 段。
+// 兼容旧数据中 EvaluationResult.AgentFramework/AgentModel/SkillName 为空的情况。
+// idx: 0=framework, 1=model, 2=skill
+func splitSubjectPart(model string, idx int) string {
+	parts := strings.Split(strings.TrimSpace(model), "__")
+	if idx < 0 || idx >= len(parts) {
+		return ""
+	}
+	return strings.TrimSpace(parts[idx])
 }
 
 func scenarioLabels(values []string) []string {

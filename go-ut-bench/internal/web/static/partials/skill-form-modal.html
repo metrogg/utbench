@@ -1,0 +1,185 @@
+      <!-- SKILL IMPORT MODAL -->
+      <div x-show="skillModalOpen" class="agent-modal-backdrop skill-modal-backdrop" x-cloak @keydown.escape.window="closeSkillModal()">
+        <div class="agent-modal skill-import-modal" @click.stop>
+          <div class="agent-modal-head">
+            <div class="min-w-0">
+              <div class="db-eyebrow">Skill Registry</div>
+              <div class="db-title">导入 Skill</div>
+              <div class="agent-muted mt-2">支持扫描本地目录、上传 zip 包，或用命令控制台安装到 Skill 根目录。</div>
+            </div>
+            <button type="button" class="btn-ghost text-[12px]" @click="closeSkillModal()">关闭</button>
+          </div>
+          <div class="skill-import-body">
+            <section class="skill-import-panel">
+              <div class="section-title m-0">安装方式</div>
+              <div class="skill-mode-tabs mt-3">
+                <button type="button" :class="skillInstallMode === 'scan' ? 'active' : ''" @click="skillInstallMode = 'scan'">扫描</button>
+                <button type="button" :class="skillInstallMode === 'upload' ? 'active' : ''" @click="skillInstallMode = 'upload'">上传</button>
+                <button type="button" :class="skillInstallMode === 'command' ? 'active' : ''" @click="skillInstallMode = 'command'">命令</button>
+              </div>
+              <div class="agent-muted mt-4">默认从 ./skills 读取。命令安装时会注入环境变量 UTBENCH_SKILL_ROOT。</div>
+              <label class="label-text mt-4">Skill 根目录</label>
+              <div class="skill-path-row">
+                <input class="input-base" x-model="skillForm.skill_root" placeholder="./skills">
+                <button type="button" class="btn-ghost" @click="scanSkillPackages()" :disabled="skillScanning">
+                  <span x-text="skillScanning ? '扫描中...' : '扫描'"></span>
+                </button>
+              </div>
+              <div class="skill-upload-box mt-4" x-show="skillInstallMode === 'upload'">
+                <label class="skill-upload-drop">
+                  <input type="file" accept=".zip,application/zip" @change="uploadSkillPackage($event)">
+                  <strong x-text="skillUploading ? '上传解压中...' : '选择 Skill zip 包'"></strong>
+                  <span x-text="skillUploadFileName || 'zip 会解压到 Skill 根目录，随后刷新可导入列表。'"></span>
+                </label>
+              </div>
+              <div class="skill-console mt-4" x-show="skillInstallMode === 'command'">
+                <label class="label-text">安装命令</label>
+                <textarea class="input-base skill-command-input terminal" x-model="skillCommand" placeholder="例如：git clone https://... ./skills/my-skill"></textarea>
+                <button type="button" class="btn-primary mt-2" @click="runSkillInstallCommand()" :disabled="skillCommandRunning || !skillCommand.trim()">
+                  <span x-text="skillCommandRunning ? '执行中...' : '执行命令并扫描'"></span>
+                </button>
+                <pre x-show="skillCommandOutput" class="skill-console-output terminal" x-text="skillCommandOutput"></pre>
+              </div>
+              <div x-show="skillFormError" class="skill-error" x-text="skillFormError"></div>
+            </section>
+
+            <section class="skill-import-panel">
+              <div class="skill-import-toolbar">
+                <div>
+                  <div class="section-title m-0">可导入包</div>
+                  <div class="agent-muted">选择后点击安装，已存在的包会由后端合并处理。</div>
+                </div>
+                <button type="button" class="btn-primary" @click="installSkills()" :disabled="skillSaving || !skillForm.names.length">
+                  <span x-text="skillSaving ? '安装中...' : ('安装 ' + skillForm.names.length + ' 个')"></span>
+                </button>
+              </div>
+
+              <div class="skill-package-list" x-show="skillPackages.length">
+                <template x-for="pkg in skillPackages" :key="pkg.name">
+                  <button type="button" class="skill-package-card" :class="skillForm.names.includes(pkg.name) ? 'selected' : ''" @click="toggleSkillPackage(pkg.name)">
+                    <input type="checkbox" :checked="skillForm.names.includes(pkg.name)" @click.stop="toggleSkillPackage(pkg.name)" style="accent-color:var(--accent)">
+                    <div class="min-w-0">
+                      <strong x-text="pkg.name"></strong>
+                      <span x-text="pkg.description || pkg.path || 'Skill package'"></span>
+                      <code x-show="pkg.path" x-text="pkg.path"></code>
+                    </div>
+                  </button>
+                </template>
+              </div>
+
+              <div class="skill-empty" x-show="!skillPackages.length && !skillScanning">
+                点击“扫描”查看可导入的 Skill 包。
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <!-- SKILL DETAIL MODAL -->
+      <div x-show="skillDetailOpen" class="agent-modal-backdrop" x-cloak @keydown.escape.window="skillDetailOpen = false">
+        <div class="agent-modal skill-detail-modal" @click.stop>
+          <div class="agent-modal-head">
+            <div class="min-w-0">
+              <div class="db-eyebrow">Skill</div>
+              <div class="db-title" x-text="skillDetail?.name || ''"></div>
+              <div class="agent-muted mt-2">已注册到 agents.yaml 的 Skill 详情。</div>
+            </div>
+            <button class="btn-ghost text-[12px]" @click="skillDetailOpen = false">关闭</button>
+          </div>
+          <div class="skill-detail-body" x-show="skillDetail">
+            <div class="skill-detail-grid">
+              <div class="skill-detail-item">
+                <div class="agent-muted">版本</div>
+                <div x-text="skillDetail?.version || '-'"></div>
+              </div>
+              <div class="skill-detail-item">
+                <div class="agent-muted">注入模式</div>
+                <div x-text="skillDetail?.inject_mode || '-'"></div>
+              </div>
+              <div class="skill-detail-item wide">
+                <div class="agent-muted">描述</div>
+                <div x-text="skillDetail?.description || '-'"></div>
+              </div>
+              <div class="skill-detail-item wide">
+                <div class="agent-muted">指令路径</div>
+                <code class="text-[11px]" x-text="skillDetail?.instruction_path || '-'"></code>
+              </div>
+              <div class="skill-detail-item wide">
+                <div class="agent-muted">关联文件</div>
+                <div x-show="(skillDetail?.files ?? []).length" class="space-y-1 mt-1">
+                  <template x-for="f in (skillDetail?.files ?? [])" :key="f">
+                    <code class="text-[11px] block" x-text="f"></code>
+                  </template>
+                </div>
+                <span x-show="!(skillDetail?.files ?? []).length">-</span>
+              </div>
+              <div class="skill-detail-item wide">
+                <div class="agent-muted">兼容 Framework</div>
+                <div class="flex flex-wrap gap-1.5 mt-1">
+                  <template x-for="fw in (skillDetail?.compatible_frameworks ?? [])" :key="fw">
+                    <span class="tag-pill" x-text="fw"></span>
+                  </template>
+                  <span x-show="!(skillDetail?.compatible_frameworks ?? []).length">-</span>
+                </div>
+              </div>
+              <div class="skill-detail-item wide">
+                <div class="agent-muted">兼容语言</div>
+                <div class="flex flex-wrap gap-1.5 mt-1">
+                  <template x-for="lang in (skillDetail?.compatible_languages ?? [])" :key="lang">
+                    <span class="tag-pill" x-text="lang"></span>
+                  </template>
+                  <span x-show="!(skillDetail?.compatible_languages ?? []).length">-</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SKILL COMPARE MODAL -->
+      <div x-show="skillCompareOpen" class="agent-modal-backdrop" x-cloak @keydown.escape.window="skillCompareOpen = false">
+        <div class="agent-modal" @click.stop style="max-width:900px">
+          <div class="agent-modal-head">
+            <div class="min-w-0">
+              <div class="db-eyebrow">Skill 对比</div>
+              <div class="db-title">对比 <span x-text="compareSkills?.length"></span> 个 Skill</div>
+            </div>
+            <button class="btn-ghost text-[12px]" @click="skillCompareOpen = false">关闭</button>
+          </div>
+          <div class="agent-modal-body" style="max-height:75vh;overflow-y:auto" x-show="compareSkills?.length">
+            <div class="overflow-x-auto">
+              <table class="w-full text-[12px]" style="border-collapse:collapse">
+                <thead>
+                  <tr>
+                    <th class="text-left p-2 border-b" style="border-color:var(--border)">字段</th>
+                    <template x-for="s in compareSkills" :key="s.name" class="text-center border-b" style="border-color:var(--border)">
+                      <th class="text-center p-2 border-b font-semibold" style="border-color:var(--border);color:var(--accent)" x-text="s.name"></th>
+                    </template>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in skillCompareFields" :key="row.key">
+                    <tr>
+                      <td class="p-2 border-b font-medium" style="border-color:var(--border-subtle);color:var(--fg-muted)" x-text="row.label"></td>
+                      <template x-for="s in compareSkills" :key="s.name">
+                        <td class="p-2 border-b text-center" style="border-color:var(--border-subtle)">
+                          <template x-if="Array.isArray(row.value(s))">
+                            <div class="flex flex-wrap justify-center gap-1">
+                              <template x-for="v in row.value(s)" :key="v">
+                                <span class="tag-pill text-[10px] py-0.5 px-1" x-text="v"></span>
+                              </template>
+                            </div>
+                          </template>
+                          <template x-if="!Array.isArray(row.value(s))">
+                            <span x-text="row.value(s) || '-'"></span>
+                          </template>
+                        </td>
+                      </template>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>

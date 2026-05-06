@@ -6,7 +6,7 @@ function app() {
       { id:'new-run',   icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>', label:'新建任务' },
       { id:'runs',      icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>', label:'任务列表' },
       { id:'agents',    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4z"/><path d="M9 12h6"/><path d="M12 9v6"/></svg>', label:'Agent 接入' },
-      { id:'database',  icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>', label:'资产管理' },
+      { id:'database',  icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>', label:'数据库' },
       { id:'environment', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-5"/></svg>', label:'环境检查' },
       { id:'models',    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 10v6m11-11h-6m-10 0H1m15.5-6.5l-4.25 4.25M7.75 16.25L3.5 20.5M20.5 20.5l-4.25-4.25M7.75 7.75L3.5 3.5"/></svg>', label:'模型管理' },
     ],
@@ -15,6 +15,15 @@ function app() {
     runsLoading: false,
     runFilter: '',
     statusFilter: '',
+    // 评测资产（磁盘扫描视图，区别于内存中的 runs / DB 入库的 db*）
+    assets: [],
+    assetsLoading: false,
+    assetFilter: '',
+    assetQualityFilter: '', // '' | 'ok' | 'partial' | 'dirty'
+    assetLanguageFilter: '',
+    assetOnlyHasReport: false,
+    assetOnlyIngested: false,
+    selectedAssetIds: [],
     agentSubjectQuery: '',
     agentWizardOpen: false,
     agentSaving: false,
@@ -36,8 +45,30 @@ function app() {
       output_globs: 'generated_test.py\ntest_*.py\n*_test.go\n*Test.java\n*test*.cpp',
       command: '',
     },
+    // Skill 管理弹窗
+    skillModalOpen: false,
+    skillScanning: false,
+    skillSaving: false,
+    skillUploading: false,
+    skillCommandRunning: false,
+    skillInstallMode: 'scan',
+    skillCommand: '',
+    skillCommandOutput: '',
+    skillUploadFileName: '',
+    skillFormError: '',
+    skillPackages: [],  // 扫描到的可用包列表
+    skillForm: {
+      skill_root: '',
+      names: [],
+    },
+    // Skill 详情/对比
+    skillDetailOpen: false,
+    skillDetail: null,
+    selectedSkillNames: [],
+    skillCompareOpen: false,
+    compareSkills: [],
     // 数据库管理
-    dbTab: 'overview', // overview | runs | evaluation | assets
+    dbTab: 'overview', // overview | runs | evaluation | assets | disk
     dbOverview: null,
     dbRuns: [],
     dbResults: [],
@@ -521,6 +552,140 @@ function app() {
       })
     },
 
+    // ─── 评测资产（磁盘扫描） ───────────────────────────────────────────────
+    async loadAssets() {
+      this.assetsLoading = true
+      try {
+        const r = await fetch('/api/assets/runs', { cache: 'no-store' })
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        this.assets = await r.json()
+        // 清理已选中但已不存在的 ID
+        const ids = new Set(this.assets.map(a => a.run_id))
+        this.selectedAssetIds = this.selectedAssetIds.filter(id => ids.has(id))
+      } catch (e) {
+        console.error('[loadAssets]', e)
+        this.showToast('加载资产失败：' + e.message, 'err')
+      } finally {
+        this.assetsLoading = false
+      }
+    },
+
+    // 磁盘运行 Tab 的入口，复用 loadAssets 逻辑
+    async loadDiskRuns() {
+      await this.loadAssets()
+    },
+
+    get assetCountByQuality() {
+      const out = { ok: 0, partial: 0, dirty: 0 }
+      for (const a of this.assets) {
+        if (a.quality_flag in out) out[a.quality_flag]++
+      }
+      return out
+    },
+
+    get assetAllLanguages() {
+      const set = new Set()
+      for (const a of this.assets) {
+        for (const l of (a.languages || [])) set.add(l)
+      }
+      return Array.from(set).sort()
+    },
+
+    get assetFilteredRuns() {
+      const q = (this.assetFilter || '').toLowerCase().trim()
+      return this.assets.filter(a => {
+        if (this.assetQualityFilter && a.quality_flag !== this.assetQualityFilter) return false
+        if (this.assetLanguageFilter && !(a.languages || []).includes(this.assetLanguageFilter)) return false
+        if (this.assetOnlyHasReport && !a.has_report_html) return false
+        if (this.assetOnlyIngested && !a.ingested) return false
+        if (q) {
+          const hay = [
+            a.run_id || '',
+            a.label || '',
+            (a.subjects || []).join(','),
+            (a.models || []).join(','),
+            (a.languages || []).join(','),
+          ].join(' ').toLowerCase()
+          if (!hay.includes(q)) return false
+        }
+        return true
+      })
+    },
+
+    get allAssetsSelected() {
+      const visible = this.assetFilteredRuns
+      if (visible.length === 0) return false
+      return visible.every(a => this.selectedAssetIds.includes(a.run_id))
+    },
+
+    toggleAssetSelection(runId) {
+      const idx = this.selectedAssetIds.indexOf(runId)
+      if (idx >= 0) this.selectedAssetIds.splice(idx, 1)
+      else this.selectedAssetIds.push(runId)
+    },
+
+    toggleAllAssets(checked) {
+      const visibleIds = this.assetFilteredRuns.map(a => a.run_id)
+      if (checked) {
+        const merged = new Set([...this.selectedAssetIds, ...visibleIds])
+        this.selectedAssetIds = Array.from(merged)
+      } else {
+        const visibleSet = new Set(visibleIds)
+        this.selectedAssetIds = this.selectedAssetIds.filter(id => !visibleSet.has(id))
+      }
+    },
+
+    async deleteAsset(runId) {
+      if (!confirm(`确定删除资产 ${runId}？\n会删除磁盘上该 run 的所有文件（生成、评测、报告），不可恢复。`)) return
+      try {
+        const r = await fetch('/api/runs/' + encodeURIComponent(runId), { method: 'DELETE' })
+        const data = await r.json().catch(() => ({}))
+        if (!r.ok) { this.showToast('删除失败：' + (data.error || 'HTTP ' + r.status), 'err'); return }
+        this.showToast('已删除 ' + runId, 'ok')
+        await this.loadAssets()
+      } catch (e) { this.showToast('删除失败：' + e.message, 'err') }
+    },
+
+    async bulkDeleteAssets() {
+      if (!this.selectedAssetIds.length) return
+      const ids = [...this.selectedAssetIds]
+      if (!confirm(`将批量删除 ${ids.length} 项资产，不可恢复。继续？`)) return
+      let ok = 0, fail = 0
+      for (const id of ids) {
+        try {
+          const r = await fetch('/api/runs/' + encodeURIComponent(id), { method: 'DELETE' })
+          if (r.ok) ok++; else fail++
+        } catch { fail++ }
+      }
+      this.selectedAssetIds = []
+      this.showToast(`批量删除完成：成功 ${ok}，失败 ${fail}`, fail ? 'warn' : 'ok')
+      await this.loadAssets()
+    },
+
+    async bulkIngestAssets() {
+      if (!this.selectedAssetIds.length) return
+      const ids = [...this.selectedAssetIds]
+      if (!confirm(`将批量补录 ${ids.length} 项资产到数据库。继续？`)) return
+      let ok = 0, fail = 0
+      for (const id of ids) {
+        try {
+          await this.ingestRunToDB(id)
+          ok++
+        } catch { fail++ }
+      }
+      this.selectedAssetIds = []
+      this.showToast(`批量补录完成：成功 ${ok}，失败 ${fail}`, fail ? 'warn' : 'ok')
+      await this.loadDiskRuns()
+    },
+
+    formatBytes(n) {
+      if (n == null || isNaN(n)) return '—'
+      const u = ['B','KB','MB','GB','TB']
+      let v = Number(n), i = 0
+      while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+      return v.toFixed(v < 10 && i > 0 ? 1 : 0) + ' ' + u[i]
+    },
+
     get completedRuns() {
       // 返回已完成的任务，用于数据源选择
       return this.runs.filter(r => r.status === 'completed')
@@ -975,6 +1140,9 @@ function app() {
           this.loadDBRunArtifacts(),
         ]).then(() => this.loadDBReuseExplain())
       }
+      else if (tab === 'disk') {
+        await this.loadDiskRuns()
+      }
     },
 
     get dbReportSelectionSummary() {
@@ -1153,7 +1321,7 @@ function app() {
       }
     },
     get pageTitle() {
-      const map = { dashboard:'总览', 'new-run':'新建任务', runs:'任务列表', agents:'Agent 接入', database:'资产管理', 'run-detail':'任务详情', environment:'环境检查', models:'模型管理' }
+      const map = { dashboard:'总览', 'new-run':'新建任务', runs:'任务列表', agents:'Agent 接入', database:'数据库', 'run-detail':'任务详情', environment:'环境检查', models:'模型管理' }
       return map[this.page] ?? ''
     },
 
@@ -1588,6 +1756,146 @@ function app() {
       }
     },
 
+    openSkillModal() {
+      this.skillFormError = ''
+      this.skillPackages = []
+      this.skillInstallMode = 'scan'
+      this.skillCommand = ''
+      this.skillCommandOutput = ''
+      this.skillUploadFileName = ''
+      this.skillForm = { skill_root: '', names: [] }
+      this.skillModalOpen = true
+    },
+
+    closeSkillModal() { this.skillModalOpen = false },
+
+    toggleSkillPackage(name) {
+      const idx = this.skillForm.names.indexOf(name)
+      if (idx >= 0) this.skillForm.names.splice(idx, 1)
+      else this.skillForm.names.push(name)
+    },
+
+    async scanSkillPackages() {
+      this.skillScanning = true
+      this.skillFormError = ''
+      try {
+        const r = await fetch('/api/agents/skills/scan?' + new URLSearchParams({ skill_root: this.skillForm.skill_root || './skills' }), { cache: 'no-store' })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.skillPackages = data.packages || []
+        if (!this.skillPackages.length) this.skillFormError = '目录下未发现 Skill 包'
+      } catch (e) {
+        this.skillFormError = e.message || String(e)
+        this.showToast('扫描失败：' + this.skillFormError, 'err')
+      } finally {
+        this.skillScanning = false
+      }
+    },
+
+    async uploadSkillPackage(evt) {
+      const file = evt?.target?.files?.[0]
+      if (!file) return
+      this.skillUploading = true
+      this.skillFormError = ''
+      this.skillUploadFileName = file.name
+      try {
+        const body = new FormData()
+        body.append('skill_root', this.skillForm.skill_root || './skills')
+        body.append('file', file)
+        const r = await fetch('/api/agents/skills/upload', { method: 'POST', body })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.skillPackages = data.packages || []
+        this.skillForm.skill_root = data.skill_root || this.skillForm.skill_root || './skills'
+        this.showToast('已上传并解压 Skill 包：' + file.name, 'ok')
+      } catch (e) {
+        this.skillFormError = e.message || String(e)
+        this.showToast('上传失败：' + this.skillFormError, 'err', 6000)
+      } finally {
+        this.skillUploading = false
+        if (evt?.target) evt.target.value = ''
+      }
+    },
+
+    async runSkillInstallCommand() {
+      if (!this.skillCommand.trim()) return
+      this.skillCommandRunning = true
+      this.skillFormError = ''
+      this.skillCommandOutput = '$ ' + this.skillCommand + '\n'
+      try {
+        const r = await fetch('/api/agents/skills/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ skill_root: this.skillForm.skill_root || './skills', command: this.skillCommand }),
+        })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.skillCommandOutput += data.output || '(命令执行完成，无输出)'
+        this.skillPackages = data.packages || []
+        this.skillForm.skill_root = data.skill_root || this.skillForm.skill_root || './skills'
+        this.showToast('命令执行完成，已刷新 Skill 包列表', 'ok')
+      } catch (e) {
+        this.skillFormError = e.message || String(e)
+        this.skillCommandOutput += '\n' + this.skillFormError
+        this.showToast('命令执行失败：' + this.skillFormError, 'err', 6000)
+      } finally {
+        this.skillCommandRunning = false
+      }
+    },
+
+    async installSkills() {
+      if (!this.skillForm.names.length) return
+      this.skillSaving = true
+      this.skillFormError = ''
+      try {
+        const r = await fetch('/api/agents/skills', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ skill_root: this.skillForm.skill_root || './skills', names: this.skillForm.names }),
+        })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.showToast('已安装 ' + (data.installed || []).length + ' 个 Skill', 'ok')
+        this.skillModalOpen = false
+        await this.loadConfig()
+      } catch (e) {
+        this.skillFormError = e.message || String(e)
+        this.showToast('安装失败：' + this.skillFormError, 'err', 6000)
+      } finally {
+        this.skillSaving = false
+      }
+    },
+
+    toggleSkillSelection(name) {
+      const idx = this.selectedSkillNames.indexOf(name)
+      if (idx >= 0) this.selectedSkillNames.splice(idx, 1)
+      else this.selectedSkillNames.push(name)
+    },
+
+    viewSkillDetail(skill) {
+      this.skillDetail = skill
+      this.skillDetailOpen = true
+    },
+
+    compareSelectedSkills() {
+      if (this.selectedSkillNames.length < 2) return
+      const skills = (this.config?.skills ?? []).filter(s => this.selectedSkillNames.includes(s.name))
+      this.compareSkills = skills
+      this.skillCompareOpen = true
+    },
+
+    get skillCompareFields() {
+      return [
+        { key: 'version',     label: '版本',              value: s => s.version || '-' },
+        { key: 'inject_mode', label: '注入模式',           value: s => s.inject_mode || '-' },
+        { key: 'description', label: '描述',              value: s => s.description || '-' },
+        { key: 'instruction_path', label: '指令路径',    value: s => s.instruction_path || '-' },
+        { key: 'files',       label: '关联文件',           value: s => (s.files || []) },
+        { key: 'compatible_frameworks', label: '兼容 Framework', value: s => (s.compatible_frameworks || []) },
+        { key: 'compatible_languages',  label: '兼容语言', value: s => (s.compatible_languages || []) },
+      ]
+    },
+
     // ─── 模型管理 ─────────────────────────────────────────────
     async loadModels() {
       this.modelsLoading = true
@@ -1757,6 +2065,7 @@ function app() {
         if (!r.ok) { this.showToast('重命名失败：' + (data.error || 'HTTP ' + r.status), 'err'); return }
         this.showToast('已更新备注名', 'ok')
         await this.loadRuns()
+        await this.loadAssets()
         if (this.currentRun && this.currentRun.run_id === runID) {
           this.currentRun.label = label.trim()
         }
@@ -1967,6 +2276,7 @@ function app() {
     },
     syncPageVisibility() {
       const pages = ['dashboard', 'new-run', 'runs', 'agents', 'database', 'environment', 'models', 'run-detail']
+      const modals = ['model-form-modal', 'agent-form-modal', 'skill-form-modal', 'build-image-modal']
       requestAnimationFrame(() => {
         for (const id of pages) {
           const node = document.getElementById('partial-' + id)
@@ -1976,6 +2286,11 @@ function app() {
           if (active && node.firstElementChild) {
             node.firstElementChild.style.display = ''
           }
+        }
+        for (const id of modals) {
+          const node = document.getElementById('partial-' + id)
+          if (!node) continue
+          node.style.display = ''
         }
       })
     },

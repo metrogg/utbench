@@ -65,20 +65,38 @@
           <div class="agent-strip-head">
             <div>
               <div class="section-title m-0">Skill 包</div>
-              <div class="agent-muted">按 Skill 快速查看组合规模。</div>
+              <div class="agent-muted">管理可注入的测试策略，勾选后可对比，也会影响新建任务里的 Subject 组合。</div>
+            </div>
+            <div class="agent-strip-actions">
+              <span class="agent-strip-stat"><b x-text="(config?.skills ?? []).length"></b> 已注册</span>
+              <span class="agent-strip-stat"><b x-text="(config?.subjects ?? []).filter(s => s.skill).length"></b> Subject</span>
+              <button type="button" @click.stop="openSkillModal()" class="btn-primary text-[11px] py-1 px-2.5">导入 Skill</button>
             </div>
           </div>
           <div class="agent-skill-list">
             <template x-for="skill in config?.skills ?? []" :key="skill.name">
-              <div class="agent-skill-row">
-                <div class="min-w-0">
-                  <strong x-text="skill.name"></strong>
+              <div class="agent-skill-row" :class="selectedSkillNames.includes(skill.name) ? 'selected' : ''">
+                <input type="checkbox" :checked="selectedSkillNames.includes(skill.name)" @change.stop="toggleSkillSelection(skill.name)" style="accent-color:var(--accent)">
+                <div class="min-w-0 flex-1">
+                  <div class="agent-skill-title">
+                    <strong x-text="skill.name"></strong>
+                    <em x-text="agentSubjectsBySkill(skill.name).length"></em>
+                  </div>
                   <span x-text="skill.description || skill.inject_mode || 'registered'"></span>
+                  <div class="agent-skill-meta">
+                    <i x-text="skill.version ? 'v' + skill.version : 'no version'"></i>
+                    <i x-text="skill.inject_mode || 'none'"></i>
+                  </div>
                 </div>
-                <em x-text="agentSubjectsBySkill(skill.name).length"></em>
+                <button type="button" @click.stop="viewSkillDetail(skill)" class="text-[11px] btn-ghost py-0.5 px-1.5 ml-1" style="color:var(--fg-muted)">详情</button>
               </div>
             </template>
-            <div x-show="!(config?.skills ?? []).length" class="agent-muted">暂无 Skill 配置。</div>
+            <div x-show="!(config?.skills ?? []).length" class="agent-muted">暂无 Skill 配置。点击右上角导入。</div>
+          </div>
+          <div x-show="selectedSkillNames.length" class="agent-skill-selection">
+            <span>已选择 <b x-text="selectedSkillNames.length"></b> 个 Skill</span>
+            <button x-show="selectedSkillNames.length >= 2" @click="compareSelectedSkills()" class="btn-ghost text-[11px] py-1 px-2.5" style="color:var(--accent)">对比选中</button>
+            <button @click="selectedSkillNames = []" class="btn-ghost text-[11px] py-1 px-2.5">清空</button>
           </div>
         </div>
 

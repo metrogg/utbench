@@ -132,7 +132,7 @@ body {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px;
   padding: 0 30px 28px;
 }
@@ -704,7 +704,7 @@ code {
 }
 
 .chart-box.tall {
-  height: 330px;
+  height: 372px;
 }
 
 .chart-box canvas {
@@ -712,12 +712,48 @@ code {
   height: 100% !important;
 }
 
+.scenario-chart-box {
+  min-height: 340px;
+}
+
 .chart-box.efficiency-chart-box {
-  height: 500px;
+  height: 460px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
+}
+
+.chart-legend-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 12px 4px 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafb;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: min(100%, 360px);
+  color: var(--ink-2);
+}
+
+.chart-legend-item i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.chart-legend-item span {
+  overflow-wrap: anywhere;
 }
 
 .efficiency-panel {
@@ -1232,11 +1268,11 @@ input[type="text"] {
 
   .chart-box,
   .chart-box.tall {
-    height: 270px;
+    height: 330px;
   }
 
   .chart-box.efficiency-chart-box {
-    height: 390px;
+    height: 360px;
   }
 
   th,
