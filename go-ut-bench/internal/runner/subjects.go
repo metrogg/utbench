@@ -737,12 +737,23 @@ func findGeneratedTest(workRoot, preferred string, globs, changes []string, lang
 	// 递归搜索：Agent 可能将测试文件写入子目录（如 tests/、test/）
 	var found string
 	filepath.WalkDir(workRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || found != "" {
+		if err != nil {
 			return nil
 		}
-		// 跳过隐藏目录和常见非源码目录
-		if strings.HasPrefix(d.Name(), ".") || d.Name() == "node_modules" || d.Name() == "__pycache__" {
-			return filepath.SkipDir
+		if d.IsDir() {
+			// 跳过隐藏目录（如 .codex/.opencode/.codebuddy 内的 skill 注入文件）和
+			// 常见非源码目录，避免把 skill 引用 markdown / 缓存等当成测试文件返回。
+			// 注意：workRoot 自身的 d.Name() 可能也是带点开头（罕见），所以排除根。
+			if path != workRoot {
+				name := d.Name()
+				if strings.HasPrefix(name, ".") || name == "node_modules" || name == "__pycache__" || name == "venv" || name == ".venv" || name == "target" || name == "build" {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if found != "" {
+			return filepath.SkipAll
 		}
 		if isTestFile(path, language) {
 			found = path
@@ -761,9 +772,12 @@ func isTestFile(path, language string) bool {
 	case "go":
 		return strings.HasSuffix(base, "_test.go")
 	case "java":
-		return strings.HasSuffix(base, "test.java") || strings.Contains(base, "test")
+		// 必须是 .java 源文件，避免把 *.md / *.txt / gtest.md 之类的引用文档误判为测试。
+		return strings.HasSuffix(base, ".java") && strings.Contains(base, "test")
 	case "cpp":
-		return strings.HasSuffix(base, ".cpp") && strings.Contains(base, "test")
+		// 允许 .cpp/.cc/.cxx 后缀，避免漏掉合法的测试源文件。
+		hasCppExt := strings.HasSuffix(base, ".cpp") || strings.HasSuffix(base, ".cc") || strings.HasSuffix(base, ".cxx")
+		return hasCppExt && strings.Contains(base, "test")
 	default:
 		return strings.HasPrefix(base, "generated_test")
 	}

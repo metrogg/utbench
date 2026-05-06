@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -52,17 +53,55 @@ func runInDocker(ctx context.Context, entry *RunEntry, spec contracts.RunSpec, o
 	cmd.Env = append(os.Environ(), "MSYS_NO_PATHCONV=1")
 	// Merge stdout + stderr into the same line-sink so users see everything
 	// (build messages, evaluator logs, mutation output) in order.
+	// 同时用 tailWriter 保留最后 N 行，失败时回填到 error message 里，
+	// 避免 "exit status 125" 这种无信息错误。
+	tail := &tailWriter{max: 20}
 	lw := &lineWriter{run: entry}
-	cmd.Stdout = lw
-	cmd.Stderr = lw
+	cmd.Stdout = io.MultiWriter(lw, tail)
+	cmd.Stderr = io.MultiWriter(lw, tail)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("docker run start: %w", err)
 	}
 	if err := cmd.Wait(); err != nil {
+		if t := strings.TrimSpace(tail.String()); t != "" {
+			return fmt.Errorf("docker run failed: %w; last output:\n%s", err, t)
+		}
 		return fmt.Errorf("docker run failed: %w", err)
 	}
 	return nil
+}
+
+// tailWriter 仅保留最后 max 行用于错误诊断。
+type tailWriter struct {
+	max  int
+	buf  []string
+	rest string
+}
+
+func (t *tailWriter) Write(p []byte) (int, error) {
+	t.rest += string(p)
+	for {
+		idx := strings.IndexByte(t.rest, '\n')
+		if idx < 0 {
+			break
+		}
+		line := strings.TrimRight(t.rest[:idx], "\r")
+		t.rest = t.rest[idx+1:]
+		t.buf = append(t.buf, line)
+		if len(t.buf) > t.max {
+			t.buf = t.buf[len(t.buf)-t.max:]
+		}
+	}
+	return len(p), nil
+}
+
+func (t *tailWriter) String() string {
+	out := append([]string(nil), t.buf...)
+	if rest := strings.TrimRight(t.rest, "\r"); rest != "" {
+		out = append(out, rest)
+	}
+	return strings.Join(out, "\n")
 }
 
 // buildDockerRunArgs assembles the argv for `docker run`.

@@ -130,10 +130,12 @@ func generateCLIAgent(ctx context.Context, sandboxRunner SandboxRunner, req Agen
 
 	// 9. 平台托管的样本依赖准备
 	sandboxReq := buildSandboxRunRequest(req.OutputRoot, framework, sample.Language, workRoot, cmdText, envMap, envFromHost)
-	// 将源文件加入只读挂载，防止 Agent 意外修改被测源码
-	if sourceFile != "" {
-		sandboxReq.ReadOnlyMounts = append(sandboxReq.ReadOnlyMounts, sourceFile)
-	}
+	// 注意：源文件已经被 prepareAgentWorkspace 拷贝进 workspace 并 chmod 0444（只读），
+	// 不再额外通过 `-v sourceFile:/workspace/readonly_sources/<basename>:ro` 单文件挂载。
+	// 在 Docker Desktop (Windows/WSL2) 上单文件 bind-mount 与 workspace 主挂载并发会触发 9P
+	// 同步竞态：host 上的源文件会被自动替换成空目录，prompt 文件也可能丢失，导致
+	// `cat: /workspace/utbench_agent_prompt.md: No such file or directory` 与
+	// `failed to fulfil mount request` 等假失败。
 	environmentSetup, setupErr := runSandboxPreflight(ctx, sandboxRunner, sandboxReq, buildSampleEnvironmentSetupCommands(sample, workRoot))
 	if setupErr != nil {
 		trace := AgentTrace{

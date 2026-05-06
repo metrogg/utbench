@@ -161,6 +161,7 @@ function app() {
     async init() {
       this.applyTheme()
       await this.loadPartials()
+      this.syncPageVisibility()
       await this.loadConfig()
       await this.loadModels()
       await this.loadEnv()
@@ -189,6 +190,7 @@ function app() {
         })
       }
       this.partialsLoaded = true
+      this.syncPageVisibility()
     },
     _startTimers() {
       this._stopTimers()
@@ -1141,7 +1143,7 @@ function app() {
     },
 
     goto(id) {
-      this.stopSSE(); this.page = id
+      this.stopSSE(); this.page = id; this.syncPageVisibility()
       if (id === 'models') this.loadModels()
       if (id === 'agents') { this.loadAPIKeys(); this.loadModels(); this.loadEnv() }
       if (id === 'database') this.loadDBTabData()
@@ -1963,8 +1965,54 @@ function app() {
         combo.skill = 'no_skill'
       }
     },
+    syncPageVisibility() {
+      const pages = ['dashboard', 'new-run', 'runs', 'agents', 'database', 'environment', 'models', 'run-detail']
+      requestAnimationFrame(() => {
+        for (const id of pages) {
+          const node = document.getElementById('partial-' + id)
+          if (!node) continue
+          const active = this.page === id
+          node.style.display = active ? '' : 'none'
+          if (active && node.firstElementChild) {
+            node.firstElementChild.style.display = ''
+          }
+        }
+      })
+    },
+
+    makeClientRunID() {
+      const d = new Date()
+      const pad = (n, w = 2) => String(n).padStart(w, '0')
+      const nanos = pad(d.getUTCMilliseconds(), 3) + pad(Math.floor(Math.random() * 1000000), 6)
+      return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}.${nanos}Z`
+    },
+
+    optimisticRunFromPayload(payload, runId) {
+      return {
+        run_id: runId,
+        status: 'pending',
+        started_at: new Date().toISOString(),
+        use_docker: !!payload.use_docker,
+        spec: {
+          run_id: runId,
+          models: payload.models || [],
+          subjects: payload.subjects || [],
+          languages: payload.languages || [],
+          dataset_classes: payload.class ? String(payload.class).split(',').map(s => s.trim()).filter(Boolean) : [],
+          dataset_scenario: payload.scenario || '',
+          dataset_level: payload.level || '',
+          max_samples: payload.max_samples,
+          workers: payload.workers,
+          reuse_generated: !!payload.reuse_generated,
+          reuse_evaluation: !!payload.reuse_evaluation,
+          mutation_enabled: !!payload.mutation_enabled,
+        },
+      }
+    },
 
     async submitRun() {
+      // 防双击：已经在提交中 / 已经跳到详情页就不要再发
+      if (this.formSubmitting) return
       this.formError = ''
       // 将 combinations 转换为 subjects 数组
       this.form.subjects = (this.form.combinations || [])
@@ -1988,20 +2036,53 @@ function app() {
         }
       }
       this.formSubmitting = true
+      const payload = JSON.parse(JSON.stringify(this.form))
+      const optimisticRunId = String(payload.run_id || '').trim() || this.makeClientRunID()
+      payload.run_id = optimisticRunId
+      this.stopSSE()
+      this.currentReport = null
+      this.currentLogs = []
+      this._logCount = 0
+      this.detailTab = 'logs'
+      this._resetLogPre()
+      this.currentRun = this.optimisticRunFromPayload(payload, optimisticRunId)
+      this.page = 'run-detail'
+      this.syncPageVisibility()
       try {
-        const r = await fetch('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.form) })
+        const r = await fetch('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
         const data = await r.json()
-        if (!r.ok) { this.formError = data.error || '提交失败'; return }
-        const runId = data.run_id || data.runId || data.id
+        if (!r.ok) {
+          const message = data.error || '提交失败'
+          this.formError = message
+          if (this.currentRun?.run_id === optimisticRunId) {
+            this.currentRun.status = 'failed'
+            this.currentRun.error = message
+          }
+          this.showToast('任务提交失败：' + message, 'err', 6000)
+          return
+        }
+        const runId = data.run_id || data.runId || data.id || optimisticRunId
         if (!runId) { this.formError = 'backend did not return run_id'; return }
-        await this.openRun(runId)
+        try {
+          await this.openRun(runId)
+        } catch (err) {
+          console.error('[submitRun] openRun failed:', err)
+        }
         this.loadRuns().then(() => {
           if (this.page === 'run-detail' && this.currentRun?.run_id === runId) {
             const found = this.runs.find(r => r.run_id === runId)
             if (found) this.currentRun = { ...found }
           }
-        })
-      } catch(e) { this.formError = String(e) }
+        }).catch(err => console.error('[submitRun] loadRuns failed:', err))
+      } catch(e) {
+        console.error('[submitRun] failed:', e)
+        this.formError = String(e)
+        if (this.currentRun?.run_id === optimisticRunId) {
+          this.currentRun.status = 'failed'
+          this.currentRun.error = String(e)
+        }
+        this.showToast('任务提交失败：' + String(e), 'err', 6000)
+      }
       finally { this.formSubmitting = false }
     },
 
@@ -2009,6 +2090,7 @@ function app() {
       this.stopSSE(); this.currentReport = null; this.currentLogs = []; this._logCount = 0; this.detailTab = 'logs'
       this._resetLogPre()
       this.page = 'run-detail'
+      this.syncPageVisibility()
       const found = this.runs.find(r => r.run_id === runId)
       this.currentRun = found ? { ...found } : { run_id: runId, status: 'pending', started_at: new Date().toISOString() }
       this.startSSE(runId)

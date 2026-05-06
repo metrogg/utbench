@@ -19,7 +19,10 @@ RUN if [ -n "${NPM_REGISTRY}" ]; then npm config set registry "${NPM_REGISTRY}";
 RUN npm install -g opencode-ai opencode-linux-x64-baseline
 RUN npm install -g @tencent-ai/codebuddy-code
 RUN npm install -g @anthropic-ai/claude-code
-RUN npm install -g @openai/codex
+# Pin to 0.42.x: 0.43+ removed `wire_api="chat"` support and forces /v1/responses,
+# which国产兼容端点 (MiMo / DeepSeek / 豆包等) 暂不支持。
+# 见 https://github.com/openai/codex/discussions/7782
+RUN npm install -g @openai/codex@^0.42.0
 
 # Optional Agent CLI selected from the Web installer, for example:
 #   --build-arg EXTRA_NPM_PACKAGES="@openai/codex"

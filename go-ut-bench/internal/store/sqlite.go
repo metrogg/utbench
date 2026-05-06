@@ -345,10 +345,19 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path)
+	// 启用 WAL 与 busy_timeout，避免并发 generate/evaluate 写入时
+	// 报 "database is locked (5) (SQLITE_BUSY)"。
+	// - journal_mode=WAL：读写并发不再互斥
+	// - busy_timeout=5000：写写仍串行，但驱动会重试 5s
+	// - synchronous=NORMAL：WAL 下安全，且写入更快
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+	// 写入串行化：SQLite 同一时刻只允许一个写事务，把池上限设为 1 可彻底
+	// 消除多 goroutine 抢锁导致的 BUSY；读路径走 WAL 不受影响。
+	db.SetMaxOpenConns(1)
 	return &SQLiteStore{db: db, path: path}, nil
 }
 
