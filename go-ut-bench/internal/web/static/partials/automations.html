@@ -27,7 +27,7 @@
               <div class="flex items-center gap-2 flex-wrap">
                 <strong x-text="item.name"></strong>
                 <span class="tag-pill" :style="item.enabled ? 'background:var(--success-bg);color:var(--green)' : 'background:var(--badge-bg);color:var(--fg-muted)'" x-text="item.enabled ? '启用' : '停用'"></span>
-                <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg-muted)" x-text="item.trigger_type === 'cron' ? item.cron_expr : `${item.interval_seconds}s`"></span>
+                <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg-muted)" x-text="automationScheduleLabelFor(item)"></span>
               </div>
               <div class="agent-muted mt-2" x-text="item.description || '无描述'"></div>
               <div class="automation-meta mt-3">
@@ -151,20 +151,56 @@
       <div class="automation-modal-body automation-builder-body">
         <div class="automation-builder-grid">
           <div class="automation-builder-main">
-            <section class="automation-subsection">
-              <div class="section-title">调度设置</div>
-              <div class="grid grid-cols-3 gap-3">
-                <div><label class="label-text">名称</label><input class="input-base" x-model="automationForm.name" placeholder="每日评测计划"></div>
-                <div><label class="label-text">时区</label><input class="input-base" x-model="automationForm.timezone"></div>
-                <div><label class="label-text">并发策略</label><select class="input-base" x-model="automationForm.concurrency_policy"><option value="skip">已有运行则跳过</option><option value="parallel">允许并行</option></select></div>
-                <div><label class="label-text">触发类型</label><select class="input-base" x-model="automationForm.trigger_type"><option value="interval">固定间隔</option><option value="cron">Cron</option></select></div>
-                <div x-show="automationForm.trigger_type === 'interval'"><label class="label-text">间隔秒</label><input class="input-base" type="number" min="60" x-model.number="automationForm.interval_seconds"></div>
-                <div x-show="automationForm.trigger_type === 'cron'"><label class="label-text">Cron</label><input class="input-base" x-model="automationForm.cron_expr" placeholder="0 9 * * *"></div>
+            <section class="automation-subsection automation-alarm-panel">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="section-title m-0">闹钟设置</div>
+                  <p class="agent-muted mt-1">像设置闹钟一样选择时间和重复方式，保存时会自动转换为调度规则。</p>
+                </div>
+                <label class="automation-switch" :class="automationForm.enabled ? 'active' : ''">
+                  <input type="checkbox" x-model="automationForm.enabled">
+                  <span x-text="automationForm.enabled ? '已开启' : '已关闭'"></span>
+                </label>
               </div>
-              <div class="mt-3"><label class="label-text">描述</label><input class="input-base" x-model="automationForm.description" placeholder="说明这个计划覆盖哪些模型/场景"></div>
+
+              <div class="alarm-face mt-4">
+                <input x-show="automationAlarm.mode === 'once'" class="alarm-date-input" type="date" x-model="automationAlarm.date" @change="syncAutomationScheduleFromAlarm()">
+                <input class="alarm-time-input" type="time" x-model="automationAlarm.time" @change="syncAutomationScheduleFromAlarm()" :disabled="automationAlarm.mode === 'interval'">
+                <div class="alarm-face-meta">
+                  <strong x-text="automationScheduleLabel"></strong>
+                  <span x-text="automationForm.timezone || 'Asia/Shanghai'"></span>
+                </div>
+              </div>
+
+              <div class="alarm-mode-grid mt-4">
+                <button type="button" class="alarm-mode-card" :class="automationAlarm.mode === 'once' ? 'active' : ''" @click.prevent="setAutomationAlarmMode('once')"><strong>一次</strong><span>只执行一回</span></button>
+                <button type="button" class="alarm-mode-card" :class="automationAlarm.mode === 'daily' ? 'active' : ''" @click.prevent="setAutomationAlarmMode('daily')"><strong>每天</strong><span>固定时间运行</span></button>
+                <button type="button" class="alarm-mode-card" :class="automationAlarm.mode === 'workdays' ? 'active' : ''" @click.prevent="setAutomationAlarmMode('workdays')"><strong>工作日</strong><span>周一到周五</span></button>
+                <button type="button" class="alarm-mode-card" :class="automationAlarm.mode === 'weekends' ? 'active' : ''" @click.prevent="setAutomationAlarmMode('weekends')"><strong>周末</strong><span>周六和周日</span></button>
+                <button type="button" class="alarm-mode-card" :class="automationAlarm.mode === 'weekly' ? 'active' : ''" @click.prevent="setAutomationAlarmMode('weekly')"><strong>每周</strong><span>自选星期</span></button>
+                <button type="button" class="alarm-mode-card" :class="automationAlarm.mode === 'interval' ? 'active' : ''" @click.prevent="setAutomationAlarmMode('interval')"><strong>每隔</strong><span>循环间隔</span></button>
+              </div>
+
+              <div x-show="automationAlarm.mode === 'weekly'" class="alarm-weekdays mt-4">
+                <template x-for="day in automationWeekdays()" :key="day.value">
+                  <button type="button" class="alarm-day" :class="(automationAlarm.weekdays || []).includes(day.value) ? 'active' : ''" @click.prevent="toggleAutomationAlarmWeekday(day.value)" x-text="day.label"></button>
+                </template>
+              </div>
+
+              <div x-show="automationAlarm.mode === 'interval'" class="alarm-interval-row mt-4">
+                <div><label class="label-text">每隔</label><input class="input-base" type="number" min="1" x-model.number="automationAlarm.interval_value" @input="syncAutomationScheduleFromAlarm()"></div>
+                <div><label class="label-text">单位</label><select class="input-base" x-model="automationAlarm.interval_unit" @change="syncAutomationScheduleFromAlarm()"><template x-for="unit in automationIntervalUnits()" :key="unit.value"><option :value="unit.value" x-text="unit.label"></option></template></select></div>
+              </div>
+
+              <div class="grid grid-cols-3 gap-3 mt-4">
+                <div><label class="label-text">名称</label><input class="input-base" x-model="automationForm.name" placeholder="每日评测闹钟"></div>
+                <div><label class="label-text">时区</label><input class="input-base" x-model="automationForm.timezone" placeholder="Asia/Shanghai"></div>
+                <div><label class="label-text">并发策略</label><select class="input-base" x-model="automationForm.concurrency_policy"><option value="skip">已有运行则跳过</option><option value="parallel">允许并行</option></select></div>
+              </div>
+              <div class="mt-3"><label class="label-text">备注</label><input class="input-base" x-model="automationForm.description" placeholder="说明这个闹钟覆盖哪些模型/场景"></div>
               <div class="mt-3 flex items-center gap-3 flex-wrap">
-                <label class="chip" :class="automationForm.enabled ? 'active' : ''"><input type="checkbox" x-model="automationForm.enabled">启用计划</label>
                 <label class="chip active"><input type="checkbox" checked disabled>Docker 运行</label>
+                <span class="automation-plan-hint">实际规则：<code x-text="automationScheduleRuleText()"></code></span>
               </div>
             </section>
 
@@ -352,8 +388,8 @@
             </div>
             <div class="automation-summary-panel">
               <div class="section-title">触发</div>
-              <div class="automation-summary-row"><span>类型</span><b x-text="automationForm.trigger_type"></b></div>
-              <div class="automation-summary-row"><span>间隔 / Cron</span><b x-text="automationForm.trigger_type === 'cron' ? automationForm.cron_expr : `${automationForm.interval_seconds}s`"></b></div>
+              <div class="automation-summary-row"><span>闹钟</span><b x-text="automationScheduleLabel"></b></div>
+              <div class="automation-summary-row"><span>实际规则</span><b x-text="automationScheduleRuleText()"></b></div>
               <div class="automation-summary-row"><span>渠道</span><b x-text="automationPolicyChannels.length"></b></div>
             </div>
           </aside>

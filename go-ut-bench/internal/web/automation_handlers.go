@@ -365,7 +365,7 @@ func (s *Server) prepareAutomationSchedule(item *store.AutomationSchedule) {
 	if item.NotifyPolicyJSON == "" {
 		item.NotifyPolicyJSON = `{"on_success":true,"on_failure":true,"on_canceled":true,"max_attempts":3,"channel_ids":[]}`
 	}
-	if item.NextFireAtUTC == "" && item.Enabled {
+	if item.NextFireAtUTC == "" && item.Enabled && !strings.EqualFold(item.TriggerType, "once") {
 		item.NextFireAtUTC = formatTimePtr(computeNextAutomationFire(*item, time.Now()))
 	}
 	if item.RunSpecJSON == "" {
@@ -399,7 +399,10 @@ func validateAutomationSchedule(item store.AutomationSchedule) error {
 	if item.TriggerType == "cron" && strings.TrimSpace(item.CronExpr) == "" {
 		return errText("cron_expr is required for cron trigger")
 	}
-	if item.TriggerType != "cron" && item.IntervalSeconds <= 0 {
+	if item.TriggerType == "once" && strings.TrimSpace(item.NextFireAtUTC) == "" {
+		return errText("next_fire_at_utc is required for one-time trigger")
+	}
+	if item.TriggerType != "cron" && item.TriggerType != "once" && item.IntervalSeconds <= 0 {
 		return errText("interval_seconds must be greater than 0")
 	}
 	if !json.Valid([]byte(item.RunSpecJSON)) {

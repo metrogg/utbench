@@ -262,6 +262,8 @@ func computeNextAutomationFire(schedule store.AutomationSchedule, from time.Time
 	}
 	base := from.In(loc)
 	switch strings.ToLower(schedule.TriggerType) {
+	case "once":
+		return nil
 	case "cron":
 		if next, ok := nextSimpleCron(schedule.CronExpr, base); ok {
 			utc := next.UTC()

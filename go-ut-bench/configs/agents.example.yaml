@@ -227,6 +227,14 @@ frameworks:
       - ANTHROPIC_API_KEY
       - ANTHROPIC_AUTH_TOKEN
       - ANTHROPIC_CUSTOM_HEADERS
+      - HTTPS_PROXY
+      - HTTP_PROXY
+      - ALL_PROXY
+      - NO_PROXY
+      - NODE_EXTRA_CA_CERTS
+      - SSL_CERT_FILE
+      - REQUESTS_CA_BUNDLE
+      - CURL_CA_BUNDLE
       # 原生 Claude 模型支持（Bedrock/Vertex/Foundry）
       - CLAUDE_CODE_USE_BEDROCK
       - CLAUDE_CODE_USE_VERTEX

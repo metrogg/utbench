@@ -113,6 +113,7 @@
     automationFormOpen: false,
     automationFormError: '',
     automationForm: {},
+    automationAlarm: { mode: 'once', date: '', time: '09:00', weekdays: [1, 2, 3, 4, 5], interval_value: 1, interval_unit: 'days' },
     automationPlan: { combinations: [], models: [], languages: [] },
     automationAdvancedOpen: false,
     channelFormOpen: false,
@@ -829,6 +830,153 @@
       return this.automations.find(a => a.schedule_id === id)?.name || id || '—'
     },
 
+    automationWeekdays() {
+      return [
+        { value: 1, label: '一' },
+        { value: 2, label: '二' },
+        { value: 3, label: '三' },
+        { value: 4, label: '四' },
+        { value: 5, label: '五' },
+        { value: 6, label: '六' },
+        { value: 0, label: '日' },
+      ]
+    },
+
+    automationIntervalUnits() {
+      return [
+        { value: 'minutes', label: '分钟' },
+        { value: 'hours', label: '小时' },
+        { value: 'days', label: '天' },
+      ]
+    },
+
+    todayLocalDate() {
+      const d = new Date()
+      const pad = n => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    },
+
+    setAutomationAlarmMode(mode) {
+      this.automationAlarm.mode = mode
+      if (mode === 'once' && !this.automationAlarm.date) this.automationAlarm.date = this.todayLocalDate()
+      if (mode === 'workdays') this.automationAlarm.weekdays = [1, 2, 3, 4, 5]
+      if (mode === 'weekends') this.automationAlarm.weekdays = [6, 0]
+      if (mode === 'weekly' && !(this.automationAlarm.weekdays || []).length) this.automationAlarm.weekdays = [1]
+      this.syncAutomationScheduleFromAlarm()
+    },
+
+    toggleAutomationAlarmWeekday(day) {
+      const current = Array.isArray(this.automationAlarm.weekdays) ? this.automationAlarm.weekdays : []
+      const next = current.includes(day) ? current.filter(v => v !== day) : [...current, day]
+      this.automationAlarm.weekdays = next.length ? next : [day]
+      if (this.automationAlarm.mode !== 'weekly') this.automationAlarm.mode = 'weekly'
+      this.syncAutomationScheduleFromAlarm()
+    },
+
+    normalizeAlarmTime(value) {
+      const m = String(value || '').match(/^(\d{1,2}):(\d{1,2})/)
+      if (!m) return '09:00'
+      const h = Math.max(0, Math.min(23, Number(m[1]) || 0))
+      const min = Math.max(0, Math.min(59, Number(m[2]) || 0))
+      return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0')
+    },
+
+    automationCronFromAlarm() {
+      const [hour, minute] = this.normalizeAlarmTime(this.automationAlarm.time).split(':').map(Number)
+      const mode = this.automationAlarm.mode || 'daily'
+      if (mode === 'workdays') return `${minute} ${hour} * * 1,2,3,4,5`
+      if (mode === 'weekends') return `${minute} ${hour} * * 6,0`
+      if (mode === 'weekly') {
+        const days = (this.automationAlarm.weekdays || [1]).slice().sort((a, b) => a - b).join(',')
+        return `${minute} ${hour} * * ${days || '1'}`
+      }
+      return `${minute} ${hour} * * *`
+    },
+
+    automationIntervalSecondsFromAlarm() {
+      const value = Math.max(1, Number(this.automationAlarm.interval_value || 1))
+      const unit = this.automationAlarm.interval_unit || 'days'
+      const factor = unit === 'minutes' ? 60 : (unit === 'hours' ? 3600 : 86400)
+      return value * factor
+    },
+
+    automationOnceUTCFromAlarm() {
+      const date = this.automationAlarm.date || this.todayLocalDate()
+      const time = this.normalizeAlarmTime(this.automationAlarm.time)
+      const d = new Date(`${date}T${time}:00`)
+      if (Number.isNaN(d.getTime())) return ''
+      return d.toISOString()
+    },
+
+    syncAutomationScheduleFromAlarm() {
+      if (!this.automationForm) return
+      if (this.automationAlarm.mode === 'once') {
+        this.automationForm.trigger_type = 'once'
+        this.automationForm.next_fire_at_utc = this.automationOnceUTCFromAlarm()
+        this.automationForm.interval_seconds = 0
+      } else if (this.automationAlarm.mode === 'interval') {
+        this.automationForm.trigger_type = 'interval'
+        this.automationForm.interval_seconds = this.automationIntervalSecondsFromAlarm()
+        this.automationForm.next_fire_at_utc = ''
+      } else {
+        this.automationForm.trigger_type = 'cron'
+        this.automationForm.cron_expr = this.automationCronFromAlarm()
+        this.automationForm.next_fire_at_utc = ''
+      }
+    },
+
+    automationAlarmFromSchedule(item = {}) {
+      if (item.trigger_type === 'once') {
+        const d = item.next_fire_at_utc ? new Date(item.next_fire_at_utc) : new Date()
+        const pad = n => String(n).padStart(2, '0')
+        const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+        const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+        return { mode: 'once', date, time, weekdays: [1, 2, 3, 4, 5], interval_value: 1, interval_unit: 'days' }
+      }
+      if (item.trigger_type === 'interval') {
+        const seconds = Math.max(60, Number(item.interval_seconds || 86400))
+        if (seconds % 86400 === 0) return { mode: 'interval', date: this.todayLocalDate(), time: '09:00', weekdays: [1, 2, 3, 4, 5], interval_value: seconds / 86400, interval_unit: 'days' }
+        if (seconds % 3600 === 0) return { mode: 'interval', date: this.todayLocalDate(), time: '09:00', weekdays: [1, 2, 3, 4, 5], interval_value: seconds / 3600, interval_unit: 'hours' }
+        return { mode: 'interval', date: this.todayLocalDate(), time: '09:00', weekdays: [1, 2, 3, 4, 5], interval_value: Math.ceil(seconds / 60), interval_unit: 'minutes' }
+      }
+      const fields = String(item.cron_expr || '0 9 * * *').trim().split(/\s+/)
+      const minute = Number(fields[0] || 0)
+      const hour = Number(fields[1] || 9)
+      const dow = fields[4] || '*'
+      const time = String(Math.max(0, Math.min(23, hour))).padStart(2, '0') + ':' + String(Math.max(0, Math.min(59, minute))).padStart(2, '0')
+      const parseDays = value => String(value || '').split(',').map(v => Number(v)).filter(v => Number.isInteger(v) && v >= 0 && v <= 6)
+      if (dow === '*' || dow === '?') return { mode: 'daily', date: this.todayLocalDate(), time, weekdays: [1, 2, 3, 4, 5], interval_value: 1, interval_unit: 'days' }
+      const days = parseDays(dow)
+      if (days.join(',') === '1,2,3,4,5') return { mode: 'workdays', date: this.todayLocalDate(), time, weekdays: days, interval_value: 1, interval_unit: 'days' }
+      if (days.join(',') === '0,6' || days.join(',') === '6,0') return { mode: 'weekends', date: this.todayLocalDate(), time, weekdays: [6, 0], interval_value: 1, interval_unit: 'days' }
+      return { mode: 'weekly', date: this.todayLocalDate(), time, weekdays: days.length ? days : [1], interval_value: 1, interval_unit: 'days' }
+    },
+
+    automationScheduleLabelFor(item) {
+      const alarm = this.automationAlarmFromSchedule(item)
+      if (alarm.mode === 'once') return `一次 ${alarm.date || ''} ${alarm.time || '09:00'}`
+      if (alarm.mode === 'interval') {
+        const unit = this.automationIntervalUnits().find(u => u.value === alarm.interval_unit)?.label || '秒'
+        return `每 ${alarm.interval_value} ${unit}`
+      }
+      const time = alarm.time || '09:00'
+      if (alarm.mode === 'daily') return `每天 ${time}`
+      if (alarm.mode === 'workdays') return `工作日 ${time}`
+      if (alarm.mode === 'weekends') return `周末 ${time}`
+      const names = this.automationWeekdays().filter(d => (alarm.weekdays || []).includes(d.value)).map(d => d.label).join('、')
+      return `每周 ${names || '一'} ${time}`
+    },
+
+    automationScheduleRuleText(item = this.automationForm || {}) {
+      if (item.trigger_type === 'once') return item.next_fire_at_utc ? `一次 @ ${this.fmtTime(item.next_fire_at_utc)}` : '一次执行'
+      if (item.trigger_type === 'cron') return item.cron_expr || '—'
+      return `${item.interval_seconds || 0}s`
+    },
+
+    get automationScheduleLabel() {
+      return this.automationScheduleLabelFor(this.automationForm || {})
+    },
+
     defaultAutomationPlan() {
       const models = this._comboModels('model_api')
       const defaultModel = this.form.models?.[0] || (models.includes('deepseek-v4-flash') ? 'deepseek-v4-flash' : (models[0] || ''))
@@ -1013,7 +1161,7 @@
         name: '',
         description: '',
         enabled: true,
-        trigger_type: 'interval',
+        trigger_type: 'once',
         cron_expr: '0 9 * * *',
         interval_seconds: 86400,
         timezone: 'Asia/Shanghai',
@@ -1023,6 +1171,9 @@
         orchestrator_options_json: '',
         notify_policy_json: JSON.stringify({ on_success: true, on_failure: true, on_canceled: true, max_attempts: 3, channel_ids: [] }, null, 2),
       }
+      this.automationForm.next_fire_at_utc = ''
+      this.automationAlarm = this.automationAlarmFromSchedule(this.automationForm)
+      this.syncAutomationScheduleFromAlarm()
       this.refreshAutomationJSONFromPlan()
       this.automationFormOpen = true
     },
@@ -1031,6 +1182,7 @@
       this.automationFormError = ''
       this.automationForm = { ...item }
       this.automationPlan = this.automationPlanFromSchedule(item)
+      this.automationAlarm = this.automationAlarmFromSchedule(item)
       this.automationAdvancedOpen = false
       this.refreshAutomationJSONFromPlan()
       this.automationFormOpen = true
@@ -1071,6 +1223,7 @@
         if (p.phase === 'report' && !p.source_run_id && !p.evaluation_path) {
           throw new Error('请选择来源任务或填写评测结果路径')
         }
+        this.syncAutomationScheduleFromAlarm()
         this.refreshAutomationJSONFromPlan()
         JSON.parse(this.automationForm.run_spec_json || '{}')
         JSON.parse(this.automationForm.orchestrator_options_json || '{}')
@@ -2101,7 +2254,7 @@
           image: 'utbench-agent-base:latest',
           installCommand: 'npm install -g @anthropic-ai/claude-code',
           installPackage: '@anthropic-ai/claude-code',
-          env_from_host: 'ANTHROPIC_API_KEY\nANTHROPIC_AUTH_TOKEN\nANTHROPIC_CUSTOM_HEADERS\nCLAUDE_CODE_USE_BEDROCK\nCLAUDE_CODE_USE_VERTEX\nCLAUDE_CODE_USE_FOUNDRY',
+          env_from_host: 'ANTHROPIC_API_KEY\nANTHROPIC_AUTH_TOKEN\nANTHROPIC_CUSTOM_HEADERS\nHTTPS_PROXY\nHTTP_PROXY\nALL_PROXY\nNO_PROXY\nNODE_EXTRA_CA_CERTS\nSSL_CERT_FILE\nREQUESTS_CA_BUNDLE\nCURL_CA_BUNDLE\nCLAUDE_CODE_USE_BEDROCK\nCLAUDE_CODE_USE_VERTEX\nCLAUDE_CODE_USE_FOUNDRY',
           command: 'mkdir -p "{{.ContainerWorkdir}}/.claude" &&\nPROMPT="$(cat {{.ContainerPrompt}})" &&\nclaude -p --output-format stream-json --verbose --permission-mode bypassPermissions --max-turns 50 --model "{{.ModelID}}" "$PROMPT"',
           output_globs: globs,
           bundled: true,
