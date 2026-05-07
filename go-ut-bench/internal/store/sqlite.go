@@ -708,6 +708,67 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			evaluation_result_id TEXT NOT NULL,
 			PRIMARY KEY(report_id, evaluation_result_id)
 		);`,
+		`CREATE TABLE IF NOT EXISTS automation_schedules (
+			schedule_id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			trigger_type TEXT NOT NULL,
+			cron_expr TEXT,
+			interval_seconds INTEGER NOT NULL DEFAULT 0,
+			timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+			concurrency_policy TEXT NOT NULL DEFAULT 'skip',
+			use_docker INTEGER NOT NULL DEFAULT 1,
+			run_spec_json TEXT NOT NULL,
+			orchestrator_options_json TEXT NOT NULL DEFAULT '{}',
+			notify_policy_json TEXT NOT NULL DEFAULT '{}',
+			last_fire_at_utc TEXT,
+			next_fire_at_utc TEXT,
+			created_at_utc TEXT NOT NULL,
+			updated_at_utc TEXT NOT NULL,
+			deleted_at_utc TEXT
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_automation_schedules_due
+			ON automation_schedules(enabled, next_fire_at_utc)
+			WHERE deleted_at_utc IS NULL;`,
+		`CREATE TABLE IF NOT EXISTS automation_runs (
+			automation_run_id TEXT PRIMARY KEY,
+			schedule_id TEXT NOT NULL,
+			run_id TEXT,
+			trigger_source TEXT NOT NULL,
+			status TEXT NOT NULL,
+			started_at_utc TEXT,
+			ended_at_utc TEXT,
+			error TEXT,
+			summary_json TEXT,
+			created_at_utc TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_automation_runs_schedule_created
+			ON automation_runs(schedule_id, created_at_utc DESC);`,
+		`CREATE TABLE IF NOT EXISTS notification_channels (
+			channel_id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			type TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			config_json TEXT NOT NULL,
+			created_at_utc TEXT NOT NULL,
+			updated_at_utc TEXT NOT NULL,
+			deleted_at_utc TEXT
+		);`,
+		`CREATE TABLE IF NOT EXISTS notification_deliveries (
+			delivery_id TEXT PRIMARY KEY,
+			automation_run_id TEXT,
+			channel_id TEXT NOT NULL,
+			status TEXT NOT NULL,
+			attempt INTEGER NOT NULL DEFAULT 1,
+			request_summary TEXT,
+			response_summary TEXT,
+			error TEXT,
+			created_at_utc TEXT NOT NULL,
+			delivered_at_utc TEXT
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_run
+			ON notification_deliveries(automation_run_id, created_at_utc DESC);`,
 		`CREATE TABLE IF NOT EXISTS log_events (
 			log_event_id TEXT PRIMARY KEY,
 			run_id TEXT NOT NULL,

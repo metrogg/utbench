@@ -65,6 +65,23 @@
           ctx.fillText(String(ds.label || '数据 ' + (i + 1)).slice(0, 26), x + 16, y + 9 + i * 18);
         });
       }
+      drawLegendBottom(ctx, datasets, width, y) {
+        ctx.font = '12px system-ui, sans-serif';
+        let x = 18;
+        datasets.slice(0, 8).forEach((ds, i) => {
+          const text = String(ds.label || 'Data ' + (i + 1)).slice(0, 18);
+          const itemWidth = Math.min(170, ctx.measureText(text).width + 28);
+          if (x + itemWidth > width - 18) {
+            x = 18;
+            y += 18;
+          }
+          ctx.fillStyle = ds.borderColor || ds.backgroundColor || this.palette(i);
+          ctx.fillRect(x, y, 10, 10);
+          ctx.fillStyle = '#475569';
+          ctx.fillText(text, x + 16, y + 9);
+          x += itemWidth;
+        });
+      }
       drawAxes(ctx, left, top, right, bottom) {
         ctx.strokeStyle = '#d8e0e7';
         ctx.lineWidth = 1;
@@ -81,7 +98,7 @@
       drawBars(ctx, width, height) {
         const labels = this.labels();
         const datasets = this.datasets();
-        const left = 42, right = width - 150, top = 18, bottom = height - 72;
+        const left = 42, right = width - 20, top = 18, bottom = height - 88;
         this.drawAxes(ctx, left, top, right, bottom);
         const groups = Math.max(1, labels.length);
         const groupW = (right - left) / groups;
@@ -106,11 +123,11 @@
           ctx.fillText(text, 0, 0);
           ctx.restore();
         });
-        this.drawLegend(ctx, datasets, width - 132, 20);
+        this.drawLegendBottom(ctx, datasets, width, height - 34);
       }
       drawScatter(ctx, width, height) {
         const datasets = this.datasets();
-        const left = 42, right = width - 150, top = 20, bottom = height - 42;
+        const left = 42, right = width - 20, top = 20, bottom = height - 62;
         this.drawAxes(ctx, left, top, right, bottom);
         const points = datasets.map(ds => (ds.data && ds.data[0]) || { x: 0, y: 0 });
         const maxX = Math.max(1, ...points.map(p => Number(p.x) || 0));
@@ -124,15 +141,15 @@
           ctx.arc(x, y, Number(ds.pointRadius || 6), 0, Math.PI * 2);
           ctx.fill();
         });
-        this.drawLegend(ctx, datasets, width - 132, 20);
+        this.drawLegendBottom(ctx, datasets, width, height - 34);
       }
       drawPie(ctx, width, height, doughnut) {
         const ds = this.datasets()[0] || {};
         const values = (ds.data || []).map(v => Math.max(0, Number(v) || 0));
         const labels = this.labels();
         const total = values.reduce((a, b) => a + b, 0) || 1;
-        const cx = Math.floor(width * 0.38), cy = Math.floor(height * 0.5);
-        const radius = Math.max(55, Math.min(width, height) * 0.28);
+        const cx = Math.floor(width * 0.5), cy = Math.floor(height * 0.42);
+        const radius = Math.max(55, Math.min(width, height) * 0.24);
         let start = -Math.PI / 2;
         values.forEach((value, i) => {
           const angle = value / total * Math.PI * 2;
@@ -152,7 +169,7 @@
           ctx.fill();
         }
         const legend = labels.map((label, i) => ({ label, backgroundColor: (Array.isArray(ds.backgroundColor) && ds.backgroundColor[i]) || this.palette(i) }));
-        this.drawLegend(ctx, legend, Math.floor(width * 0.68), 24);
+        this.drawLegendBottom(ctx, legend, width, height - Math.min(50, Math.max(28, Math.ceil(legend.length / 3) * 18)));
       }
     }
     window.Chart = MiniChart;
@@ -393,12 +410,22 @@ function upsertChart(instance, canvasId, type, labels, values, colors) {
   return new Chart(document.getElementById(canvasId), {
     type,
     data: { labels, datasets: [{ data: values, backgroundColor: colors }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: chartLegendBottomOptions() } }
   });
 }
 
 function chartAxisFont() {
   return { size: 11, weight: '600' };
+}
+
+function chartLegendBottomOptions(overrides) {
+  const baseLabels = { boxWidth: 10, boxHeight: 10, padding: 10, font: { size: 11, weight: '700' } };
+  const extra = overrides || {};
+  return {
+    position: 'bottom',
+    align: 'center',
+    labels: Object.assign({}, baseLabels, extra.labels || {})
+  };
 }
 
 function normalizeRateValue(value) {
@@ -433,9 +460,9 @@ function scenarioChartOptions() {
     indexAxis: 'y',
     responsive: true,
     maintainAspectRatio: false,
-    layout: { padding: { top: 8, right: 16, bottom: 4, left: 0 } },
+    layout: { padding: { top: 8, right: 16, bottom: 8, left: 0 } },
     plugins: {
-      legend: { position: 'top', align: 'start', labels: { boxWidth: 12, boxHeight: 12, padding: 14 } },
+      legend: chartLegendBottomOptions(),
       tooltip: { callbacks: { title: items => items.map(item => compactChartLabel(item.label)).join(', ') } }
     },
     datasets: { bar: { categoryPercentage: 0.72, barPercentage: 0.82, maxBarThickness: 18 } },
@@ -685,7 +712,7 @@ function renderModelCharts() {
       responsive: true,
       maintainAspectRatio: false,
       layout: { padding: { bottom: 18 } },
-      plugins: { legend: { position: 'top', labels: { boxWidth: 12, boxHeight: 12, padding: 14 } } },
+      plugins: { legend: chartLegendBottomOptions() },
       scales: {
         x: { ticks: { autoSkip: false, maxRotation: 0, minRotation: 0, font: chartAxisFont(), padding: 8 } },
         y: { beginAtZero: true, max: 1, ticks: { callback: percentTick } }
@@ -706,7 +733,12 @@ function renderModelCharts() {
         pointBackgroundColor: ['#315f9c', '#2f7d72', '#d5902f', '#c43d2f'][index % 4]
       }))
     },
-    options: { responsive: true, maintainAspectRatio: false, scales: { r: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%' } } } }
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: chartLegendBottomOptions({ labels: { padding: 8 } }) },
+      scales: { r: { beginAtZero: true, max: 1, ticks: { callback: value => Math.round(value * 100) + '%' } } }
+    }
   });
 
   renderEfficiencyQualityChart('latency');

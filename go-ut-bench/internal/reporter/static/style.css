@@ -617,9 +617,12 @@ h3 {
 
 .table-wrap {
   overflow: auto;
+  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 
 table {
@@ -727,9 +730,10 @@ code {
 .chart-legend-wrap {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  margin: 12px 4px 4px;
-  padding: 10px 12px;
+  justify-content: center;
+  gap: 6px 12px;
+  margin: 10px 4px 0;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #f8fafb;
@@ -740,7 +744,7 @@ code {
 .chart-legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   max-width: min(100%, 360px);
   color: var(--ink-2);
 }
@@ -1225,16 +1229,94 @@ input[type="text"] {
 }
 
 @media (max-width: 700px) {
+  html {
+    scroll-padding-top: 12px;
+  }
+
+  body {
+    background-size: 22px 22px, 22px 22px, auto, auto, auto;
+  }
+
   .wrap {
-    padding: 12px;
+    width: 100%;
+    padding: 10px;
+    overflow-x: hidden;
+  }
+
+  .runtime-banner {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .hero {
+    min-height: 0;
+    margin-bottom: 12px;
   }
 
   .hero-header {
-    padding: 22px 18px 14px;
+    display: block;
+    padding: 18px 14px 12px;
   }
 
   .hero h1 {
-    font-size: 32px;
+    font-size: 28px;
+    line-height: 1.12;
+    overflow-wrap: anywhere;
+  }
+
+  .hero-subtitle {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .hero-cards {
+    gap: 8px;
+    padding: 0 14px 14px;
+  }
+
+  .hero-card {
+    min-height: 64px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+    padding: 10px;
+  }
+
+  .hero-card-icon {
+    width: max-content;
+    min-width: 0;
+    height: 22px;
+  }
+
+  .hero-card-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .hero-card-value {
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .report-shell {
+    gap: 12px;
+  }
+
+  .report-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    margin: 0 -10px;
+    padding: 8px 10px;
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+    box-shadow: 0 8px 22px rgba(17, 24, 39, 0.10);
+  }
+
+  .report-sidebar a {
+    min-height: 32px;
+    padding: 8px 10px;
+    font-size: 12px;
   }
 
   .hero-cards,
@@ -1254,7 +1336,28 @@ input[type="text"] {
   }
 
   .section {
-    padding: 14px;
+    margin-bottom: 12px;
+    padding: 12px;
+    border-left-width: 4px;
+    scroll-margin-top: 62px;
+  }
+
+  .section h2,
+  h2 {
+    font-size: 18px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  h3 {
+    overflow-wrap: anywhere;
+  }
+
+  .panel,
+  .insight-card,
+  .prompt-card,
+  .diagnosis-card {
+    min-width: 0;
   }
 
   .lb-item {
@@ -1268,15 +1371,151 @@ input[type="text"] {
 
   .chart-box,
   .chart-box.tall {
-    height: 330px;
+    height: 300px;
+    min-height: 280px;
   }
 
   .chart-box.efficiency-chart-box {
     height: 360px;
+    min-height: 340px;
+    padding: 8px;
+  }
+
+  .scenario-chart-box {
+    min-height: 320px;
+  }
+
+  .chart-legend-wrap {
+    max-height: 116px;
+    overflow: auto;
+    padding: 8px;
+    font-size: 11px;
+  }
+
+  .chart-legend-item {
+    max-width: 100%;
+  }
+
+  .filter-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-grid,
+  .filter-actions {
+    min-width: 0;
+  }
+
+  .filter-actions button,
+  .filter-actions select,
+  select,
+  input[type="text"] {
+    width: 100%;
+  }
+
+  .table-wrap {
+    position: relative;
+    margin-left: -2px;
+    margin-right: -2px;
+    border-radius: 7px;
+  }
+
+  .table-wrap::after {
+    content: "横向滑动查看更多";
+    position: sticky;
+    left: 0;
+    bottom: 0;
+    display: block;
+    padding: 7px 10px;
+    border-top: 1px solid var(--line);
+    background: linear-gradient(90deg, rgba(248, 250, 249, 0.96), rgba(248, 250, 249, 0.78));
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  table {
+    min-width: 720px;
   }
 
   th,
   td {
+    padding: 9px 10px;
     font-size: 12px;
+  }
+
+  td {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .raw-column-controls {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 9px;
+  }
+
+  .raw-data-table {
+    min-width: 980px;
+  }
+
+  .raw-error,
+  .raw-path {
+    max-width: 220px;
+  }
+
+  .prompt-template-box,
+  pre,
+  code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .back-to-top {
+    right: 12px;
+    bottom: 12px;
+    width: 40px;
+    height: 40px;
+  }
+}
+
+@media (max-width: 430px) {
+  .wrap {
+    padding: 8px;
+  }
+
+  .hero h1 {
+    font-size: 24px;
+  }
+
+  .hero-badge,
+  .hero-card-label,
+  .hero-subtitle,
+  .report-sidebar a {
+    font-size: 11px;
+  }
+
+  .section {
+    padding: 10px;
+  }
+
+  .chart-box,
+  .chart-box.tall {
+    height: 280px;
+    min-height: 260px;
+  }
+
+  .chart-box.efficiency-chart-box {
+    height: 330px;
+  }
+
+  table {
+    min-width: 680px;
+  }
+
+  th,
+  td {
+    padding: 8px;
   }
 }

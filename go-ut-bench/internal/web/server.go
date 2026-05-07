@@ -49,6 +49,7 @@ type Server struct {
 	httpServer *http.Server       // 用于优雅关闭
 
 	// 缓存层：避免重复读磁盘/解析YAML
+	automation    *AutomationScheduler
 	cacheMu       sync.RWMutex
 	catalogCache  *catalogCacheEntry
 	runsCache     *runsCacheEntry
@@ -96,6 +97,7 @@ func NewServer(mgr *RunManager, bld *BuildManager, configPath, outputRoot, dbPat
 		dockerCfg:  cfg,
 		db:         db,
 	}
+	s.automation = NewAutomationScheduler(s)
 	s.mux = http.NewServeMux()
 	s.registerRoutes()
 	return s, nil
@@ -104,6 +106,7 @@ func NewServer(mgr *RunManager, bld *BuildManager, configPath, outputRoot, dbPat
 // Start begins listening on addr (e.g. ":8080").
 func (s *Server) Start(addr string) error {
 	fmt.Printf("UTBench Web UI  →  http://localhost%s\n", addr)
+	s.automation.Start()
 	s.httpServer = &http.Server{Addr: addr, Handler: s}
 	return s.httpServer.ListenAndServe()
 }
@@ -116,6 +119,7 @@ func (s *Server) StartGraceful(addr string) error {
 
 	// 在 goroutine 中启动服务
 	errCh := make(chan error, 1)
+	s.automation.Start()
 	go func() {
 		errCh <- s.httpServer.ListenAndServe()
 	}()
@@ -171,6 +175,9 @@ func (s *Server) waitForRunningEntries(timeout time.Duration) {
 
 // Close cancels all running tasks, cleans up Docker containers, and closes the database connection.
 func (s *Server) Close() error {
+	if s.automation != nil {
+		s.automation.Stop()
+	}
 	// 取消所有活跃任务
 	for _, entry := range s.mgr.List() {
 		entry.mu.RLock()
@@ -230,6 +237,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/agents/skills/command", s.handleAgentSkillsCommand)
 	s.mux.HandleFunc("/api/agents/skills/scan", s.handleAgentSkillsScan)
 	s.mux.HandleFunc("/api/settings/api-keys", s.handleAPIKeys)
+	s.mux.HandleFunc("/api/automations", s.handleAutomations)
+	s.mux.HandleFunc("/api/automations/", s.handleAutomationSub)
+	s.mux.HandleFunc("/api/notification-channels", s.handleNotificationChannels)
+	s.mux.HandleFunc("/api/notification-channels/", s.handleNotificationChannelSub)
+	s.mux.HandleFunc("/api/notification-deliveries", s.handleNotificationDeliveries)
 	// 数据库管理API
 	s.mux.HandleFunc("/api/db/overview", s.handleDBOverview)
 	s.mux.HandleFunc("/api/db/runs", s.handleDBRuns)

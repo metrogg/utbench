@@ -1,10 +1,11 @@
-function app() {
+﻿function app() {
   return {
     page: 'dashboard',
     nav: [
       { id:'dashboard', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>', label:'总览' },
       { id:'new-run',   icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>', label:'新建任务' },
       { id:'runs',      icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>', label:'任务列表' },
+      { id:'automations', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/><path d="M4 4l3 3"/><path d="M20 4l-3 3"/></svg>', label:'定时任务' },
       { id:'agents',    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4z"/><path d="M9 12h6"/><path d="M12 9v6"/></svg>', label:'Agent 接入' },
       { id:'database',  icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>', label:'数据库' },
       { id:'environment', icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-5"/></svg>', label:'环境检查' },
@@ -103,6 +104,24 @@ function app() {
     dbReports: [],
     dbRunArtifacts: [],
     dbExperiments: [],
+    automations: [],
+    automationRecentRuns: [],
+    notificationDeliveries: [],
+    notificationChannels: [],
+    automationLoading: false,
+    automationSaving: false,
+    automationFormOpen: false,
+    automationFormError: '',
+    automationForm: {},
+    automationPlan: { combinations: [], models: [], languages: [] },
+    automationAdvancedOpen: false,
+    channelFormOpen: false,
+    channelFormError: '',
+    channelForm: {},
+    channelConfig: {},
+    channelAdvancedOpen: false,
+    channelTesting: {},
+    channelTestResults: {},
     // 新增：筛选参数
     dbGenCaseFilter: { run_id:'', model:'', language:'' },
     dbEvalRunFilter: { run_id:'' },
@@ -183,6 +202,7 @@ function app() {
     _timerRuns: null,
     _timerDb: null,
     _timerEnv: null,
+    _timerAutomation: null,
     _logCount: 0,
     _comboKey: 0,
     _comboSeq: 1,
@@ -198,6 +218,7 @@ function app() {
       await this.loadEnv()
       await this.loadRuns()
       await this.loadDatabase()
+      await this.loadAutomations()
       this._startTimers()
     },
     async loadPartials() {
@@ -207,8 +228,8 @@ function app() {
         if (!name) return
         const r = await fetch(`/partials/${name}.html`, { cache: 'no-store' })
         if (!r.ok) throw new Error(`load partial ${name}: HTTP ${r.status}`)
-        if (window.Alpine?.destroyTree && node._partialInitialized) {
-          window.Alpine.destroyTree(node)
+        if (window.Alpine?.destroyTree) {
+          try { window.Alpine.destroyTree(node) } catch {}
         }
         node.innerHTML = await r.text()
         node._partialInitialized = false
@@ -234,11 +255,15 @@ function app() {
       this._timerEnv = setInterval(() => {
         if (this.page === 'new-run' || this.page === 'models' || this.page === 'agents') this.loadEnv()
       }, 30000)
+      this._timerAutomation = setInterval(() => {
+        if (this.page === 'automations') this.loadAutomations()
+      }, 10000)
     },
     _stopTimers() {
       if (this._timerRuns) { clearInterval(this._timerRuns); this._timerRuns = null }
       if (this._timerDb) { clearInterval(this._timerDb); this._timerDb = null }
       if (this._timerEnv) { clearInterval(this._timerEnv); this._timerEnv = null }
+      if (this._timerAutomation) { clearInterval(this._timerAutomation); this._timerAutomation = null }
     },
 
     async loadConfig() {
@@ -780,6 +805,594 @@ function app() {
       }
     },
 
+    async loadAutomations() {
+      this.automationLoading = true
+      try {
+        const [schedules, channels, deliveries] = await Promise.all([
+          fetch('/api/automations', { cache: 'no-store' }).then(r => r.json()),
+          fetch('/api/notification-channels', { cache: 'no-store' }).then(r => r.json()),
+          fetch('/api/notification-deliveries?limit=60', { cache: 'no-store' }).then(r => r.json()),
+        ])
+        this.automations = Array.isArray(schedules) ? schedules : []
+        this.notificationChannels = Array.isArray(channels) ? channels : []
+        this.notificationDeliveries = Array.isArray(deliveries) ? deliveries : []
+        const runs = await Promise.all(this.automations.map(a => fetch(`/api/automations/${a.schedule_id}/runs?limit=8`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])))
+        this.automationRecentRuns = runs.flat().filter(Boolean).sort((a, b) => String(b.created_at_utc || '').localeCompare(String(a.created_at_utc || ''))).slice(0, 30)
+      } catch(e) {
+        this.showToast('加载定时任务失败：' + (e.message || String(e)), 'err')
+      } finally {
+        this.automationLoading = false
+      }
+    },
+
+    automationName(id) {
+      return this.automations.find(a => a.schedule_id === id)?.name || id || '—'
+    },
+
+    defaultAutomationPlan() {
+      const models = this._comboModels('model_api')
+      const defaultModel = this.form.models?.[0] || (models.includes('deepseek-v4-flash') ? 'deepseek-v4-flash' : (models[0] || ''))
+      return {
+        mode: this.form.mode || 'full',
+        phase: this.form.phase || 'full',
+        source_run_id: this.form.source_run_id || '',
+        manifest_path: this.form.manifest_path || '',
+        evaluation_path: this.form.evaluation_path || '',
+        combinations: [{ _id: 1, framework: 'model_api', model: defaultModel, skill: 'no_skill' }],
+        models: [],
+        languages: this.form.languages?.length ? [...this.form.languages] : ['python'],
+        class: this.form.class || 'self_contained',
+        scenario: this.form.scenario || '',
+        level: this.form.level || '',
+        max_samples: this.form.max_samples || 1,
+        workers: this.form.workers || 4,
+        dry_run: false,
+        reuse_generated: true,
+        reuse_evaluation: false,
+        mutation_enabled: true,
+        mutation_timeout: 1800,
+        mutation_policy: 'warn',
+        ingest: true,
+      }
+    },
+
+    automationPlanFromSchedule(item) {
+      let spec = {}
+      let opts = {}
+      try { spec = JSON.parse(item.run_spec_json || '{}') } catch {}
+      try { opts = JSON.parse(item.orchestrator_options_json || '{}') } catch {}
+      const subjects = Array.isArray(spec.subjects) ? spec.subjects : []
+      const combos = subjects.map((subject, idx) => this.comboFromSubjectId(subject, idx + 1)).filter(Boolean)
+      const models = Array.isArray(spec.models) ? spec.models : []
+      return {
+        mode: spec.mode || 'full',
+        phase: opts.phase || 'full',
+        source_run_id: opts.source_run_id || '',
+        manifest_path: opts.manifest_path || '',
+        evaluation_path: opts.evaluation_path || '',
+        combinations: combos.length ? combos : [{ _id: 1, framework: 'model_api', model: models[0] || this._comboModels('model_api')[0] || '', skill: 'no_skill' }],
+        models: combos.length ? [] : models,
+        languages: Array.isArray(spec.languages) ? spec.languages : [],
+        class: Array.isArray(spec.dataset_classes) ? spec.dataset_classes.join(',') : '',
+        scenario: spec.dataset_scenario || '',
+        level: spec.dataset_level || '',
+        max_samples: Number(spec.max_samples || 0),
+        workers: Number(spec.workers || 0),
+        dry_run: !!spec.dry_run,
+        reuse_generated: spec.reuse_generated !== false,
+        reuse_evaluation: !!spec.reuse_evaluation,
+        mutation_enabled: spec.mutation_enabled !== false,
+        mutation_timeout: Number(spec.mutation_timeout_seconds || 1800),
+        mutation_policy: spec.mutation_error_policy || 'warn',
+        ingest: opts.ingest !== false,
+      }
+    },
+
+    comboFromSubjectId(subject, id) {
+      const parts = String(subject || '').split('__')
+      if (parts.length < 3) return null
+      return { _id: id, framework: parts[0] || 'model_api', model: parts[1] || '', skill: parts.slice(2).join('__') || 'no_skill' }
+    },
+
+    buildAutomationRunSpecFromPlan() {
+      const p = this.automationPlan || {}
+      const combos = Array.isArray(p.combinations) ? p.combinations : []
+      const subjects = combos.filter(c => c.model).map(c => this.buildSubjectId(c))
+      const models = subjects.length ? this.deriveModelsFromAutomationSubjects(subjects, combos) : (p.models || [])
+      return {
+        models,
+        subjects,
+        languages: p.languages || [],
+        dataset_classes: String(p.class || '').split(',').map(s => s.trim()).filter(Boolean),
+        dataset_scenario: p.scenario || '',
+        dataset_level: p.level || '',
+        mode: p.mode || 'full',
+        dry_run: !!p.dry_run,
+        reuse_generated: !!p.reuse_generated,
+        reuse_evaluation: !!p.reuse_evaluation,
+        mutation_enabled: !!p.mutation_enabled,
+        mutation_timeout_seconds: Number(p.mutation_timeout || 1800),
+        mutation_error_policy: p.mutation_policy || 'warn',
+        max_samples: Number(p.max_samples || 0),
+        workers: Number(p.workers || 0),
+      }
+    },
+
+    buildAutomationOptionsFromPlan() {
+      const p = this.automationPlan || {}
+      return {
+        phase: p.phase || 'full',
+        source_run_id: p.source_run_id || '',
+        manifest_path: p.manifest_path || '',
+        evaluation_path: p.evaluation_path || '',
+        ingest: p.ingest !== false,
+      }
+    },
+
+    deriveModelsFromAutomationSubjects(subjects, combos) {
+      const out = []
+      const seen = new Set()
+      for (const combo of combos || []) {
+        if (!combo.model || seen.has(combo.model)) continue
+        seen.add(combo.model); out.push(combo.model)
+      }
+      return out.length ? out : subjects.map(s => String(s).split('__')[1]).filter(Boolean)
+    },
+
+    refreshAutomationJSONFromPlan() {
+      this.automationForm.run_spec_json = JSON.stringify(this.buildAutomationRunSpecFromPlan(), null, 2)
+      this.automationForm.orchestrator_options_json = JSON.stringify(this.buildAutomationOptionsFromPlan(), null, 2)
+    },
+
+    get automationSubjectCount() {
+      return (this.automationPlan.combinations || []).filter(c => c.model).length
+    },
+
+    get automationModelCount() {
+      return (this.automationPlan.models || []).length
+    },
+
+    get automationExecutionTargetCount() {
+      return this.automationSubjectCount || this.automationModelCount
+    },
+
+    get automationScenarioCount() {
+      const p = this.automationPlan || {}
+      if (p.phase !== 'full' && p.phase !== 'generate') return 0
+      if (p.scenario) return 1
+      return (this.config?.scenarios ?? []).length || 4
+    },
+
+    get automationEstimatedTaskCount() {
+      const p = this.automationPlan || {}
+      const samples = Number(p.max_samples || 0)
+      const langs = (p.languages || []).length
+      if (samples <= 0 || !this.automationExecutionTargetCount || !langs) return '—'
+      return this.automationExecutionTargetCount * langs * this.automationScenarioCount * samples
+    },
+
+    get automationEstimatedTaskFormula() {
+      const p = this.automationPlan || {}
+      const samples = Number(p.max_samples || 0)
+      if (samples <= 0) return '样本无限制，实际数量由数据集决定'
+      return `${this.automationExecutionTargetCount} 被测对象 × ${(p.languages || []).length} 语言 × ${this.automationScenarioCount} 场景 × ${samples} 样本`
+    },
+
+    addAutomationCombination() {
+      const models = this._comboModels('model_api')
+      const defaultModel = models.includes('deepseek-v4-flash') ? 'deepseek-v4-flash' : (models[0] || '')
+      if (!Array.isArray(this.automationPlan.combinations)) this.automationPlan.combinations = []
+      this.automationPlan.models = []
+      this.automationPlan.combinations.push({ _id: ++this._comboSeq, framework: 'model_api', model: defaultModel, skill: 'no_skill' })
+    },
+
+    removeAutomationCombination(idx) {
+      if (!Array.isArray(this.automationPlan.combinations) || this.automationPlan.combinations.length <= 1) return
+      this.automationPlan.combinations.splice(idx, 1)
+    },
+
+    onAutomationCombinationFrameworkChange(idx) {
+      const combo = this.automationPlan.combinations?.[idx]
+      if (!combo) return
+      const models = this._comboModels(combo.framework)
+      if (!models.includes(combo.model)) combo.model = models[0] || ''
+      const skills = this._comboSkills(combo.framework)
+      if (!skills.includes(combo.skill)) combo.skill = 'no_skill'
+      this.automationPlan.models = []
+    },
+
+    onAutomationCombinationModelChange() {
+      this.automationPlan.models = []
+    },
+
+    openAutomationForm() {
+      this.automationFormError = ''
+      this.automationPlan = this.defaultAutomationPlan()
+      this.automationAdvancedOpen = false
+      this.automationForm = {
+        name: '',
+        description: '',
+        enabled: true,
+        trigger_type: 'interval',
+        cron_expr: '0 9 * * *',
+        interval_seconds: 86400,
+        timezone: 'Asia/Shanghai',
+        concurrency_policy: 'skip',
+        use_docker: true,
+        run_spec_json: '',
+        orchestrator_options_json: '',
+        notify_policy_json: JSON.stringify({ on_success: true, on_failure: true, on_canceled: true, max_attempts: 3, channel_ids: [] }, null, 2),
+      }
+      this.refreshAutomationJSONFromPlan()
+      this.automationFormOpen = true
+    },
+
+    editAutomation(item) {
+      this.automationFormError = ''
+      this.automationForm = { ...item }
+      this.automationPlan = this.automationPlanFromSchedule(item)
+      this.automationAdvancedOpen = false
+      this.refreshAutomationJSONFromPlan()
+      this.automationFormOpen = true
+    },
+
+    get automationPolicyChannels() {
+      try {
+        const policy = JSON.parse(this.automationForm.notify_policy_json || '{}')
+        return policy.channel_ids || policy.channels || []
+      }
+      catch { return [] }
+    },
+
+    toggleAutomationPolicyChannel(id) {
+      let policy
+      try { policy = JSON.parse(this.automationForm.notify_policy_json || '{}') } catch { policy = {} }
+      const list = Array.isArray(policy.channel_ids) ? policy.channel_ids : []
+      policy.channel_ids = list.includes(id) ? list.filter(x => x !== id) : [...list, id]
+      if (policy.on_success === undefined) policy.on_success = true
+      if (policy.on_failure === undefined) policy.on_failure = true
+      if (policy.on_canceled === undefined) policy.on_canceled = true
+      if (policy.max_attempts === undefined) policy.max_attempts = 3
+      this.automationForm.notify_policy_json = JSON.stringify(policy, null, 2)
+    },
+
+    async saveAutomation() {
+      this.automationSaving = true
+      this.automationFormError = ''
+      try {
+        const p = this.automationPlan || {}
+        if (p.phase === 'generate' || p.phase === 'full') {
+          if (!this.automationExecutionTargetCount) throw new Error('请至少选择一个 Subject 或模型')
+          if (!(p.languages || []).length) throw new Error('请至少选择一种语言')
+        }
+        if (p.phase === 'evaluate' && !p.source_run_id && !p.manifest_path) {
+          throw new Error('请选择来源任务或填写 manifest 路径')
+        }
+        if (p.phase === 'report' && !p.source_run_id && !p.evaluation_path) {
+          throw new Error('请选择来源任务或填写评测结果路径')
+        }
+        this.refreshAutomationJSONFromPlan()
+        JSON.parse(this.automationForm.run_spec_json || '{}')
+        JSON.parse(this.automationForm.orchestrator_options_json || '{}')
+        JSON.parse(this.automationForm.notify_policy_json || '{}')
+        const id = this.automationForm.schedule_id
+        const r = await fetch(id ? `/api/automations/${id}` : '/api/automations', {
+          method: id ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...this.automationForm, use_docker: true }),
+        })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.automationFormOpen = false
+        this.showToast('定时计划已保存', 'ok')
+        await this.loadAutomations()
+      } catch(e) {
+        this.automationFormError = e.message || String(e)
+      } finally {
+        this.automationSaving = false
+      }
+    },
+
+    async deleteAutomation(id) {
+      if (!confirm('删除这个定时计划？')) return
+      const r = await fetch(`/api/automations/${id}`, { method: 'DELETE' })
+      if (!r.ok) this.showToast('删除失败', 'err')
+      await this.loadAutomations()
+    },
+
+    async triggerAutomation(id) {
+      const r = await fetch(`/api/automations/${id}/trigger`, { method: 'POST' })
+      const data = await r.json()
+      if (!r.ok) { this.showToast(data.error || '触发失败', 'err'); return }
+      this.showToast('已触发自动评测', 'ok')
+      if (data.run_id) this.openRun(data.run_id)
+      await this.loadAutomations()
+    },
+
+    channelGatewayTypes() {
+      return [
+        { type: 'webhook', label: '通用 Webhook', hint: 'POST 统一的任务 report.html 文件信息。' },
+        { type: 'bot', label: '群机器人', hint: '飞书 / 钉钉 / 企业微信机器人，统一推送任务 report.html。' },
+        { type: 'email_smtp', label: 'SMTP 邮件', hint: '通过企业邮箱或 SMTP 网关发送任务 report.html。' },
+      ]
+    },
+
+    channelDisplayType(type = this.channelForm?.type) {
+      return this.isBotChannelType(type) ? 'bot' : (type || 'webhook')
+    },
+
+    channelGatewayLabel(type) {
+      const displayType = this.channelDisplayType(type)
+      if (this.isBotChannelType(type)) return this.botProviderLabel(type)
+      return this.channelGatewayTypes().find(x => x.type === displayType)?.label || type || '未知渠道'
+    },
+
+    isDefaultChannelName(name) {
+      const value = String(name || '').trim()
+      if (!value) return true
+      return this.channelGatewayTypes().some(x => x.label === value) || ['飞书/Lark 机器人', '钉钉机器人', '企业微信机器人'].includes(value)
+    },
+
+    isBotChannelType(type) {
+      return ['feishu', 'lark', 'dingtalk', 'wecom'].includes(type)
+    },
+
+    isGenericWebhookChannel() {
+      return this.channelForm?.type === 'webhook'
+    },
+
+    isBotChannel() {
+      return this.isBotChannelType(this.channelForm?.type)
+    },
+
+    isEmailChannel() {
+      return this.channelForm?.type === 'email_smtp'
+    },
+
+    botProviderLabel(type) {
+      const labels = { feishu: '飞书/Lark 机器人', lark: '飞书/Lark 机器人', dingtalk: '钉钉机器人', wecom: '企业微信机器人' }
+      return labels[type] || '群机器人'
+    },
+
+    defaultChannelConfig(type = 'webhook') {
+      if (type === 'email_smtp') {
+        return {
+          url: '',
+          headers_text: '',
+          auth_header: '',
+          auth_env: '',
+          secret: '',
+          secret_env: '',
+          host: 'smtp.example.com',
+          port: 587,
+          username: '',
+          password: '',
+          username_env: '',
+          password_env: '',
+          from: 'utbench@example.com',
+          to_text: '',
+          bot_provider: 'feishu',
+        }
+      }
+      return {
+        url: type === 'webhook' ? 'https://example.com/webhook' : '',
+        headers_text: '',
+        auth_header: '',
+        auth_env: '',
+        secret: '',
+        secret_env: '',
+        host: '',
+        port: 587,
+        username_env: '',
+        password_env: '',
+        username: '',
+        password: '',
+        from: '',
+        to_text: '',
+        bot_provider: this.isBotChannelType(type) ? type : 'feishu',
+      }
+    },
+
+    parseHeaderLines(text) {
+      const out = {}
+      for (const line of String(text || '').split(/\r?\n/)) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        const idx = trimmed.indexOf(':')
+        if (idx <= 0) continue
+        out[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim()
+      }
+      return out
+    },
+
+    headerLinesFromObject(headers) {
+      return Object.entries(headers || {}).map(([k, v]) => `${k}: ${v}`).join('\n')
+    },
+
+    listFromLines(text) {
+      return String(text || '').split(/[\r\n,;]/).map(s => s.trim()).filter(Boolean)
+    },
+
+    channelConfigFromJSON(type, raw) {
+      let cfg = {}
+      try { cfg = JSON.parse(raw || '{}') } catch { cfg = {} }
+      const next = this.defaultChannelConfig(type)
+      next.url = cfg.url || ''
+      next.headers_text = this.headerLinesFromObject(cfg.headers)
+      next.auth_header = cfg.auth_header || ''
+      next.auth_env = cfg.auth_env || ''
+      next.bot_provider = this.isBotChannelType(type) ? type : (cfg.bot_provider || next.bot_provider || 'feishu')
+      next.secret = cfg.secret || ''
+      next.secret_env = cfg.secret_env || ''
+      next.host = cfg.host || next.host
+      next.port = Number(cfg.port || next.port || 587)
+      next.username = cfg.username || (String(cfg.username_env || '').includes('@') ? cfg.username_env : '')
+      next.password = cfg.password || (next.username && cfg.password_env ? cfg.password_env : '')
+      next.username_env = next.username ? '' : (cfg.username_env || next.username_env)
+      next.password_env = next.username ? '' : (cfg.password_env || next.password_env)
+      next.from = cfg.from || next.from
+      next.to_text = Array.isArray(cfg.to) ? cfg.to.join('\n') : ''
+      return next
+    },
+
+    buildChannelConfigJSON() {
+      const c = this.channelConfig || {}
+      const type = this.channelForm.type
+      if (type === 'email_smtp') {
+        const cfg = {
+          host: c.host || '',
+          port: Number(c.port || 587),
+          from: c.from || '',
+          to: this.listFromLines(c.to_text),
+        }
+        if (c.username || c.password) {
+          cfg.username = c.username || ''
+          cfg.password = c.password || ''
+        } else {
+          if (c.username_env) cfg.username_env = c.username_env
+          if (c.password_env) cfg.password_env = c.password_env
+        }
+        return JSON.stringify(cfg, null, 2)
+      }
+      const cfg = {
+        url: c.url || '',
+        headers: this.parseHeaderLines(c.headers_text),
+      }
+      if (type === 'webhook') {
+        if (c.auth_header) cfg.auth_header = c.auth_header
+        if (c.auth_env) cfg.auth_env = c.auth_env
+      }
+      if (type === 'feishu' || type === 'lark' || type === 'dingtalk') {
+        if (c.secret) cfg.secret = c.secret
+        if (c.secret_env) cfg.secret_env = c.secret_env
+      }
+      return JSON.stringify(cfg, null, 2)
+    },
+
+    refreshChannelConfigJSON() {
+      this.channelForm.config_json = this.buildChannelConfigJSON()
+    },
+
+    setChannelType(type) {
+      const prevName = this.channelForm.name
+      const nextType = type === 'bot' ? (this.channelConfig?.bot_provider || 'feishu') : type
+      this.channelForm.type = nextType
+      this.channelConfig = this.defaultChannelConfig(nextType)
+      if (this.isDefaultChannelName(prevName)) this.channelForm.name = this.channelGatewayLabel(nextType)
+      this.refreshChannelConfigJSON()
+    },
+
+    setBotProvider(provider) {
+      const prevName = this.channelForm.name
+      const previous = this.channelConfig || {}
+      this.channelForm.type = provider
+      this.channelConfig = { ...this.defaultChannelConfig(provider), ...previous, bot_provider: provider }
+      if (this.isDefaultChannelName(prevName)) this.channelForm.name = this.channelGatewayLabel(provider)
+      this.refreshChannelConfigJSON()
+    },
+
+    toggleChannelAdvanced() {
+      this.refreshChannelConfigJSON()
+      this.channelAdvancedOpen = !this.channelAdvancedOpen
+    },
+
+    openChannelForm() {
+      this.channelFormError = ''
+      this.channelAdvancedOpen = false
+      this.channelForm = { name: '', type: 'webhook', enabled: true, config_json: '{}' }
+      this.channelConfig = this.defaultChannelConfig(this.channelForm.type)
+      this.channelForm.name = this.channelGatewayLabel(this.channelForm.type)
+      this.refreshChannelConfigJSON()
+      this.channelFormOpen = true
+    },
+
+    async editChannel(channel) {
+      this.channelFormError = ''
+      this.channelAdvancedOpen = false
+      let detail = channel
+      if (channel?.channel_id) {
+        try {
+          const r = await fetch(`/api/notification-channels/${encodeURIComponent(channel.channel_id)}`, { cache: 'no-store' })
+          if (r.ok) detail = await r.json()
+        } catch {}
+      }
+      this.channelForm = { ...detail }
+      if (this.channelForm.type === 'openclaw_gateway' || this.channelForm.type === 'notification_gateway') {
+        this.channelForm.type = 'webhook'
+      }
+      if (!this.channelForm.config_json) this.channelForm.config_json = '{}'
+      this.channelConfig = this.channelConfigFromJSON(this.channelForm.type, this.channelForm.config_json)
+      this.refreshChannelConfigJSON()
+      this.channelFormOpen = true
+    },
+
+    async saveChannel() {
+      this.channelFormError = ''
+      try {
+        this.refreshChannelConfigJSON()
+        const cfg = JSON.parse(this.channelForm.config_json || '{}')
+        if (!String(this.channelForm.name || '').trim()) throw new Error('请填写渠道名称')
+        if (this.isEmailChannel()) {
+          if (!cfg.host || !cfg.from || !Array.isArray(cfg.to) || !cfg.to.length) throw new Error('请填写 SMTP host、发件人和收件人')
+        } else if (this.isBotChannel()) {
+          if (!cfg.url) throw new Error('请填写机器人 Webhook URL')
+        } else if (!cfg.url) {
+          throw new Error('请填写 Webhook / 网关 URL')
+        }
+        const id = this.channelForm.channel_id
+        const r = await fetch(id ? `/api/notification-channels/${id}` : '/api/notification-channels', {
+          method: id ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.channelForm),
+        })
+        const data = await r.json()
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.channelFormOpen = false
+        this.showToast('通知渠道已保存', 'ok')
+        await this.loadAutomations()
+      } catch(e) {
+        this.channelFormError = e.message || String(e)
+      }
+    },
+
+    isChannelTesting(id) {
+      return !!id && this.channelTesting?.[id] === true
+    },
+
+    async testChannel(id) {
+      if (!id || this.isChannelTesting(id)) return
+      this.channelTesting = { ...this.channelTesting, [id]: true }
+      this.channelTestResults = { ...this.channelTestResults, [id]: null }
+      this.showToast('正在测试通知渠道...', 'warn')
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 180000)
+      try {
+        const r = await fetch(`/api/notification-channels/${encodeURIComponent(id)}/test`, { method: 'POST', signal: ctrl.signal })
+        const data = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(data.error || '通知测试失败')
+        this.channelTestResults = { ...this.channelTestResults, [id]: { ok: true, message: data.response_summary || '连接测试成功', at: new Date().toLocaleTimeString() } }
+        this.showToast('通知测试成功', 'ok')
+        await this.loadAutomations()
+      } catch(e) {
+        const message = e.name === 'AbortError' ? '测试超时，请检查网络、SMTP/Webhook 地址或报告附件大小' : (e.message || String(e))
+        this.channelTestResults = { ...this.channelTestResults, [id]: { ok: false, message, at: new Date().toLocaleTimeString() } }
+        this.showToast('通知测试失败：' + message, 'err', 6000)
+      } finally {
+        clearTimeout(timer)
+        this.channelTesting = { ...this.channelTesting, [id]: false }
+      }
+    },
+
+    async deleteChannel(id) {
+      if (!id || !confirm('删除这个通知渠道？')) return
+      const r = await fetch(`/api/notification-channels/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) { this.showToast(data.error || '删除通知渠道失败', 'err'); return }
+      if (this.channelForm?.channel_id === id) this.channelFormOpen = false
+      this.showToast('通知渠道已删除', 'ok')
+      await this.loadAutomations()
+    },
+
     async loadDBResults() {
       const q = new URLSearchParams()
       if (this.dbFilters.run_id) q.set('run_id', this.dbFilters.run_id)
@@ -1314,6 +1927,7 @@ function app() {
       this.stopSSE(); this.page = id; this.syncPageVisibility()
       if (id === 'models') this.loadModels()
       if (id === 'agents') { this.loadAPIKeys(); this.loadModels(); this.loadEnv() }
+      if (id === 'automations') this.loadAutomations()
       if (id === 'database') this.loadDBTabData()
       if (id === 'environment') {
         if (!this.environment) this.loadEnvironment()
@@ -1321,7 +1935,7 @@ function app() {
       }
     },
     get pageTitle() {
-      const map = { dashboard:'总览', 'new-run':'新建任务', runs:'任务列表', agents:'Agent 接入', database:'数据库', 'run-detail':'任务详情', environment:'环境检查', models:'模型管理' }
+      const map = { dashboard:'总览', 'new-run':'新建任务', runs:'任务列表', automations:'定时任务', agents:'Agent 接入', database:'数据库', 'run-detail':'任务详情', environment:'环境检查', models:'模型管理' }
       return map[this.page] ?? ''
     },
 
@@ -2275,7 +2889,7 @@ function app() {
       }
     },
     syncPageVisibility() {
-      const pages = ['dashboard', 'new-run', 'runs', 'agents', 'database', 'environment', 'models', 'run-detail']
+      const pages = ['dashboard', 'new-run', 'runs', 'automations', 'agents', 'database', 'environment', 'models', 'run-detail']
       const modals = ['model-form-modal', 'agent-form-modal', 'skill-form-modal', 'build-image-modal']
       requestAnimationFrame(() => {
         for (const id of pages) {
@@ -2587,6 +3201,9 @@ function app() {
       if (!t) return '—'
       return new Date(t).toLocaleString('zh-CN', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
     },
+    formatDate(t) {
+      return this.fmtTime(t)
+    },
     duration(start, end) {
       if (!start) return '—'
       const ms = (end ? new Date(end) : new Date()) - new Date(start)
@@ -2706,3 +3323,4 @@ function pctColor(v) {
   if (v >= .6) return 'pct-warn'
   return 'pct-bad'
 }
+

@@ -1,0 +1,492 @@
+<div class="max-w-none animate-fadeUp space-y-4">
+  <section class="automation-hero">
+    <div>
+      <div class="db-eyebrow">Automation</div>
+      <div class="db-title">定时评测与通知</div>
+      <p class="agent-muted mt-2">按固定周期或 Cron 触发评测，完成后通过 Webhook / SMTP 推送结果。</p>
+    </div>
+    <div class="agent-hero-actions">
+      <button class="btn-ghost" @click="loadAutomations()">刷新</button>
+      <button class="btn-primary" @click="openAutomationForm()">新建计划</button>
+    </div>
+  </section>
+
+  <div class="automation-grid automation-workzone">
+    <section class="form-section automation-pane">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <div class="section-title m-0">计划列表</div>
+          <p class="agent-muted mt-1">计划默认强制 Docker 运行，避免定时任务绕过评测工具链。</p>
+        </div>
+        <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg-muted)" x-text="`${automations.length} 个计划`"></span>
+      </div>
+      <div class="automation-list automation-scroll-list">
+        <template x-for="item in automations" :key="item.schedule_id">
+          <article class="automation-card">
+            <div class="automation-card-main">
+              <div class="flex items-center gap-2 flex-wrap">
+                <strong x-text="item.name"></strong>
+                <span class="tag-pill" :style="item.enabled ? 'background:var(--success-bg);color:var(--green)' : 'background:var(--badge-bg);color:var(--fg-muted)'" x-text="item.enabled ? '启用' : '停用'"></span>
+                <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg-muted)" x-text="item.trigger_type === 'cron' ? item.cron_expr : `${item.interval_seconds}s`"></span>
+              </div>
+              <div class="agent-muted mt-2" x-text="item.description || '无描述'"></div>
+              <div class="automation-meta mt-3">
+                <span>下次：<b x-text="fmtTime(item.next_fire_at_utc)"></b></span>
+                <span>上次：<b x-text="fmtTime(item.last_fire_at_utc)"></b></span>
+                <span>Docker：<b x-text="item.use_docker ? '是' : '否'"></b></span>
+              </div>
+            </div>
+            <div class="automation-actions">
+              <button class="btn-primary py-1.5 px-3" @click="triggerAutomation(item.schedule_id)">立即触发</button>
+              <button class="btn-ghost py-1.5 px-3" @click="editAutomation(item)">编辑</button>
+              <button class="text-red-500 text-[12px]" @click="deleteAutomation(item.schedule_id)">删除</button>
+            </div>
+          </article>
+        </template>
+        <div x-show="!automations.length" class="agent-empty">还没有定时计划。</div>
+      </div>
+    </section>
+
+    <section class="form-section automation-pane">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <div class="section-title m-0">通知渠道</div>
+          <p class="agent-muted mt-1">配置 Webhook 或 SMTP 邮箱，计划可选择多个渠道。</p>
+        </div>
+        <button class="btn-primary py-1.5 px-3" @click="openChannelForm()">添加渠道</button>
+      </div>
+      <div class="automation-list compact automation-scroll-list">
+        <template x-for="channel in notificationChannels" :key="channel.channel_id">
+          <article class="automation-channel-row">
+            <div>
+              <strong x-text="channel.name"></strong>
+              <div class="automation-meta mt-1">
+                <span x-text="channelGatewayLabel(channel.type)"></span>
+                <span :class="channel.enabled ? 'status-enabled' : 'status-disabled'" x-text="channel.enabled ? '已启用' : '已停用'"></span>
+              </div>
+              <div x-show="channelTestResults[channel.channel_id]" class="channel-test-result mt-2" :class="channelTestResults[channel.channel_id]?.ok ? 'ok' : 'err'">
+                <span x-text="channelTestResults[channel.channel_id]?.ok ? '测试成功' : '测试失败'"></span>
+                <em x-text="channelTestResults[channel.channel_id]?.at"></em>
+                <code x-text="channelTestResults[channel.channel_id]?.message"></code>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button class="btn-ghost py-1 px-2" :disabled="isChannelTesting(channel.channel_id)" @click.prevent.stop="testChannel(channel.channel_id)" x-text="isChannelTesting(channel.channel_id) ? '测试中' : '测试'"></button>
+              <button class="btn-ghost py-1 px-2" @click="editChannel(channel)">编辑</button>
+              <button class="btn-ghost py-1 px-2 danger" @click="deleteChannel(channel.channel_id)">删除</button>
+            </div>
+          </article>
+        </template>
+        <div x-show="!notificationChannels.length" class="agent-empty">暂无通知渠道。</div>
+      </div>
+    </section>
+  </div>
+
+  <section class="form-section">
+    <div class="flex items-center justify-between gap-3 mb-3">
+      <div>
+        <div class="section-title m-0">最近自动执行</div>
+        <p class="agent-muted mt-1">点击带 Run ID 的记录可进入任务详情。</p>
+      </div>
+      <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg-muted)" x-text="`${automationRecentRuns.length} 条`"></span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="data-table">
+        <thead><tr><th>计划</th><th>Run ID</th><th>来源</th><th>状态</th><th>开始</th><th>结束</th></tr></thead>
+        <tbody>
+          <template x-for="run in automationRecentRuns" :key="run.automation_run_id">
+            <tr @click="run.run_id && openRun(run.run_id)">
+              <td x-text="automationName(run.schedule_id)"></td>
+              <td class="font-mono" x-text="run.run_id || '—'"></td>
+              <td x-text="run.trigger_source"></td>
+              <td x-text="run.status"></td>
+              <td x-text="fmtTime(run.started_at_utc)"></td>
+              <td x-text="fmtTime(run.ended_at_utc)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div x-show="!automationRecentRuns.length" class="agent-empty mt-3">暂无自动执行记录。</div>
+    </div>
+  </section>
+
+  <section class="form-section">
+    <div class="flex items-center justify-between gap-3 mb-3">
+      <div>
+        <div class="section-title m-0">通知投递审计</div>
+        <p class="agent-muted mt-1">记录每次推送的渠道、尝试次数和响应摘要，敏感 URL 参数会被脱敏。</p>
+      </div>
+      <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg-muted)" x-text="`${notificationDeliveries.length} 条`"></span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="data-table">
+        <thead><tr><th>渠道</th><th>状态</th><th>尝试</th><th>请求</th><th>响应 / 错误</th><th>时间</th></tr></thead>
+        <tbody>
+          <template x-for="item in notificationDeliveries" :key="item.delivery_id">
+            <tr>
+              <td x-text="notificationChannels.find(c => c.channel_id === item.channel_id)?.name || item.channel_id"></td>
+              <td x-text="item.status"></td>
+              <td x-text="item.attempt"></td>
+              <td class="font-mono text-[11px]" x-text="item.request_summary || '—'"></td>
+              <td class="font-mono text-[11px]" x-text="item.error || item.response_summary || '—'"></td>
+              <td x-text="fmtTime(item.delivered_at_utc || item.created_at_utc)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div x-show="!notificationDeliveries.length" class="agent-empty mt-3">暂无通知投递记录。</div>
+    </div>
+  </section>
+
+  <template x-teleport="body">
+  <div x-show="automationFormOpen" x-cloak class="global-modal-backdrop flex items-center justify-center">
+    <div class="automation-modal">
+      <div class="agent-modal-head">
+        <div>
+          <div class="db-eyebrow">Schedule</div>
+          <h3 class="text-lg font-semibold" x-text="automationForm.schedule_id ? '编辑计划' : '新建计划'"></h3>
+        </div>
+        <button class="btn-ghost" @click="automationFormOpen=false">关闭</button>
+      </div>
+      <div class="automation-modal-body automation-builder-body">
+        <div class="automation-builder-grid">
+          <div class="automation-builder-main">
+            <section class="automation-subsection">
+              <div class="section-title">调度设置</div>
+              <div class="grid grid-cols-3 gap-3">
+                <div><label class="label-text">名称</label><input class="input-base" x-model="automationForm.name" placeholder="每日评测计划"></div>
+                <div><label class="label-text">时区</label><input class="input-base" x-model="automationForm.timezone"></div>
+                <div><label class="label-text">并发策略</label><select class="input-base" x-model="automationForm.concurrency_policy"><option value="skip">已有运行则跳过</option><option value="parallel">允许并行</option></select></div>
+                <div><label class="label-text">触发类型</label><select class="input-base" x-model="automationForm.trigger_type"><option value="interval">固定间隔</option><option value="cron">Cron</option></select></div>
+                <div x-show="automationForm.trigger_type === 'interval'"><label class="label-text">间隔秒</label><input class="input-base" type="number" min="60" x-model.number="automationForm.interval_seconds"></div>
+                <div x-show="automationForm.trigger_type === 'cron'"><label class="label-text">Cron</label><input class="input-base" x-model="automationForm.cron_expr" placeholder="0 9 * * *"></div>
+              </div>
+              <div class="mt-3"><label class="label-text">描述</label><input class="input-base" x-model="automationForm.description" placeholder="说明这个计划覆盖哪些模型/场景"></div>
+              <div class="mt-3 flex items-center gap-3 flex-wrap">
+                <label class="chip" :class="automationForm.enabled ? 'active' : ''"><input type="checkbox" x-model="automationForm.enabled">启用计划</label>
+                <label class="chip active"><input type="checkbox" checked disabled>Docker 运行</label>
+              </div>
+            </section>
+
+            <section class="automation-subsection">
+              <div class="section-title">任务流程</div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="label-text">模式</label>
+                  <select class="input-base" x-model="automationPlan.mode">
+                    <option value="full">完整</option>
+                    <option value="generate">仅生成</option>
+                    <option value="evaluate">仅评测</option>
+                    <option value="report">仅报告</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="label-text">执行阶段</label>
+                  <select class="input-base" x-model="automationPlan.phase">
+                    <option value="full">全量运行（生成 -> 评测 -> 报告）</option>
+                    <option value="generate">生成测试</option>
+                    <option value="evaluate">重新评测</option>
+                    <option value="report">重新生成报告</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <section class="automation-subsection" x-show="automationPlan.phase === 'evaluate' || automationPlan.phase === 'report'">
+              <div class="section-title">数据源</div>
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label class="label-text">来源任务</label>
+                  <select class="input-base" x-model="automationPlan.source_run_id">
+                    <option value="">手动填写路径</option>
+                    <template x-for="r in completedRuns" :key="r.run_id"><option :value="r.run_id" x-text="r.run_id"></option></template>
+                  </select>
+                </div>
+                <div x-show="automationPlan.phase === 'evaluate'"><label class="label-text">Manifest 路径</label><input class="input-base" x-model="automationPlan.manifest_path" placeholder="generated_tests/manifest.json"></div>
+                <div x-show="automationPlan.phase === 'report'"><label class="label-text">评测结果路径</label><input class="input-base" x-model="automationPlan.evaluation_path" placeholder="evaluation/evaluation_result.json"></div>
+              </div>
+            </section>
+
+            <section class="automation-subsection" x-show="automationPlan.phase === 'full' || automationPlan.phase === 'generate'">
+              <div class="flex items-center justify-between gap-3 mb-3">
+                <div>
+                  <div class="section-title m-0">被测对象 Subject</div>
+                  <p class="agent-muted mt-1">和新建任务一致，自由组合 Framework + Model + Skill。每行生成一个 Subject。</p>
+                </div>
+                <button type="button" class="btn-primary py-1.5 px-3" @click="addAutomationCombination()">添加组合</button>
+              </div>
+              <div x-show="config?.agents_config_error" class="mb-3 rounded-lg p-3 text-[12px]" style="background:var(--badge-bg);border:1px solid var(--border);color:var(--fg-muted)">
+                <strong>Agents Config:</strong> <span x-text="config?.agents_config_error"></span>
+                <br>当前仅支持 model_api（纯 API 模式）。如需 Framework/Skill，请确保启动时指定了 <code class="font-mono">--agents-config</code>。
+              </div>
+              <div class="automation-combo-list">
+                <template x-for="(combo, idx) in (automationPlan.combinations || [])" :key="combo._id">
+                  <div class="automation-combo-row">
+                    <select class="input-base text-[12px]" x-model="combo.framework" @change="onAutomationCombinationFrameworkChange(idx)">
+                      <template x-for="fw in _comboFrameworks()" :key="fw.value"><option :value="fw.value" x-text="fw.label"></option></template>
+                    </select>
+                    <select class="input-base text-[12px]" x-model="combo.model" @change="onAutomationCombinationModelChange()">
+                      <template x-for="m in _comboModels(combo.framework)" :key="m"><option :value="m" x-text="comboModelOptionLabel(m)"></option></template>
+                    </select>
+                    <select class="input-base text-[12px]" x-model="combo.skill">
+                      <template x-for="sk in _comboSkills(combo.framework)" :key="sk"><option :value="sk" x-text="sk"></option></template>
+                    </select>
+                    <code x-text="buildSubjectId(combo)"></code>
+                    <button type="button" class="btn-ghost py-1 px-2" :disabled="(automationPlan.combinations || []).length <= 1" @click="removeAutomationCombination(idx)">×</button>
+                  </div>
+                </template>
+              </div>
+              <div class="automation-plan-hint mt-3">
+                <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg)">已选 Subject <span x-text="automationSubjectCount"></span></span>
+                <span class="tag-pill" style="background:var(--badge-bg);color:var(--fg)">有效被测对象 <span x-text="automationExecutionTargetCount"></span></span>
+                <span x-text="automationSubjectCount ? '计划会按这些 Subject 定时运行，模型配置由 Subject 自动补齐。' : '未选择 Subject 时可使用下面的模型 Baseline。'"></span>
+              </div>
+            </section>
+
+            <section class="automation-subsection" x-show="automationPlan.phase === 'full' || automationPlan.phase === 'generate'">
+              <div class="section-title">模型 Baseline / 兼容回退</div>
+              <div x-show="automationSubjectCount > 0" class="agent-muted mb-3">当前已选择 Subject 组合，模型配置会随 Subject 自动补齐；Baseline 勾选只在未选择 Subject 时启用。</div>
+              <div class="flex flex-wrap gap-2.5">
+                <template x-for="m in config?.models ?? []" :key="m.name">
+                  <label :class="(automationPlan.models || []).includes(m.name) ? 'active' : ''" class="chip" :style="automationSubjectCount > 0 ? 'opacity:.55;pointer-events:none' : ''">
+                    <input type="checkbox" :value="m.name" x-model="automationPlan.models" class="w-3.5 h-3.5" :disabled="automationSubjectCount > 0">
+                    <span class="inline-block w-2 h-2 rounded-full shrink-0" :style="m.api_key_set ? 'background:var(--green)' : 'background:var(--red)'"></span>
+                    <span x-text="m.name" class="font-medium"></span>
+                    <span x-text="m.model_id" class="text-[11px]" style="color:var(--fg-muted)"></span>
+                  </label>
+                </template>
+              </div>
+            </section>
+
+            <section class="automation-subsection" x-show="automationPlan.phase === 'full' || automationPlan.phase === 'generate'">
+              <div class="section-title">语言</div>
+              <div class="flex flex-wrap gap-2.5">
+                <template x-for="lang in config?.languages ?? []" :key="lang">
+                  <label :class="(automationPlan.languages || []).includes(lang) ? 'active' : ''" class="chip">
+                    <input type="checkbox" :value="lang" x-model="automationPlan.languages" class="w-3.5 h-3.5">
+                    <span x-text="lang"></span>
+                  </label>
+                </template>
+              </div>
+            </section>
+
+            <section class="automation-subsection" x-show="automationPlan.phase === 'full' || automationPlan.phase === 'generate'">
+              <div class="section-title">数据集筛选</div>
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label class="label-text">类型</label>
+                  <select x-model="automationPlan.class" class="input-base">
+                    <option value="">全部</option>
+                    <template x-for="c in config?.classes ?? []" :key="c"><option :value="c" x-text="c"></option></template>
+                  </select>
+                </div>
+                <div>
+                  <label class="label-text">场景</label>
+                  <select x-model="automationPlan.scenario" class="input-base">
+                    <option value="">全部场景</option>
+                    <template x-for="sc in config?.scenarios ?? []" :key="sc"><option :value="sc" x-text="sc"></option></template>
+                  </select>
+                </div>
+                <div><label class="label-text">等级</label><input x-model="automationPlan.level" type="text" placeholder="l1, l2..." class="input-base"></div>
+              </div>
+            </section>
+
+            <section class="automation-subsection">
+              <div class="section-title">执行设置</div>
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label class="label-text">每语言/场景样本上限 <span style="color:var(--fg-subtle)">（0 = 无限制）</span></label>
+                  <input x-model.number="automationPlan.max_samples" type="number" min="0" class="input-base">
+                </div>
+                <div><label class="label-text">并发数 <span style="color:var(--fg-subtle)">（0 = 自动）</span></label><input x-model.number="automationPlan.workers" type="number" min="0" class="input-base"></div>
+                <div><label class="label-text">变异超时秒</label><input x-model.number="automationPlan.mutation_timeout" type="number" min="0" class="input-base"></div>
+              </div>
+              <div class="mt-3 grid grid-cols-2 gap-x-5 gap-y-3">
+                <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors"><input type="checkbox" x-model="automationPlan.dry_run" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)"><div><div class="text-[13px] font-medium">空跑模式</div><div class="agent-muted">跳过真实 API 调用</div></div></label>
+                <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors"><input type="checkbox" x-model="automationPlan.mutation_enabled" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)"><div><div class="text-[13px] font-medium">变异测试</div><div class="agent-muted">启用变异分析</div></div></label>
+                <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors"><input type="checkbox" x-model="automationPlan.reuse_generated" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)"><div><div class="text-[13px] font-medium">复用生成结果</div><div class="agent-muted">已生成样本存在时跳过生成</div></div></label>
+                <label class="flex items-start gap-3 cursor-pointer p-2 -m-2 rounded-lg hover-surface transition-colors"><input type="checkbox" x-model="automationPlan.ingest" class="w-4 h-4 mt-0.5" style="accent-color:var(--accent)"><div><div class="text-[13px] font-medium">入库保存</div><div class="agent-muted">完成后写入 SQLite</div></div></label>
+              </div>
+            </section>
+
+            <section class="automation-subsection">
+              <div class="section-title">通知</div>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="channel in notificationChannels" :key="channel.channel_id">
+                  <button class="chip" :class="automationPolicyChannels.includes(channel.channel_id) ? 'active' : ''" @click.prevent="toggleAutomationPolicyChannel(channel.channel_id)" x-text="channel.name"></button>
+                </template>
+              </div>
+              <div x-show="!notificationChannels.length" class="agent-muted">暂无通知渠道，可先关闭计划弹窗后添加 Webhook 或 SMTP 渠道。</div>
+            </section>
+
+            <section class="automation-subsection">
+              <button class="automation-advanced-toggle" @click="automationAdvancedOpen = !automationAdvancedOpen">
+                <span>高级 JSON 预览</span><em x-text="automationAdvancedOpen ? '收起' : '展开'"></em>
+              </button>
+              <div x-show="automationAdvancedOpen" x-transition class="automation-advanced-panel mt-3">
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="label-text">RunSpec（由上方表单生成）</label>
+                    <pre class="automation-json-preview" x-text="JSON.stringify(buildAutomationRunSpecFromPlan(), null, 2)"></pre>
+                  </div>
+                  <div>
+                    <label class="label-text">Orchestrator Options（由上方表单生成）</label>
+                    <pre class="automation-json-preview small" x-text="JSON.stringify(buildAutomationOptionsFromPlan(), null, 2)"></pre>
+                    <label class="label-text mt-3">通知策略 JSON</label>
+                    <textarea class="input-base automation-json small" x-model="automationForm.notify_policy_json"></textarea>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <aside class="automation-builder-side">
+            <div class="automation-summary-panel">
+              <div class="section-title">计划摘要</div>
+              <div class="automation-summary-row"><span>执行阶段</span><b x-text="automationPlan.phase"></b></div>
+              <div class="automation-summary-row"><span>被测对象</span><b x-text="automationExecutionTargetCount"></b></div>
+              <div class="automation-summary-row"><span>语言</span><b x-text="(automationPlan.languages || []).length"></b></div>
+              <div class="automation-summary-row"><span>预计任务</span><b x-text="automationEstimatedTaskCount"></b></div>
+              <div class="automation-summary-row"><span>Docker</span><b>强制开启</b></div>
+              <p class="agent-muted mt-3" x-text="automationEstimatedTaskFormula"></p>
+            </div>
+            <div class="automation-summary-panel">
+              <div class="section-title">触发</div>
+              <div class="automation-summary-row"><span>类型</span><b x-text="automationForm.trigger_type"></b></div>
+              <div class="automation-summary-row"><span>间隔 / Cron</span><b x-text="automationForm.trigger_type === 'cron' ? automationForm.cron_expr : `${automationForm.interval_seconds}s`"></b></div>
+              <div class="automation-summary-row"><span>渠道</span><b x-text="automationPolicyChannels.length"></b></div>
+            </div>
+          </aside>
+        </div>
+
+        <div x-show="automationFormError" class="skill-error" x-text="automationFormError"></div>
+        <div class="mt-4 flex justify-end gap-2">
+          <button class="btn-ghost" @click="automationFormOpen=false">取消</button>
+          <button class="btn-primary" :disabled="automationSaving" @click="saveAutomation()">保存计划</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+
+  <template x-teleport="body">
+  <div x-show="channelFormOpen" x-cloak class="global-modal-backdrop flex items-center justify-center">
+    <div class="automation-modal gateway-modal">
+      <div class="agent-modal-head">
+        <div>
+          <div class="db-eyebrow">Notification Gateway</div>
+          <h3 class="text-lg font-semibold" x-text="channelForm.channel_id ? '编辑通知接入' : '添加通知接入'"></h3>
+        </div>
+        <button class="btn-ghost" @click="channelFormOpen=false">关闭</button>
+      </div>
+      <div class="automation-modal-body gateway-body">
+        <section class="gateway-picker">
+          <div class="section-title">投递方式</div>
+          <p class="agent-muted mt-1">先选投递方式，再填写该方式的必要字段；三种方式统一发送任务的 report.html 文件信息。</p>
+          <div class="gateway-type-grid mt-3">
+            <button type="button" class="gateway-type-card" :class="channelDisplayType(channelForm.type) === 'webhook' ? 'active' : ''" @click.prevent="setChannelType('webhook')">
+              <strong>通用 Webhook</strong>
+              <span>POST 任务 report.html 文件信息，适合 n8n、自建服务或网关。</span>
+            </button>
+            <button type="button" class="gateway-type-card" :class="channelDisplayType(channelForm.type) === 'bot' ? 'active' : ''" @click.prevent="setChannelType('bot')">
+              <strong>群机器人</strong>
+              <span>飞书 / 钉钉 / 企业微信机器人，统一推送任务 report.html。</span>
+            </button>
+            <button type="button" class="gateway-type-card" :class="channelDisplayType(channelForm.type) === 'email_smtp' ? 'active' : ''" @click.prevent="setChannelType('email_smtp')">
+              <strong>SMTP 邮件</strong>
+              <span>通过企业邮箱或 SMTP 网关发送任务 report.html。</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="gateway-config">
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="label-text">渠道名称</label><input class="input-base" x-model="channelForm.name" placeholder="生产评测通知"></div>
+            <div>
+              <label class="label-text">当前协议</label>
+              <div class="gateway-current-type" x-text="channelGatewayLabel(channelForm.type)"></div>
+            </div>
+          </div>
+          <label class="chip mt-3" :class="channelForm.enabled ? 'active' : ''"><input type="checkbox" x-model="channelForm.enabled">启用</label>
+
+          <div class="gateway-fields mt-4" x-show="isGenericWebhookChannel()">
+            <div>
+              <label class="label-text">Webhook URL</label>
+              <input class="input-base" x-model="channelConfig.url" @input="refreshChannelConfigJSON()" placeholder="https://...">
+            </div>
+            <div class="grid grid-cols-2 gap-3 mt-3">
+              <div>
+                <label class="label-text">认证 Header（可选）</label>
+                <input class="input-base" x-model="channelConfig.auth_header" @input="refreshChannelConfigJSON()" placeholder="Authorization">
+              </div>
+              <div>
+                <label class="label-text">Token 环境变量（可选）</label>
+                <input class="input-base" x-model="channelConfig.auth_env" @input="refreshChannelConfigJSON()" placeholder="UTBENCH_NOTIFY_TOKEN">
+              </div>
+            </div>
+            <div class="mt-3">
+              <label class="label-text">额外 Header（每行 key: value，可选）</label>
+              <textarea class="input-base gateway-lines" x-model="channelConfig.headers_text" @input="refreshChannelConfigJSON()" placeholder="X-Source: utbench"></textarea>
+            </div>
+            <p class="agent-muted mt-3">发送内容固定包含任务状态、Run ID 和 report.html 文件路径。</p>
+          </div>
+
+          <div class="gateway-fields mt-4" x-show="isBotChannel()">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="label-text">机器人类型</label>
+                <select class="input-base" x-model="channelConfig.bot_provider" @change="setBotProvider(channelConfig.bot_provider)">
+                  <option value="feishu">飞书 / Lark</option>
+                  <option value="dingtalk">钉钉</option>
+                  <option value="wecom">企业微信</option>
+                </select>
+              </div>
+              <div>
+                <label class="label-text">机器人 Webhook URL</label>
+                <input class="input-base" x-model="channelConfig.url" @input="refreshChannelConfigJSON()" placeholder="https://...">
+              </div>
+              <div>
+                <label class="label-text">签名密钥（可选）</label>
+                <input class="input-base" x-model="channelConfig.secret" @input="refreshChannelConfigJSON()" placeholder="直接填密钥，不推荐持久化">
+              </div>
+              <div>
+                <label class="label-text">签名密钥环境变量（推荐）</label>
+                <input class="input-base" x-model="channelConfig.secret_env" @input="refreshChannelConfigJSON()" placeholder="DINGTALK_SECRET">
+              </div>
+            </div>
+            <div class="mt-3">
+              <label class="label-text">额外 Header（每行 key: value，可选）</label>
+              <textarea class="input-base gateway-lines" x-model="channelConfig.headers_text" @input="refreshChannelConfigJSON()" placeholder="X-Source: utbench"></textarea>
+            </div>
+            <p class="agent-muted mt-3">机器人消息统一推送任务 report.html 文件路径。</p>
+          </div>
+
+          <div class="gateway-fields mt-4" x-show="isEmailChannel()">
+            <div class="grid grid-cols-2 gap-3">
+              <div><label class="label-text">SMTP Host</label><input class="input-base" x-model="channelConfig.host" @input="refreshChannelConfigJSON()" placeholder="smtp.example.com"></div>
+              <div><label class="label-text">端口</label><input class="input-base" type="number" x-model.number="channelConfig.port" @input="refreshChannelConfigJSON()"></div>
+              <div><label class="label-text">SMTP 用户名</label><input class="input-base" x-model="channelConfig.username" @input="refreshChannelConfigJSON()" placeholder="name@example.com"></div>
+              <div><label class="label-text">SMTP 授权码 / 密码</label><input class="input-base" type="password" x-model="channelConfig.password" @input="refreshChannelConfigJSON()" placeholder="邮箱授权码"></div>
+              <div><label class="label-text">发件人</label><input class="input-base" x-model="channelConfig.from" @input="refreshChannelConfigJSON()" placeholder="utbench@example.com"></div>
+              <div><label class="label-text">收件人（逗号或换行分隔）</label><textarea class="input-base gateway-lines" x-model="channelConfig.to_text" @input="refreshChannelConfigJSON()" placeholder="team@example.com"></textarea></div>
+            </div>
+          </div>
+
+          <button type="button" class="automation-advanced-toggle mt-4" @click.prevent="toggleChannelAdvanced()">
+            <span>配置 JSON 预览</span><em x-text="channelAdvancedOpen ? '收起' : '展开'"></em>
+          </button>
+          <div x-show="channelAdvancedOpen" x-transition class="automation-advanced-panel mt-3">
+            <textarea class="input-base automation-json small" x-model="channelForm.config_json" @input.debounce.300ms="channelConfig = channelConfigFromJSON(channelForm.type, channelForm.config_json)"></textarea>
+          </div>
+        </section>
+
+        <div x-show="channelFormError" class="skill-error" x-text="channelFormError"></div>
+        <div class="mt-4 flex justify-end gap-2">
+          <button class="btn-ghost" @click="channelFormOpen=false">取消</button>
+          <button class="btn-primary" @click="saveChannel()">保存渠道</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </template>
+</div>
