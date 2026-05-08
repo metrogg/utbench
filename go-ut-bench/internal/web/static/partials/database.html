@@ -343,7 +343,7 @@
             <div class="flex flex-wrap items-start gap-3 mb-4">
               <div class="mr-auto">
                 <div class="section-title">导入数据集包</div>
-                <div class="text-[12px]" style="color:var(--fg-muted)">上传 .zip 包，包内按 datasets/&lt;语言&gt;/&lt;语言&gt;_code_files_self_contained/&lt;场景&gt;/&lt;样本ID&gt;.&lt;扩展名&gt; 组织。导入后自动重建 dataset_index.json 并校验。</div>
+                <div class="text-[12px]" style="color:var(--fg-muted)">上传 .zip 包，支持 self_contained 和 repo_level 两类数据集。导入后自动重建 dataset_index.json 并校验。</div>
               </div>
               <span class="tag-pill">package import</span>
             </div>
@@ -366,6 +366,9 @@
               <div>
                 <div class="label-text">包内规范示例</div>
                 <code class="dataset-package-example">datasets/python/python_code_files_self_contained/simple_function/simple_function_050.py</code>
+                <code class="dataset-package-example mt-2">datasets/python/python_code_files_repo_level/simple_function/simple_function_050.py
+datasets/python/python_code_files_repo_level/simple_function/simple_function_050.meta.json
+datasets/python/python_code_files_repo_level/simple_function/workspace/...</code>
               </div>
             </div>
             <div x-show="datasetImportResult" class="mt-3 text-[12px] rounded-lg p-3" style="background:var(--success-bg);border:1px solid var(--border)">

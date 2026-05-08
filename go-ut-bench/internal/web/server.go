@@ -3064,10 +3064,11 @@ func normalizeDatasetPackagePath(name string) (string, bool) {
 		parts = parts[1:]
 	}
 	if len(parts) != 4 {
-		return "", false
+		return normalizeRepoLevelDatasetPackagePath(parts)
 	}
 	lang := parts[0]
-	if parts[1] != lang+"_code_files_self_contained" {
+	classDir := parts[1]
+	if classDir != lang+"_code_files_self_contained" && classDir != lang+"_code_files_repo_level" {
 		return "", false
 	}
 	scenario := parts[2]
@@ -3075,12 +3076,41 @@ func normalizeDatasetPackagePath(name string) (string, bool) {
 		return "", false
 	}
 	filename := parts[3]
+	if classDir == lang+"_code_files_repo_level" && isRepoLevelMetaFile(filename) {
+		return strings.Join(parts, "/"), true
+	}
 	ext := filepath.Ext(filename)
 	sampleID := strings.TrimSuffix(filename, ext)
 	if ext != datasetExtForLanguage(lang) || !validDatasetToken(sampleID) || !strings.HasPrefix(sampleID, scenario+"_") {
 		return "", false
 	}
 	return strings.Join(parts, "/"), true
+}
+
+func normalizeRepoLevelDatasetPackagePath(parts []string) (string, bool) {
+	if len(parts) < 5 {
+		return "", false
+	}
+	lang := parts[0]
+	if !isSupportedDatasetLanguage(lang) || parts[1] != lang+"_code_files_repo_level" || !isSupportedDatasetScenario(parts[2]) {
+		return "", false
+	}
+	if parts[3] != "workspace" {
+		return "", false
+	}
+	for _, part := range parts[4:] {
+		if part == "" || part == "." || part == ".." {
+			return "", false
+		}
+	}
+	return strings.Join(parts, "/"), true
+}
+
+func isRepoLevelMetaFile(filename string) bool {
+	if filename == "meta.json" {
+		return true
+	}
+	return strings.HasSuffix(filename, ".meta.json") && validDatasetToken(strings.TrimSuffix(filename, ".meta.json"))
 }
 
 func isSupportedDatasetLanguage(lang string) bool {
