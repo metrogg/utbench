@@ -340,6 +340,41 @@
         <!-- 资产审计Tab：低频排查信息合并展示，避免顶层标签过多 -->
         <div x-show="dbTab === 'assets'" class="space-y-5 mt-5">
           <div class="form-section">
+            <div class="flex flex-wrap items-start gap-3 mb-4">
+              <div class="mr-auto">
+                <div class="section-title">导入数据集包</div>
+                <div class="text-[12px]" style="color:var(--fg-muted)">上传 .zip 包，包内按 datasets/&lt;语言&gt;/&lt;语言&gt;_code_files_self_contained/&lt;场景&gt;/&lt;样本ID&gt;.&lt;扩展名&gt; 组织。导入后自动重建 dataset_index.json 并校验。</div>
+              </div>
+              <span class="tag-pill">package import</span>
+            </div>
+            <div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+              <div class="xl:col-span-2">
+                <div class="label-text">数据集包</div>
+                <label class="dataset-upload-drop">
+                  <input type="file" accept=".zip,application/zip" @change="importDatasetPackage($event)">
+                  <strong x-text="datasetImporting ? '导入中...' : (datasetImportFileName || '选择 .zip 数据集包')"></strong>
+                  <span>可包含 datasets/ 根目录，也可直接从 python/go/java/cpp 目录开始。</span>
+                </label>
+              </div>
+              <div>
+                <div class="label-text">导入策略</div>
+                <label class="text-[12px] inline-flex items-center gap-2" style="color:var(--fg-muted)">
+                  <input type="checkbox" x-model="datasetImportOverwrite" style="accent-color:var(--accent)">
+                  覆盖同路径样本
+                </label>
+              </div>
+              <div>
+                <div class="label-text">包内规范示例</div>
+                <code class="dataset-package-example">datasets/python/python_code_files_self_contained/simple_function/simple_function_050.py</code>
+              </div>
+            </div>
+            <div x-show="datasetImportResult" class="mt-3 text-[12px] rounded-lg p-3" style="background:var(--success-bg);border:1px solid var(--border)">
+              <div style="color:var(--green)">已导入：<span x-text="datasetImportResult?.imported || 0"></span> 个样本，跳过 <span x-text="datasetImportResult?.skipped || 0"></span> 个文件</div>
+              <div style="color:var(--fg-muted)" x-text="'索引样本数：' + (datasetImportResult?.index_samples || 0) + '，校验错误：' + ((datasetImportResult?.validation?.errors || []).length) + '，警告：' + ((datasetImportResult?.validation?.warnings || []).length)"></div>
+            </div>
+          </div>
+
+          <div class="form-section">
             <div class="section-title">Subject 资产管理</div>
             <div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
               <div>

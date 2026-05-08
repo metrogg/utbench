@@ -25,6 +25,7 @@ import (
 
 	"go-ut-bench/internal/agentconfig"
 	"go-ut-bench/internal/contracts"
+	"go-ut-bench/internal/dataset"
 	"go-ut-bench/internal/obs"
 	"go-ut-bench/internal/orchestrator"
 	"go-ut-bench/internal/reporter"
@@ -257,6 +258,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/db/evaluation-runs", s.handleDBEvaluationRuns)
 	s.mux.HandleFunc("/api/db/evaluation-stages", s.handleDBEvaluationStages)
 	s.mux.HandleFunc("/api/db/dataset-samples", s.handleDBDatasetSamples)
+	s.mux.HandleFunc("/api/db/dataset-packages", s.handleDBDatasetPackages)
 	s.mux.HandleFunc("/api/db/dataset-snapshots", s.handleDBDatasetSnapshots)
 	s.mux.HandleFunc("/api/db/asset-subjects", s.handleDBAssetSubjects)
 	s.mux.HandleFunc("/api/db/subject-versions", s.handleDBSubjectVersions)
@@ -2903,6 +2905,236 @@ func (s *Server) handleDBDatasetSamples(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, rows)
+}
+
+type datasetPackageImportResponse struct {
+	Uploaded     string                   `json:"uploaded"`
+	Imported     int                      `json:"imported"`
+	Skipped      int                      `json:"skipped"`
+	Files        []string                 `json:"files"`
+	IndexPath    string                   `json:"index_path,omitempty"`
+	IndexSamples int                      `json:"index_samples,omitempty"`
+	Validation   dataset.ValidationReport `json:"validation"`
+}
+
+func (s *Server) handleDBDatasetPackages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if err := r.ParseMultipartForm(128 << 20); err != nil {
+		errJSON(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		errJSON(w, http.StatusBadRequest, "file is required")
+		return
+	}
+	defer file.Close()
+	if !strings.EqualFold(filepath.Ext(header.Filename), ".zip") {
+		errJSON(w, http.StatusBadRequest, "dataset package must be a .zip file")
+		return
+	}
+	overwrite := strings.EqualFold(r.FormValue("overwrite"), "true") || r.FormValue("overwrite") == "1"
+
+	tmp, err := os.CreateTemp("", "utbench-dataset-*.zip")
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, "cannot create temp file: "+err.Error())
+		return
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := io.Copy(tmp, io.LimitReader(file, 128<<20)); err != nil {
+		tmp.Close()
+		errJSON(w, http.StatusInternalServerError, "cannot save upload: "+err.Error())
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		errJSON(w, http.StatusInternalServerError, "cannot close upload: "+err.Error())
+		return
+	}
+
+	datasetRoot, err := filepath.Abs(filepath.Clean(s.mgr.datasetRoot))
+	if err != nil {
+		errJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	files, skipped, err := importDatasetZip(tmpPath, datasetRoot, overwrite)
+	if err != nil {
+		errJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(files) == 0 {
+		errJSON(w, http.StatusBadRequest, "no importable dataset samples found")
+		return
+	}
+
+	ds := dataset.NewService()
+	indexPath := filepath.Join(filepath.Dir(filepath.Clean(s.configPath)), "dataset_index.json")
+	summary, indexErr := ds.BuildIndex(datasetRoot, indexPath)
+	report := ds.ValidateReadiness(dataset.ValidateOptions{DatasetRoot: datasetRoot})
+	if indexErr != nil {
+		errJSON(w, http.StatusInternalServerError, "dataset imported but index rebuild failed: "+indexErr.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, datasetPackageImportResponse{
+		Uploaded:     header.Filename,
+		Imported:     len(files),
+		Skipped:      skipped,
+		Files:        files,
+		IndexPath:    filepath.ToSlash(indexPath),
+		IndexSamples: summary.Total,
+		Validation:   report,
+	})
+}
+
+func importDatasetZip(zipPath, datasetRoot string, overwrite bool) ([]string, int, error) {
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer reader.Close()
+
+	imported := []string{}
+	skipped := 0
+	for _, f := range reader.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		rel, ok := normalizeDatasetPackagePath(f.Name)
+		if !ok {
+			skipped++
+			continue
+		}
+		target := filepath.Join(datasetRoot, filepath.FromSlash(rel))
+		if !pathWithinRoot(datasetRoot, target) {
+			return imported, skipped, fmt.Errorf("unsafe dataset path: %s", f.Name)
+		}
+		if f.UncompressedSize64 > 1_000_000 {
+			return imported, skipped, fmt.Errorf("dataset sample too large: %s", f.Name)
+		}
+		if _, err := os.Stat(target); err == nil && !overwrite {
+			skipped++
+			continue
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return imported, skipped, err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return imported, skipped, err
+		}
+		src, err := f.Open()
+		if err != nil {
+			return imported, skipped, err
+		}
+		dst, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			src.Close()
+			return imported, skipped, err
+		}
+		_, copyErr := io.Copy(dst, io.LimitReader(src, 1_000_001))
+		closeErr := dst.Close()
+		src.Close()
+		if copyErr != nil {
+			return imported, skipped, copyErr
+		}
+		if closeErr != nil {
+			return imported, skipped, closeErr
+		}
+		imported = append(imported, rel)
+	}
+	sort.Strings(imported)
+	return imported, skipped, nil
+}
+
+func normalizeDatasetPackagePath(name string) (string, bool) {
+	cleanName := filepath.ToSlash(filepath.Clean(filepath.FromSlash(name)))
+	if cleanName == "." || strings.HasPrefix(cleanName, "../") || strings.Contains(cleanName, "/../") {
+		return "", false
+	}
+	parts := strings.Split(cleanName, "/")
+	for i, part := range parts {
+		if part == "datasets" {
+			parts = parts[i+1:]
+			break
+		}
+	}
+	for len(parts) > 0 && !isSupportedDatasetLanguage(parts[0]) {
+		parts = parts[1:]
+	}
+	if len(parts) != 4 {
+		return "", false
+	}
+	lang := parts[0]
+	if parts[1] != lang+"_code_files_self_contained" {
+		return "", false
+	}
+	scenario := parts[2]
+	if !isSupportedDatasetScenario(scenario) {
+		return "", false
+	}
+	filename := parts[3]
+	ext := filepath.Ext(filename)
+	sampleID := strings.TrimSuffix(filename, ext)
+	if ext != datasetExtForLanguage(lang) || !validDatasetToken(sampleID) || !strings.HasPrefix(sampleID, scenario+"_") {
+		return "", false
+	}
+	return strings.Join(parts, "/"), true
+}
+
+func isSupportedDatasetLanguage(lang string) bool {
+	for _, item := range contracts.SupportedLanguages {
+		if lang == item {
+			return true
+		}
+	}
+	return false
+}
+
+func isSupportedDatasetScenario(scenario string) bool {
+	switch scenario {
+	case "boundary", "simple_function", "complex_dependency", "interface_mock":
+		return true
+	default:
+		return false
+	}
+}
+
+func datasetExtForLanguage(lang string) string {
+	switch lang {
+	case "python":
+		return ".py"
+	case "go":
+		return ".go"
+	case "java":
+		return ".java"
+	case "cpp":
+		return ".cpp"
+	default:
+		return ""
+	}
+}
+
+func validDatasetToken(value string) bool {
+	if value == "" || strings.Contains(value, ".") {
+		return false
+	}
+	for _, r := range value {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func pathWithinRoot(root, target string) bool {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != "" && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != "..")
 }
 
 func (s *Server) handleDBDatasetSnapshots(w http.ResponseWriter, r *http.Request) {

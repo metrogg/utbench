@@ -97,6 +97,10 @@
     dbReuseExplain: null,
     dbDatasetSamples: [],
     dbDatasetSnapshots: [],
+    datasetImporting: false,
+    datasetImportFileName: '',
+    datasetImportOverwrite: false,
+    datasetImportResult: null,
     dbModelConfigs: [],
     dbPromptProfiles: [],
     dbEvaluationEnvs: [],
@@ -1747,6 +1751,30 @@
         const r = await fetch('/api/db/dataset-snapshots?limit=50', { cache: 'no-store' })
         this.dbDatasetSnapshots = await r.json()
       } catch(e) { this.showToast('加载快照记录失败：' + e.message, 'err') }
+    },
+
+    async importDatasetPackage(evt) {
+      const file = evt?.target?.files?.[0]
+      if (!file) return
+      this.datasetImporting = true
+      this.datasetImportFileName = file.name
+      this.datasetImportResult = null
+      try {
+        const body = new FormData()
+        body.append('file', file)
+        body.append('overwrite', this.datasetImportOverwrite ? 'true' : 'false')
+        const r = await fetch('/api/db/dataset-packages', { method: 'POST', body })
+        const data = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status)
+        this.datasetImportResult = data
+        this.showToast(`已导入数据集包：${data.imported || 0} 个样本`, 'ok', 6000)
+        await Promise.all([this.loadDBDatasetSamples(), this.loadDBDatasetSnapshots()])
+      } catch(e) {
+        this.showToast('导入数据集包失败：' + (e.message || String(e)), 'err', 8000)
+      } finally {
+        this.datasetImporting = false
+        if (evt?.target) evt.target.value = ''
+      }
     },
 
     async loadDBAssetSubjects() {

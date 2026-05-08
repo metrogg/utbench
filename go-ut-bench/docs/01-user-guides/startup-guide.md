@@ -51,7 +51,21 @@ go install github.com/avito-tech/go-mutesting/cmd/go-mutesting@latest
 
 ## 2. 构建 CLI
 
-在项目根目录执行：
+先进入 Go 项目根目录再构建。仓库外层目录是 `ut-bench`，真正包含 `cmd/utbench` 的目录是 `go-ut-bench`。
+
+如果你当前在父目录：
+
+**Windows PowerShell：**
+```powershell
+cd .\go-ut-bench
+```
+
+**Linux / macOS / WSL：**
+```bash
+cd ./go-ut-bench
+```
+
+然后在 `go-ut-bench` 目录执行构建命令：
 
 **Linux / macOS / WSL：**
 ```bash
@@ -64,8 +78,14 @@ go build -o utbench.exe ./cmd/utbench/
 ```
 
 验证构建成功：
-```bash
-./utbench --help
+```powershell
+.\utbench.exe --help
+```
+
+如果你不想切换目录，也可以在父目录直接指定入口路径：
+
+```powershell
+go build -o .\go-ut-bench\utbench.exe .\go-ut-bench\cmd\utbench\
 ```
 
 ---

@@ -79,23 +79,23 @@ func printUsage() {
 	fmt.Println(`utbench - unified test-bench CLI
 
 Usage:
-  utbench run          Run full pipeline (generate -> evaluate -> report)
-  utbench generate     Generate unit tests only
-  utbench evaluate     Evaluate existing generated tests
-  utbench report       Generate reports from evaluation results
-  utbench db           Manage SQLite benchmark database
-  utbench assets       Query reusable subject/sample assets
-  utbench dataset      Dataset management (index, manifest, stats)
-  utbench doctor       Check evaluator toolchains with canary tests
-  utbench web          Launch Web management UI
-  utbench help         Show this help
+  .\utbench run          Run full pipeline (generate -> evaluate -> report)
+  .\utbench generate     Generate unit tests only
+  .\utbench evaluate     Evaluate existing generated tests
+  .\utbench report       Generate reports from evaluation results
+  .\utbench db           Manage SQLite benchmark database
+  .\utbench assets       Query reusable subject/sample assets
+  .\utbench dataset      Dataset management (index, manifest, stats)
+  .\utbench doctor       Check evaluator toolchains with canary tests
+  .\utbench web          Launch Web management UI
+  .\utbench help         Show this help
 
 Run "utbench <command> --help" for more details on a command.
 
 Quick Start:
   1. cp .env.example .env        # 填入你的 API Key
-  2. utbench doctor --langs python  # 检查环境是否就绪
-  3. utbench web --addr :8080       # 启动 Web UI 开始使用`)
+  2. .\tbench doctor --langs python  # 检查环境是否就绪
+  3. .\utbench web --addr :8080       # 启动 Web UI 开始使用`)
 }
 
 func runAssets(args []string) error {
