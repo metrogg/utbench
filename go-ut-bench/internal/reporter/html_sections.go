@@ -62,7 +62,7 @@ func buildHTML(payload contracts.ReportPayload, breakdown mutationBreakdown, row
   <div class="hero-header">
     <div class="hero-title-group">
       <div class="hero-badge">UT-BENCH</div>
-      <h1>模型评测报告</h1>
+      <h1>单测生成评测报告</h1>
       <div class="hero-subtitle">%s · %d 个样本</div>
     </div>
   </div>
@@ -459,16 +459,23 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.Com
       <span><strong>指标说明：</strong> 样测=样本级测试通过率；行覆盖=代码行覆盖率；变异=变异测试得分</span>
     </div>
   </div>
-  <div class="lb-controls" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
-    <div class="lb-tabs" style="display:flex;gap:4px;">
+  <div class="lb-controls" style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin-bottom:16px;">
+    <div class="lb-control-group" style="display:flex;flex-direction:column;gap:6px;min-width:116px;">
       <button class="lb-tab active" data-mode="all" onclick="lbSwitchMode('all',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#1e293b;color:#fff;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">全部排名</button>
-      <button class="lb-tab" data-mode="platform" onclick="lbSwitchMode('platform',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按平台</button>
-      <button class="lb-tab" data-mode="model" onclick="lbSwitchMode('model',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按模型</button>
-      <button class="lb-tab" data-mode="skill" onclick="lbSwitchMode('skill',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按Skill</button>
     </div>
-    <select id="lb-filter" style="display:none;padding:6px 12px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;background:#fff;" onchange="lbApplyFilter()">
-    </select>
-    <span id="lb-filter-hint" style="display:none;font-size:12px;color:#64748b;"></span>
+    <div class="lb-control-group" style="display:flex;flex-direction:column;gap:6px;min-width:138px;">
+      <button class="lb-tab" data-mode="platform" onclick="lbSwitchMode('platform',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按平台</button>
+      <select class="lb-filter" data-mode="platform" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;background:#fff;color:#334155;" onchange="lbApplyFilter('platform')"></select>
+    </div>
+    <div class="lb-control-group" style="display:flex;flex-direction:column;gap:6px;min-width:138px;">
+      <button class="lb-tab" data-mode="model" onclick="lbSwitchMode('model',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按模型</button>
+      <select class="lb-filter" data-mode="model" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;background:#fff;color:#334155;" onchange="lbApplyFilter('model')"></select>
+    </div>
+    <div class="lb-control-group" style="display:flex;flex-direction:column;gap:6px;min-width:138px;">
+      <button class="lb-tab" data-mode="skill" onclick="lbSwitchMode('skill',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按Skill</button>
+      <select class="lb-filter" data-mode="skill" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;background:#fff;color:#334155;" onchange="lbApplyFilter('skill')"></select>
+    </div>
+    <span id="lb-filter-hint" style="display:none;font-size:12px;color:#64748b;align-self:center;min-width:260px;"></span>
   </div>
   <div class="leaderboard" id="lb-list">
 %s
@@ -480,57 +487,76 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.Com
   var _curMode = 'all';
   var _curFilter = '';
 
-  window.lbSwitchMode = function(mode, btn) {
+  function setActiveTab(mode) {
     document.querySelectorAll('.lb-tab').forEach(function(t){
-      t.classList.remove('active');
-      t.style.background = '#fff';
-      t.style.color = '#475569';
+      var active = t.dataset.mode === mode;
+      t.classList.toggle('active', active);
+      t.style.background = active ? '#1e293b' : '#fff';
+      t.style.color = active ? '#fff' : '#475569';
     });
-    btn.classList.add('active');
-    btn.style.background = '#1e293b';
-    btn.style.color = '#fff';
+  }
+
+  function optionHint(mode, key) {
+    var opts = _lbOpts[mode] || [];
+    for (var i = 0; i < opts.length; i++) {
+      if (opts[i].key === key) return opts[i].hint || '';
+    }
+    return '';
+  }
+
+  function currentSelect(mode) {
+    return document.querySelector('.lb-filter[data-mode="' + mode + '"]');
+  }
+
+  window.lbSwitchMode = function(mode, btn) {
+    setActiveTab(mode);
     _curMode = mode;
-    var sel = document.getElementById('lb-filter');
     var hint = document.getElementById('lb-filter-hint');
     if (mode === 'all') {
-      sel.style.display = 'none';
       hint.style.display = 'none';
       _curFilter = '';
       lbRender('all');
       return;
     }
-    // 填充下拉
-    var opts = _lbOpts[mode] || [];
+    var sel = currentSelect(mode);
+    if (sel && sel.value) {
+      _curFilter = sel.value;
+      hint.textContent = optionHint(mode, _curFilter);
+      hint.style.display = hint.textContent ? 'inline' : 'none';
+      lbRender(mode);
+    }
+  };
+
+  window.lbApplyFilter = function(mode) {
+    var sel = currentSelect(mode);
+    if (!sel) return;
+    var hint = document.getElementById('lb-filter-hint');
+    setActiveTab(mode);
+    _curMode = mode;
+    _curFilter = sel.value;
+    hint.textContent = optionHint(mode, _curFilter);
+    hint.style.display = hint.textContent ? 'inline' : 'none';
+    lbRender(_curMode);
+  };
+
+  document.querySelectorAll('.lb-filter').forEach(function(sel) {
+    var opts = _lbOpts[sel.dataset.mode] || [];
     sel.innerHTML = '';
-    opts.forEach(function(o, i) {
+    if (!opts.length) {
+      var empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = '暂无可对比项';
+      sel.appendChild(empty);
+      sel.disabled = true;
+      return;
+    }
+    opts.forEach(function(o) {
       var opt = document.createElement('option');
       opt.value = o.key;
       opt.textContent = o.label;
       sel.appendChild(opt);
     });
-    sel.style.display = 'inline-block';
-    hint.style.display = 'inline';
-    if (opts.length > 0) {
-      _curFilter = opts[0].key;
-      sel.value = _curFilter;
-      hint.textContent = opts[0].hint || '';
-      lbRender(mode);
-    }
-  };
-
-  window.lbApplyFilter = function() {
-    var sel = document.getElementById('lb-filter');
-    var hint = document.getElementById('lb-filter-hint');
-    _curFilter = sel.value;
-    var opts = _lbOpts[_curMode] || [];
-    for (var i = 0; i < opts.length; i++) {
-      if (opts[i].key === _curFilter) {
-        hint.textContent = opts[i].hint || '';
-        break;
-      }
-    }
-    lbRender(_curMode);
-  };
+  });
 
   // 根据 mode 构建卡片的组合键
   function cardKey(el, mode) {
