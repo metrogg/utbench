@@ -120,7 +120,7 @@ Framework 下拉框会根据 `agents.yaml` 中的 `compatible_models` 自动过�
 - `agents.yaml` 负责 framework、skill 和 subject 的组合注册
 - 这个页面的目标是让“模型”和“agent 被测对象”不再混在同一层语义里
 
-数据库 schema 见 [database-design.md](database-design.md)。Web 仍会保留基于 `artifacts/runs` 的任务列表，数据库页负责长期保存和跨运行查询。
+数据库 schema 见 [数据库设计](../02-design/database-design.md)。Web 仍会保留基于 `artifacts/runs` 的任务列表，数据库页负责长期保存和跨运行查询。
 
 ### 任务详情
 

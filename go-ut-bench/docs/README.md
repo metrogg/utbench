@@ -2,6 +2,8 @@
 
 本目录按阅读目的重新分类。优先从本页进入，不建议直接在 `docs/` 根目录里平铺新增文档。
 
+如果需要判断某份文档是否还应该维护、是否与其他文档重合，先看 [文档分类与去重索引](DOCUMENT_CLASSIFICATION.md)。
+
 ## 推荐阅读顺序
 
 1. 想快速使用：先读 [用户指南](01-user-guides/USER_GUIDE.md)，再按需要查看 [完整启动指南](01-user-guides/startup-guide.md) 或 [Docker 使用指南](03-operations/DOCKER_GUIDE.md)。
@@ -20,6 +22,7 @@
 | [04-development](04-development/) | 数据治理、重构分析、技术审查和迭代记录。 |
 | [05-integrations](05-integrations/) | 外部工具、外部 Agent 或第三方集成资料。 |
 | [99-archive](99-archive/) | 已废弃、未采用或被新文档替代的历史方案。 |
+| [DOCUMENT_CLASSIFICATION.md](DOCUMENT_CLASSIFICATION.md) | 文档保留等级、重合关系和归档建议。 |
 
 ## 重复内容处理
 

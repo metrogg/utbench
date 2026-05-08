@@ -396,13 +396,13 @@ cmd/utbench
 | 文档 | 位置 | 完整性 | 状态 |
 |------|------|--------|------|
 | 项目介绍 | `go-ut-bench/readme.md` | 完整 | 最新 |
-| 架构设计 | `docs/architecture-mvp.md` | 完整 | 最新 |
-| 用户指南 | `docs/USER_GUIDE.md` | 完整 | 最新 |
-| Docker指南 | `docs/DOCKER_GUIDE.md` | 待确认 | - |
-| CLI参数说明 | `docs/cli-spec.md` | 待确认 | - |
-| Web UI说明 | `docs/WEB_UI.md` | 待确认 | - |
-| 快速开始 | `QUICKSTART.md` | 完整 | 最新 |
-| 启动指南 | `STARTUP_GUIDE.md` | 完整 | 最新 |
+| 架构设计 | `go-ut-bench/docs/02-design/architecture-mvp.md` | 完整 | 最新 |
+| 用户指南 | `go-ut-bench/docs/01-user-guides/USER_GUIDE.md` | 完整 | 最新 |
+| Docker指南 | `go-ut-bench/docs/03-operations/DOCKER_GUIDE.md` | 待确认 | - |
+| CLI参数说明 | `go-ut-bench/docs/01-user-guides/cli-spec.md` | 待确认 | - |
+| Web UI说明 | `go-ut-bench/docs/01-user-guides/WEB_UI.md` | 待确认 | - |
+| 快速开始 | `go-ut-bench/docs/01-user-guides/USER_GUIDE.md` | 完整 | 最新 |
+| 启动指南 | `go-ut-bench/docs/01-user-guides/startup-guide.md` | 完整 | 最新 |
 | 根目录README | `README.md` | 过时 | 需要更新或删除 |
 | AGENTS.md | `AGENTS.md` + `go-ut-bench/AGENTS.md` | 完整 | 最新 |
 

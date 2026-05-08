@@ -1,36 +1,77 @@
+# 本地密钥和环境配置
+.env
+.env.*
+!.env.example
+
+# 本地 Agent/IDE 状态
+.claude/
+.codebuddy/
+.opencode/
+.windsurf/
+.workbuddy/
+.trae/
+.idea/
+.vscode/
+
+# Python/测试缓存
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-.gocache
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.coverage*
 
+# Go 构建和测试产物
+.gocache/
+.gomodcache/
+*.test
+*.out
+*.exe
+/utbench
+/utbench.exe
+
+# 通用依赖、构建和打包产物
+node_modules/
+dist/
+build/
+target/
+.gradle/
+.m2-cache/
+*.class
+*.tar
+*.zip
+*.gz
+
+# 运行结果和临时目录
 results/
 !results/.gitkeep
-
+/artifacts/*
+!/artifacts/.gitkeep
+/storage/*
+!/storage/.gitkeep
 justtest/
 
-.venv/
-venv/
-
-# IDE configs
-.opencode/
-.trae/
-
-.DS_Store
-
-# Build/Docker logs
+# 数据库和日志
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
 *.log
 docker_build*
 
-# Pre-built binaries
-*.tar
-*.exe
+# 操作系统和编辑器临时文件
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
 
-# Environment files
-.env
-
-# Generated temp files (obsolete)
+# 旧流程遗留临时文件
 tbody_content.txt
 opencode.json

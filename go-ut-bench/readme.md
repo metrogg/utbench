@@ -158,7 +158,7 @@ model_api__deepseek-v4-flash__no_skill
 - 记录 trace、diff、sandbox fingerprint
 - 超时后结束该容器
 
-如果外层 UT-Bench 本身也是用 Docker 启动的，那么这条链当前走的是 DOOD 方式：外层容器内的 `docker` CLI 控制宿主机 Docker daemon。具体挂载方式见 [docs/DOCKER_GUIDE.md](docs/DOCKER_GUIDE.md)。
+如果外层 UT-Bench 本身也是用 Docker 启动的，那么这条链当前走的是 DOOD 方式：外层容器内的 `docker` CLI 控制宿主机 Docker daemon。具体挂载方式见 [Docker 使用指南](docs/03-operations/DOCKER_GUIDE.md)。
 
 这已经比“整项目一个 Docker 容器”更接近真正沙箱，但还不是最终形态。后续还需要补：
 
@@ -201,18 +201,19 @@ artifacts/runs/<run-id>/
   run_summary.json
 ```
 
-更细的说明见 [docs/output-convention.md](docs/output-convention.md)。
+更细的说明见 [输出规范](docs/02-design/output-convention.md)。
 
 ## 文档
 
-- [快速开始（Docker）](docs/quickstart-docker.md)
-- [完整启动指南](docs/startup-guide.md)
-- [用户指南](docs/USER_GUIDE.md)
-- [Web UI 使用](docs/WEB_UI.md)
-- [项目详细介绍](docs/project-introduction.md)
-- [Docker 使用](docs/DOCKER_GUIDE.md)
-- [输出规范](docs/output-convention.md)
-- [CLI 参数](docs/cli-spec.md)
-- [数据库设计](docs/database-design.md)
-- [资产管理设计](docs/asset-management-design.md)
-- [CodeBuddy 集成](docs/codebuddy-guide.md)
+- [文档导航](docs/README.md)
+- [文档分类与去重索引](docs/DOCUMENT_CLASSIFICATION.md)
+- [用户指南](docs/01-user-guides/USER_GUIDE.md)
+- [完整启动指南](docs/01-user-guides/startup-guide.md)
+- [CLI 参数](docs/01-user-guides/cli-spec.md)
+- [Web UI 使用](docs/01-user-guides/WEB_UI.md)
+- [项目详细介绍](docs/00-overview/project-introduction.md)
+- [Docker 使用](docs/03-operations/DOCKER_GUIDE.md)
+- [输出规范](docs/02-design/output-convention.md)
+- [数据库设计](docs/02-design/database-design.md)
+- [资产管理设计](docs/02-design/asset-management-design.md)
+- [CodeBuddy 集成](docs/05-integrations/codebuddy-guide.md)

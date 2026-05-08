@@ -217,7 +217,7 @@ UT-Bench 现在会把生成结果和评测结果索引到本地 SQLite。生成�
 
 示例见 [configs/agents.example.yaml](/C:/Users/wzd/Desktop/速通ing/腾讯mini(多模型单元测试生成效果横向评测)/ut-bench/go-ut-bench/configs/agents.example.yaml)。
 
-如果使用当前仓库提供的 CLI Agent 示例，还要先构建统一 Agent 沙箱镜像（详见 [DOCKER_GUIDE.md](./DOCKER_GUIDE.md)）：
+如果使用当前仓库提供的 CLI Agent 示例，还要先构建统一 Agent 沙箱镜像（详见 [Docker 使用指南](../03-operations/DOCKER_GUIDE.md)）：
 
 ```bash
 docker build -t utbench-agent-base:latest -f docker/agents/Dockerfile docker/agents/
@@ -411,7 +411,7 @@ UT-Bench 也会检查环境漂移命令。默认会拦截这类操作：
 
 ## 8. Docker 与沙箱的边界
 
-UT-Bench 的 Docker 体系分为三种镜像（详见 [DOCKER_GUIDE.md](./DOCKER_GUIDE.md)）：
+UT-Bench 的 Docker 体系分为三种镜像（详见 [Docker 使用指南](../03-operations/DOCKER_GUIDE.md)）：
 
 | 镜像 | 用途 |
 |:---|:---|

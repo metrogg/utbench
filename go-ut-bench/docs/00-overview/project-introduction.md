@@ -1230,8 +1230,8 @@ go-ut-bench/
 
   .env                           # API密钥配置
   Dockerfile                     # Docker镜像构建
-  QUICKSTART.md                  # 快速入门
-  STARTUP_GUIDE.md               # 启动指南
+  docs/01-user-guides/USER_GUIDE.md        # 快速入门
+  docs/01-user-guides/startup-guide.md     # 启动指南
 ```
 
 ---

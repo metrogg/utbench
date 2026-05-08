@@ -73,9 +73,12 @@ docker run --rm --env-file .env `
 
 | 文档 | 说明 |
 |------|------|
-| [QUICKSTART.md](go-ut-bench/QUICKSTART.md) | Docker 快速入门 |
-| [STARTUP_GUIDE.md](go-ut-bench/STARTUP_GUIDE.md) | 完整启动指南（参数详解、常见场景） |
-| [WEB_UI.md](go-ut-bench/docs/WEB_UI.md) | Web 管理界面使用说明 |
+| [go-ut-bench 文档导航](go-ut-bench/docs/README.md) | 当前 Go CLI 的主文档入口 |
+| [用户指南](go-ut-bench/docs/01-user-guides/USER_GUIDE.md) | 快速开始、运行模式、Agent/Skill 和常见问题 |
+| [完整启动指南](go-ut-bench/docs/01-user-guides/startup-guide.md) | 参数详解和常见场景 |
+| [Docker 使用指南](go-ut-bench/docs/03-operations/DOCKER_GUIDE.md) | Docker 构建、运行和沙箱边界 |
+| [Web UI 使用说明](go-ut-bench/docs/01-user-guides/WEB_UI.md) | Web 管理界面使用说明 |
+| [文档分类与去重索引](go-ut-bench/docs/DOCUMENT_CLASSIFICATION.md) | 文档保留等级、重合关系和归档建议 |
 
 ---
 

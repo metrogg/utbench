@@ -1,36 +1,41 @@
-# 本地配置和密钥
+# 本地密钥和环境配置
 .env
 .env.*
 !.env.example
-.claude/
-.workbuddy/
-.opencode/
-.codesandbox
-.m2-cache/
-.windsurf/
 
-# 构建产物和打包文件
-utbench
-utbench.exe
-utbench-*
+# 本地 Agent/IDE 状态
+.claude/
+.codebuddy/
+.opencode/
+.windsurf/
+.workbuddy/
+.trae/
+.codesandbox/
+.idea/
+.vscode/
+
+# Go 构建、测试和缓存产物
+/utbench
+/utbench.exe
+/utbench-*
 *.exe
 *.exe~
 *.test
 *.out
-*.tar
-*.zip
-*.gz
-dist/
-build/
-
-# Go 缓存和覆盖率文件
 .gocache/
 .gomodcache/
 coverage.out
 cover.out
 **/cover.out
 
-# 运行产物
+# 打包和通用构建目录
+dist/
+build/
+*.tar
+*.zip
+*.gz
+
+# 运行产物和本地数据库
 artifacts/*
 !artifacts/.gitkeep
 storage/*
@@ -41,14 +46,14 @@ storage/*
 *.sqlite
 *.sqlite3
 
-# 自动生成的索引和结果清单
+# 自动生成的索引、清单和结果
 configs/dataset_index.json
 artifacts/go_manual_test/
 artifacts/go_test_manifest.json
 generated_manifest.json
 evaluation_result.json
 
-# Agent、评测器和沙箱工作区
+# Agent、评测器和沙箱工作区产物
 **/agent_workspaces/
 **/workspace/mutants/
 **/workspace/.mutmut-cache/
@@ -62,7 +67,7 @@ evaluation_result.json
 **/workspace/tests/test_*_test.py
 !**/workspace/tests/.gitkeep
 
-# 本地评测过程中产生的语言/工具缓存
+# 各语言/工具缓存
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -80,16 +85,14 @@ target/
 
 # 日志和临时文件
 *.log
+docker_build*
 *.tmp
 *.temp
 *.bak
 *.swp
 *.swo
-docker_build*
 
-# IDE、编辑器和系统元数据
-.idea/
-.vscode/
+# 系统元数据
 .DS_Store
 Thumbs.db
 desktop.ini

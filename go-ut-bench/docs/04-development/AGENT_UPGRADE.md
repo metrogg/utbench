@@ -362,7 +362,7 @@ Agent 交互过程：
   - `checklist.md`
   - `examples/python_example.py`
 - `docker/agents/opencode/Dockerfile`
-- `docs/AGENT_UPGRADE.md`
+- `docs/04-development/AGENT_UPGRADE.md`
 - `internal/agentconfig/config.go`
 - `internal/agentconfig/config_test.go`
 - `internal/runner/adapter.go` — AgentAdapter 接口定义
@@ -376,10 +376,9 @@ Agent 交互过程：
 
 - `Dockerfile`
 - `readme.md`
-- `QUICKSTART.md`
-- `docs/DOCKER_GUIDE.md`
-- `docs/USER_GUIDE.md`
-- `docs/output-convention.md`
+- `docs/01-user-guides/USER_GUIDE.md`
+- `docs/03-operations/DOCKER_GUIDE.md`
+- `docs/02-design/output-convention.md`
 - `cmd/utbench/main.go`
 - `internal/contracts/spec.go`
 - `internal/contracts/results.go`

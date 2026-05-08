@@ -210,7 +210,7 @@ CLI Agent 单样本执行流程现在是：
 - `configs/agents.example.yaml`
 - `configs/skills/unit_test_skill.md`
 - `docker/agents/opencode/Dockerfile`
-- `docs/AGENT_UPGRADE.md`
+- `go-ut-bench/docs/04-development/AGENT_UPGRADE.md`
 - `internal/agentconfig/config.go`
 - `internal/agentconfig/config_test.go`
 - `internal/runner/sandbox.go`
@@ -221,10 +221,9 @@ CLI Agent 单样本执行流程现在是：
 
 - `Dockerfile`
 - `readme.md`
-- `QUICKSTART.md`
-- `docs/DOCKER_GUIDE.md`
-- `docs/USER_GUIDE.md`
-- `docs/output-convention.md`
+- `go-ut-bench/docs/01-user-guides/USER_GUIDE.md`
+- `go-ut-bench/docs/03-operations/DOCKER_GUIDE.md`
+- `go-ut-bench/docs/02-design/output-convention.md`
 - `cmd/utbench/main.go`
 - `internal/contracts/spec.go`
 - `internal/contracts/results.go`
