@@ -446,46 +446,35 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.Com
 			compositePct)
 	}
 
-	// 构建控制变量下拉选项（从 comparison views 提取）
-	filterOptionsJSON := buildFilterOptionsJSON(views)
+	// 构建单维度筛选选项：按平台/模型/Skill 时只筛选一个维度。
+	filterOptionsJSON := buildFilterOptionsJSON(models)
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`<div class="section" id="leaderboard">
+	leaderboardHTML := `<div class="section" id="leaderboard">
   <h2>模型排名 Leaderboard</h2>
   <div class="lb-info-box" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;color:#475569;">
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
-      <span><strong>综合评分公式：</strong> `+contracts.DefaultWeights.String()+`</span>
+      <span><strong>综合评分公式：</strong> ` + contracts.DefaultWeights.String() + `</span>
       <span style="color:#94a3b8;">|</span>
       <span><strong>指标说明：</strong> 样测=样本级测试通过率；行覆盖=代码行覆盖率；变异=变异测试得分</span>
     </div>
   </div>
-  <div class="lb-controls" style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin-bottom:16px;">
-    <div class="lb-control-group" style="display:flex;flex-direction:column;gap:6px;min-width:116px;">
-      <button class="lb-tab active" data-mode="all" onclick="lbSwitchMode('all',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#1e293b;color:#fff;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">全部排名</button>
-    </div>
-    <div class="lb-control-group" style="display:flex;flex-direction:column;gap:6px;min-width:138px;">
-      <button class="lb-tab" data-mode="platform" onclick="lbSwitchMode('platform',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按平台</button>
-      <select class="lb-filter" data-mode="platform" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;background:#fff;color:#334155;" onchange="lbApplyFilter('platform')"></select>
-    </div>
-    <div class="lb-control-group" style="display:flex;flex-direction:column;gap:6px;min-width:138px;">
-      <button class="lb-tab" data-mode="model" onclick="lbSwitchMode('model',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按模型</button>
-      <select class="lb-filter" data-mode="model" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;background:#fff;color:#334155;" onchange="lbApplyFilter('model')"></select>
-    </div>
-    <div class="lb-control-group" style="display:flex;flex-direction:column;gap:6px;min-width:138px;">
-      <button class="lb-tab" data-mode="skill" onclick="lbSwitchMode('skill',this)" style="padding:6px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;color:#475569;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;">按Skill</button>
-      <select class="lb-filter" data-mode="skill" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;background:#fff;color:#334155;" onchange="lbApplyFilter('skill')"></select>
-    </div>
-    <span id="lb-filter-hint" style="display:none;font-size:12px;color:#64748b;align-self:center;min-width:260px;"></span>
+  <div class="lb-controls" style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+    <button class="lb-tab active" data-mode="all" onclick="lbSwitchMode('all',this)" style="height:34px;padding:0 18px;border:1px solid #dbe3ec;border-radius:6px;background:#1e293b;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;">全部排名</button>
+    <button class="lb-tab" data-mode="platform" onclick="lbSwitchMode('platform',this)" style="height:34px;padding:0 18px;border:1px solid #dbe3ec;border-radius:6px;background:#fff;color:#334155;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;">按平台</button>
+    <button class="lb-tab" data-mode="model" onclick="lbSwitchMode('model',this)" style="height:34px;padding:0 18px;border:1px solid #dbe3ec;border-radius:6px;background:#fff;color:#334155;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;">按模型</button>
+    <button class="lb-tab" data-mode="skill" onclick="lbSwitchMode('skill',this)" style="height:34px;padding:0 18px;border:1px solid #dbe3ec;border-radius:6px;background:#fff;color:#334155;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;">按Skill</button>
+    <select id="lb-combo-filter" aria-label="排行榜筛选" style="display:none;height:34px;min-width:220px;max-width:340px;padding:0 36px 0 12px;border:1px solid #dbe3ec;border-radius:6px;font-size:13px;background:#fff;color:#334155;" onchange="lbApplyFilter()"></select>
+    <span id="lb-filter-hint" style="display:none;font-size:12px;color:#64748b;white-space:nowrap;"></span>
   </div>
   <div class="leaderboard" id="lb-list">
-%s
+__CARDS_HTML__
   </div>
 </div>
 <script>
 (function(){
-  var _lbOpts = %s;
+  var _lbOpts = __FILTER_OPTIONS_JSON__;
   var _curMode = 'all';
-  var _curFilter = '';
 
   function setActiveTab(mode) {
     document.querySelectorAll('.lb-tab').forEach(function(t){
@@ -496,80 +485,85 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.Com
     });
   }
 
-  function optionHint(mode, key) {
-    var opts = _lbOpts[mode] || [];
-    for (var i = 0; i < opts.length; i++) {
-      if (opts[i].key === key) return opts[i].hint || '';
+  function currentFilters() {
+    var sel = document.getElementById('lb-combo-filter');
+    if (!sel || !sel.value) return {};
+    try {
+      return JSON.parse(sel.value);
+    } catch (e) {
+      return {};
     }
-    return '';
-  }
-
-  function currentSelect(mode) {
-    return document.querySelector('.lb-filter[data-mode="' + mode + '"]');
   }
 
   window.lbSwitchMode = function(mode, btn) {
     setActiveTab(mode);
     _curMode = mode;
-    var hint = document.getElementById('lb-filter-hint');
-    if (mode === 'all') {
-      hint.style.display = 'none';
-      _curFilter = '';
-      lbRender('all');
-      return;
-    }
-    var sel = currentSelect(mode);
-    if (sel && sel.value) {
-      _curFilter = sel.value;
-      hint.textContent = optionHint(mode, _curFilter);
-      hint.style.display = hint.textContent ? 'inline' : 'none';
-      lbRender(mode);
-    }
+    populateCombo(mode);
+    lbRender(mode);
   };
 
-  window.lbApplyFilter = function(mode) {
-    var sel = currentSelect(mode);
-    if (!sel) return;
-    var hint = document.getElementById('lb-filter-hint');
-    setActiveTab(mode);
-    _curMode = mode;
-    _curFilter = sel.value;
-    hint.textContent = optionHint(mode, _curFilter);
-    hint.style.display = hint.textContent ? 'inline' : 'none';
+  window.lbApplyFilter = function() {
     lbRender(_curMode);
   };
 
-  document.querySelectorAll('.lb-filter').forEach(function(sel) {
-    var opts = _lbOpts[sel.dataset.mode] || [];
+  function populateCombo(mode) {
+    var sel = document.getElementById('lb-combo-filter');
+    if (!sel) return;
+    sel.innerHTML = '';
+    if (mode === 'all') {
+      sel.style.display = 'none';
+      return;
+    }
+    var opts = _lbOpts[mode] || [];
+    sel.style.display = '';
     sel.innerHTML = '';
     if (!opts.length) {
       var empty = document.createElement('option');
       empty.value = '';
-      empty.textContent = '暂无可对比项';
+      empty.textContent = '暂无可对比组合';
       sel.appendChild(empty);
       sel.disabled = true;
       return;
     }
     opts.forEach(function(o) {
       var opt = document.createElement('option');
-      opt.value = o.key;
+      opt.value = JSON.stringify(o.filters);
       opt.textContent = o.label;
       sel.appendChild(opt);
     });
-  });
+    sel.disabled = false;
+  }
+  populateCombo('all');
 
-  // 根据 mode 构建卡片的组合键
-  function cardKey(el, mode) {
+  // 按平台时固定模型+Skill；按模型时固定平台+Skill；按Skill时固定平台+模型。
+  function cardMatches(el, mode, filters) {
     var d = el.dataset;
-    if (mode === 'platform') return d.model + '|' + d.skill;
-    if (mode === 'model') return d.platform + '|' + d.skill;
-    if (mode === 'skill') return d.platform + '|' + d.model;
-    return '';
+    if (mode === 'platform') return d.platform === filters.platform;
+    if (mode === 'model') return d.model === filters.model;
+    if (mode === 'skill') return d.skill === filters.skill;
+    return true;
+  }
+
+  function updateHint(mode, filters) {
+    var hint = document.getElementById('lb-filter-hint');
+    if (mode === 'all') {
+      hint.style.display = 'none';
+      hint.textContent = '';
+      return;
+    }
+    var text = '';
+    if (mode === 'platform') text = '仅显示平台=' + (filters.platform || '-');
+    if (mode === 'model') text = '仅显示模型=' + (filters.model || '-');
+    if (mode === 'skill') text = '仅显示Skill=' + (filters.skill || '-');
+    hint.textContent = text;
+    hint.style.display = text ? 'block' : 'none';
   }
 
   window.lbRender = function(mode) {
     var container = document.getElementById('lb-list');
     var items = Array.from(container.querySelectorAll('.lb-item'));
+    var filters = currentFilters();
+    updateHint(mode, filters);
 
     if (mode === 'all') {
       items.forEach(function(el) { el.style.display = ''; });
@@ -588,7 +582,7 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.Com
     // 控制变量模式
     var match = [];
     items.forEach(function(el) {
-      if (cardKey(el, mode) === _curFilter) {
+      if (cardMatches(el, mode, filters)) {
         match.push(el);
         el.style.display = '';
       } else {
@@ -607,7 +601,10 @@ func buildLeaderboardHTMLNew(models []contracts.ModelRank, views []contracts.Com
   };
 })();
 </script>
-`, cardsHTML, filterOptionsJSON))
+`
+	leaderboardHTML = strings.ReplaceAll(leaderboardHTML, "__CARDS_HTML__", cardsHTML)
+	leaderboardHTML = strings.ReplaceAll(leaderboardHTML, "__FILTER_OPTIONS_JSON__", filterOptionsJSON)
+	b.WriteString(leaderboardHTML)
 
 	return b.String()
 }
@@ -627,38 +624,46 @@ func tokenCoverageLabel(m contracts.ModelRank) string {
 		m.MissingTokenSamples)
 }
 
-// buildFilterOptionsJSON 从 comparison views 构建前端筛选选项的 JSON
-// 每个选项包含 key（用于匹配卡片 data 属性的组合键）、label、hint
-func buildFilterOptionsJSON(views []contracts.ComparisonView) string {
-	type filterOpt struct {
-		Key   string `json:"key"`   // 组合键，如 "model|skill"
-		Label string `json:"label"` // 下拉显示文本
-		Hint  string `json:"hint"`  // 提示文字
+// buildFilterOptionsJSON 构建平台 / 模型 / Skill 的单维度筛选选项。
+func buildFilterOptionsJSON(models []contracts.ModelRank) string {
+	type comboOption struct {
+		Label   string            `json:"label"`
+		Filters map[string]string `json:"filters"`
 	}
-	opts := map[string][]filterOpt{}
-	for _, v := range views {
-		for _, g := range v.Groups {
-			switch v.Dimension {
-			case "platform":
-				// 固定 model+skill，变化 platform → 用 "model|skill" 做 key
-				key := g.FixedModel + "|" + g.FixedSkill
-				label := g.FixedModel + " / " + g.FixedSkill
-				hint := fmt.Sprintf("固定: 模型=%s, Skill=%s → 比较不同平台", g.FixedModel, g.FixedSkill)
-				opts[v.Dimension] = append(opts[v.Dimension], filterOpt{Key: key, Label: label, Hint: hint})
-			case "model":
-				// 固定 platform+skill，变化 model → 用 "platform|skill" 做 key
-				key := g.FixedPlatform + "|" + g.FixedSkill
-				label := g.FixedPlatform + " / " + g.FixedSkill
-				hint := fmt.Sprintf("固定: 平台=%s, Skill=%s → 比较不同模型", g.FixedPlatform, g.FixedSkill)
-				opts[v.Dimension] = append(opts[v.Dimension], filterOpt{Key: key, Label: label, Hint: hint})
-			case "skill":
-				// 固定 platform+model，变化 skill → 用 "platform|model" 做 key
-				key := g.FixedPlatform + "|" + g.FixedModel
-				label := g.FixedPlatform + " / " + g.FixedModel
-				hint := fmt.Sprintf("固定: 平台=%s, 模型=%s → 比较不同Skill", g.FixedPlatform, g.FixedModel)
-				opts[v.Dimension] = append(opts[v.Dimension], filterOpt{Key: key, Label: label, Hint: hint})
-			}
+	seen := map[string]map[string]struct{}{
+		"platform": {},
+		"model":    {},
+		"skill":    {},
+	}
+	opts := map[string][]comboOption{
+		"platform": {},
+		"model":    {},
+		"skill":    {},
+	}
+	add := func(mode, value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
 		}
+		if _, ok := seen[mode][value]; ok {
+			return
+		}
+		seen[mode][value] = struct{}{}
+		opts[mode] = append(opts[mode], comboOption{
+			Label:   value,
+			Filters: map[string]string{mode: value},
+		})
+	}
+	for _, m := range models {
+		platform := firstNonEmpty(m.AgentFramework, "model_api")
+		model := firstNonEmpty(m.AgentModel, m.Model)
+		skill := firstNonEmpty(m.SkillName, "no_skill")
+		add("platform", platform)
+		add("model", model)
+		add("skill", skill)
+	}
+	for mode := range opts {
+		sort.Slice(opts[mode], func(i, j int) bool { return opts[mode][i].Label < opts[mode][j].Label })
 	}
 	b, _ := json.Marshal(opts)
 	return string(b)
