@@ -690,7 +690,7 @@ docker run --rm --env-file .env \
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `--config` | string | `../benchmark/config/models.yaml` | **必须显式指定** `./configs/models.yaml` |
+| `--config` | string | 历史默认值 `../benchmark/config/models.yaml` | 当前仓库运行时应显式指定 `./configs/models.yaml` |
 | `--models` | string | 空 | 模型键名，逗号分隔 |
 | `--langs` | string | 空 | 语言，逗号分隔：`python,go,java,cpp` |
 | `--dataset-root` | string | `./datasets` | 数据集根目录 |

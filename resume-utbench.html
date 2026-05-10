@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UT-Bench 项目简历描述</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1a1a2e;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-light: #eff6ff;
+    --border: #e5e7eb;
+    --card-bg: #f9fafb;
+    --tag-bg: #dbeafe;
+    --tag-text: #1e40af;
+    --success: #059669;
+    --orange: #ea580c;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 40px;
+  }
+
+  .resume-container {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  /* ── Header ── */
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+    padding-bottom: 30px;
+    border-bottom: 2px solid var(--accent);
+  }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    letter-spacing: 2px;
+  }
+  .header .subtitle {
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .tab-bar {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .tab {
+    padding: 8px 20px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 13px;
+    cursor: pointer;
+    background: var(--bg);
+    color: var(--muted);
+    transition: all 0.2s;
+  }
+  .tab:hover { border-color: var(--accent); color: var(--accent); }
+  .tab.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+
+  /* ── Section ── */
+  .section {
+    margin-bottom: 32px;
+    display: none;
+  }
+  .section.active { display: block; }
+
+  .section-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::before {
+    content: "";
+    width: 4px;
+    height: 20px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+
+  /* ── Project Card ── */
+  .project-card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    background: var(--bg);
+  }
+  .project-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+  }
+  .project-name {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .project-role {
+    font-size: 12px;
+    background: var(--tag-bg);
+    color: var(--tag-text);
+    padding: 3px 10px;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+  .project-desc {
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 16px;
+    line-height: 1.8;
+  }
+
+  /* ── Bullets ── */
+  .bullet-list {
+    list-style: none;
+    padding: 0;
+  }
+  .bullet-list li {
+    position: relative;
+    padding-left: 20px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    line-height: 1.8;
+  }
+  .bullet-list li::before {
+    content: "▸";
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-weight: bold;
+  }
+  .highlight { color: var(--accent); font-weight: 600; }
+  .metric {
+    display: inline-block;
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 1px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  /* ── Tech Tags ── */
+  .tech-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 16px;
+  }
+  .tech-tag {
+    font-size: 12px;
+    padding: 3px 10px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+  }
+
+  /* ── Tips ── */
+  .tips-card {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 24px;
+  }
+  .tips-card h4 {
+    color: var(--orange);
+    font-size: 15px;
+    margin-bottom: 10px;
+  }
+  .tips-card ul {
+    padding-left: 18px;
+    font-size: 13px;
+    color: #92400e;
+  }
+  .tips-card li { margin-bottom: 6px; }
+
+  /* ── Copy Hint ── */
+  .copy-hint {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Pure text block ── */
+  .pure-text {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    font-size: 14px;
+    line-height: 2;
+    white-space: pre-wrap;
+    font-family: "PingFang SC", "Noto Sans SC", sans-serif;
+  }
+</style>
+</head>
+<body>
+
+<div class="resume-container">
+
+  <div class="header">
+    <h1>UT-Bench 项目简历描述</h1>
+    <div class="subtitle">多模型单元测试生成横向评测基准 — 简历项目经历模块</div>
+    <div class="tab-bar">
+      <div class="tab active" onclick="switchTab('agent')">AI Agent / 评测方向</div>
+      <div class="tab" onclick="switchTab('backend')">后端 / 基础设施方向</div>
+      <div class="tab" onclick="switchTab('general')">通用版本</div>
+      <div class="tab" onclick="switchTab('rawtext')">纯文本（可复制）</div>
+    </div>
+  </div>
+
+  <!-- ════════════════ AI Agent / 评测方向 ════════════════ -->
+  <div id="tab-agent" class="section active">
+    <div class="project-card">
+      <div class="project-header">
+        <span class="project-name">UT-Bench：多模型单元测试生成横向评测基准</span>
+        <span class="project-role">核心开发者</span>
+      </div>
+      <div class="project-desc">
+        一站式 AI Coding Agent 评测框架，支持 <span class="highlight">8+ 大模型</span>（DeepSeek、MiniMax、豆包、GLM、Qwen、GPT 等）×
+        <span class="highlight">4 种编程语言</span>（Python / Go / Java / C++）的多维横向评测。
+        创新提出 <span class="highlight">Framework × Model × Skill 三维评测模型</span>，可量化分析 Agent 平台、底层模型、Skill 注入各自的贡献度。
+      </div>
+      <ul class="bullet-list">
+        <li>设计并实现 <span class="highlight">统一 Subject 抽象层</span>（framework__model__skill），将纯模型 API、CLI Agent、Agent+Skill 三种评测模式纳入同一框架，支持 N×M×K 全组合自动展开</li>
+        <li>构建 <span class="highlight">通用 CLI Agent 适配器</span>，通过 agents.yaml 命令模板驱动，已集成 OpenCode、Claude Code 等主流 Agent，实现沙箱隔离执行（Docker 容器级隔离，支持 --network none、环境漂移拦截）</li>
+        <li>实现 <span class="highlight">Skill 注入机制</span>（prompt_append / workspace_mount / agent_native 三种模式），可量化评估 Skill 对 Agent 测试生成能力的提升幅度</li>
+        <li>设计 <span class="highlight">四维评测指标体系</span>：编译通过率 + 测试通过率 + 覆盖率 + 变异测试得分（综合分 = 0.3×编译 + 0.3×通过率 + 0.2×覆盖率 + 0.2×变异），超越传统 Pass@k 单一指标</li>
+        <li>构建 <span class="highlight">多语言评测工具链</span>：Python(pytest+mutmut) / Go(go test+go-mutesting) / Java(JUnit+JaCoCo+pitest) / C++(GoogleTest+gcov+mull)，覆盖编译、测试、覆盖率、变异测试全链路</li>
+        <li>实现 <span class="highlight">Agent 过程可观测性</span>：记录执行 trace、workspace diff、sandbox fingerprint，支持对 Agent 行为的细粒度分析与调试</li>
+        <li>开发 Web 管理界面，支持评测任务配置、历史结果浏览、多轮次对比分析</li>
+      </ul>
+      <div class="tech-tags">
+        <span class="tech-tag">Go</span>
+        <span class="tech-tag">Docker</span>
+        <span class="tech-tag">LLM API</span>
+        <span class="tech-tag">SQLite</span>
+        <span class="tech-tag">HTML/Chart.js</span>
+        <span class="tech-tag">OpenCode</span>
+        <span class="tech-tag">Claude Code</span>
+        <span class="tech-tag">Prompt Engineering</span>
+        <span class="tech-tag">Mutation Testing</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════ 后端 / 基础设施方向 ════════════════ -->
+  <div id="tab-backend" class="section">
+    <div class="project-card">
+      <div class="project-header">
+        <span class="project-name">UT-Bench：多模型单元测试生成横向评测基准</span>
+        <span class="project-role">核心开发者</span>
+      </div>
+      <div class="project-desc">
+        基于 Go 构建的 <span class="highlight">分布式评测 CLI 工具</span>，采用五阶段流水线架构，支持多语言编译-测试-覆盖率-变异测试全自动化执行。
+        使用 Docker 实现评测沙箱隔离，SQLite 持久化存储，提供 Web 管理界面。
+      </div>
+      <ul class="bullet-list">
+        <li>独立设计并实现 <span class="highlight">Go 五阶段流水线架构</span>（dataset → runner → evaluator → reporter → store），通过 orchestrator 编排，支持全链路执行和分阶段断点续跑</li>
+        <li>实现 <span class="highlight">并发 Worker Pool + Checkpoint 增量执行</span>机制，基于参数组合 SHA1 哈希实现断点续跑；支持指数退避重试、输出截断自动续写（max 3 retries）</li>
+        <li>构建 <span class="highlight">Docker 沙箱评测引擎</span>：每个 subject × sample 独立容器执行，支持语言级镜像选择、依赖自动安装、preflight 工具链自检、超时控制、网络隔离</li>
+        <li>设计 <span class="highlight">统一数据契约层</span>（internal/contracts），作为跨阶段数据流的 Single Source of Truth，JSON 序列化/反序列化贯穿全链路</li>
+        <li>实现 <span class="highlight">SQLite v2 存储层</span>：upsert 语义去重，支持 artifact 索引、多轮次评测结果对比、--reuse-generated 跳过重复 API 调用</li>
+        <li>开发 <span class="highlight">Web 管理界面</span>（嵌入式 HTTP Server + 静态资源），支持模型配置管理、数据库浏览、Docker 评测任务触发</li>
+        <li>适配 <span class="highlight">8+ LLM API 提供商</span>（DeepSeek、MiniMax、豆包、GLM、Qwen、GPT 等），统一请求/响应格式，处理各异 API 兼容性问题</li>
+      </ul>
+      <div class="tech-tags">
+        <span class="tech-tag">Go</span>
+        <span class="tech-tag">Docker</span>
+        <span class="tech-tag">SQLite</span>
+        <span class="tech-tag">REST API</span>
+        <span class="tech-tag">Worker Pool</span>
+        <span class="tech-tag">CLI (cobra)</span>
+        <span class="tech-tag">HTML/JS</span>
+        <span class="tech-tag">YAML</span>
+        <span class="tech-tag">WSL2</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════ 通用版本 ════════════════ -->
+  <div id="tab-general" class="section">
+    <div class="project-card">
+      <div class="project-header">
+        <span class="project-name">UT-Bench：多模型单元测试生成横向评测基准</span>
+        <span class="project-role">核心开发者</span>
+      </div>
+      <div class="project-desc">
+        一站式多模型 AI 单元测试生成评测框架（Go CLI），支持 8+ 大模型 × 4 种编程语言的横向对比评测，
+        覆盖纯模型 API、CLI Agent、Agent+Skill 三种评测模式。
+      </div>
+      <ul class="bullet-list">
+        <li>设计五阶段流水线架构（dataset → runner → evaluator → reporter → store），支持并发执行、checkpoint 增量续跑、指数退避重试</li>
+        <li>创新提出 Framework × Model × Skill 三维评测模型，通过统一 Subject 抽象层实现 N×M×K 组合自动展开与对比分析</li>
+        <li>构建 Docker 沙箱评测引擎，每个评测任务独立容器隔离执行，支持多语言工具链（pytest/go test/JUnit/GoogleTest）与变异测试（mutmut/go-mutesting/pitest/mull）</li>
+        <li>适配 DeepSeek、MiniMax、豆包、GLM、Qwen、GPT 等 8+ 模型 API，实现通用 CLI Agent 适配器（已集成 OpenCode、Claude Code）</li>
+        <li>设计四维评测指标体系（编译 + 通过率 + 覆盖率 + 变异测试），SQLite 持久化存储，Web 管理界面支持多轮次结果对比</li>
+      </ul>
+      <div class="tech-tags">
+        <span class="tech-tag">Go</span>
+        <span class="tech-tag">Docker</span>
+        <span class="tech-tag">SQLite</span>
+        <span class="tech-tag">LLM API</span>
+        <span class="tech-tag">HTML/Chart.js</span>
+        <span class="tech-tag">Mutation Testing</span>
+        <span class="tech-tag">Prompt Engineering</span>
+        <span class="tech-tag">CLI Tool</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════ 纯文本 ════════════════ -->
+  <div id="tab-rawtext" class="section">
+    <div class="section-title">纯文本版本（可直接复制到 Word/简历模板）</div>
+
+    <div style="margin-bottom:24px">
+      <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">版本 A：AI Agent / 评测方向</h3>
+      <div class="pure-text">UT-Bench：多模型单元测试生成横向评测基准  |  核心开发者
+
+一站式 AI Coding Agent 评测框架，支持 8+ 大模型（DeepSeek、MiniMax、豆包、GLM、Qwen、GPT 等）× 4 种编程语言（Python/Go/Java/C++）的多维横向评测。创新提出 Framework × Model × Skill 三维评测模型，可量化分析 Agent 平台、底层模型、Skill 注入各自的贡献度。
+
+• 设计并实现统一 Subject 抽象层（framework__model__skill），将纯模型 API、CLI Agent、Agent+Skill 三种评测模式纳入同一框架，支持 N×M×K 全组合自动展开
+• 构建通用 CLI Agent 适配器，通过 agents.yaml 命令模板驱动，已集成 OpenCode、Claude Code 等主流 Agent，实现 Docker 容器级沙箱隔离执行
+• 实现 Skill 注入机制（prompt_append / workspace_mount / agent_native），可量化评估 Skill 对 Agent 测试生成能力的提升幅度
+• 设计四维评测指标体系：编译通过率 + 测试通过率 + 覆盖率 + 变异测试得分，超越传统 Pass@k 单一指标
+• 构建多语言评测工具链：Python(pytest+mutmut) / Go(go test+go-mutesting) / Java(JUnit+JaCoCo+pitest) / C++(GoogleTest+gcov+mull)
+• 实现 Agent 过程可观测性：记录执行 trace、workspace diff、sandbox fingerprint，支持细粒度行为分析
+• 开发 Web 管理界面，支持评测任务配置与历史结果对比分析
+
+技术栈：Go、Docker、SQLite、HTML/Chart.js、OpenCode、Claude Code、Prompt Engineering、Mutation Testing</div>
+    </div>
+
+    <div style="margin-bottom:24px">
+      <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">版本 B：后端 / 基础设施方向</h3>
+      <div class="pure-text">UT-Bench：多模型单元测试生成横向评测基准  |  核心开发者
+
+基于 Go 构建的分布式评测 CLI 工具，采用五阶段流水线架构，支持多语言编译-测试-覆盖率-变异测试全自动化执行。使用 Docker 实现评测沙箱隔离，SQLite 持久化存储，提供 Web 管理界面。
+
+• 独立设计并实现 Go 五阶段流水线架构（dataset → runner → evaluator → reporter → store），支持全链路执行和分阶段断点续跑
+• 实现并发 Worker Pool + Checkpoint 增量执行机制，基于参数组合 SHA1 哈希实现断点续跑；支持指数退避重试、输出截断自动续写
+• 构建 Docker 沙箱评测引擎：每个评测任务独立容器执行，支持语言级镜像选择、依赖自动安装、preflight 工具链自检、超时控制
+• 设计统一数据契约层（internal/contracts），作为跨阶段数据流的 Single Source of Truth
+• 实现 SQLite v2 存储层：upsert 语义去重，支持 artifact 索引、多轮次对比、重复 API 调用跳过
+• 开发 Web 管理界面（嵌入式 HTTP Server），支持模型配置管理、数据库浏览、Docker 评测任务触发
+• 适配 8+ LLM API 提供商（DeepSeek、MiniMax、豆包、GLM、Qwen、GPT 等），统一请求/响应格式
+
+技术栈：Go、Docker、SQLite、REST API、Worker Pool、CLI (cobra)、HTML/JS、YAML、WSL2</div>
+    </div>
+
+    <div>
+      <h3 style="font-size:15px; margin-bottom:8px; color:var(--accent);">版本 C：通用版本（精简）</h3>
+      <div class="pure-text">UT-Bench：多模型单元测试生成横向评测基准  |  核心开发者
+
+一站式多模型 AI 单元测试生成评测框架（Go CLI），支持 8+ 大模型 × 4 种编程语言的横向对比评测，覆盖纯模型 API、CLI Agent、Agent+Skill 三种评测模式。
+
+• 设计五阶段流水线架构（dataset → runner → evaluator → reporter → store），支持并发执行、checkpoint 增量续跑、指数退避重试
+• 创新提出 Framework × Model × Skill 三维评测模型，通过统一 Subject 抽象层实现 N×M×K 组合自动展开与对比分析
+• 构建 Docker 沙箱评测引擎，每个评测任务独立容器隔离执行，支持多语言工具链与变异测试
+• 适配 DeepSeek、MiniMax、豆包、GLM、Qwen、GPT 等 8+ 模型 API，实现通用 CLI Agent 适配器
+• 设计四维评测指标体系（编译 + 通过率 + 覆盖率 + 变异测试），SQLite 持久化，Web 界面支持多轮次对比
+
+技术栈：Go、Docker、SQLite、LLM API、HTML/Chart.js、Mutation Testing、CLI Tool</div>
+    </div>
+  </div>
+
+  <!-- ── Tips ── -->
+  <div class="tips-card">
+    <h4>使用建议</h4>
+    <ul>
+      <li><strong>投 AI Agent / 评测方向</strong>：使用版本 A，重点突出三维评测模型、Agent 适配器、Skill 注入、过程可观测性</li>
+      <li><strong>投后端 / 基础设施方向</strong>：使用版本 B，重点突出流水线架构、并发模型、Docker 沙箱、存储设计</li>
+      <li><strong>通用场景</strong>：使用版本 C，5 条要点精简有力，适合简历空间有限时使用</li>
+      <li><strong>面试话术</strong>：准备好讲解「为什么选 Go」「为什么用 Docker 沙箱」「三维评测模型的创新点」「变异测试为什么比单纯覆盖率更能反映测试质量」</li>
+      <li><strong>量化数据</strong>：如果有实际跑过的评测数据（评测了多少样本、多少模型组合、发现了什么结论），务必补充进去</li>
+    </ul>
+  </div>
+
+  <div class="copy-hint">点击「纯文本」标签可直接复制粘贴到 Word 简历模板</div>
+
+</div>
+
+<script>
+function switchTab(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+
+</body>
+</html>

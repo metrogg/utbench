@@ -62,10 +62,10 @@
 
 | 路径 | 具体职责 |
 | --- | --- |
-| `internal/contracts/spec.go` | 定义运行规格、样本引用和模块级样本元数据。 |
+| `internal/contracts/spec.go` | 定义运行规格、样本引用和仓库级样本元数据。 |
 | `internal/contracts/constants.go` | 定义 Schema 版本、数据集类别、运行模式等常量。 |
 | `internal/contracts/results.go` | 定义生成清单、评测结果集和报告载荷等跨阶段结果结构。 |
-| `internal/runner/prompt.go` | 构建 `full_file`、`completion`、`module_level` 三类 prompt。 |
+| `internal/runner/prompt.go` | 构建 `full_file`、`completion`、`repo_level` 三类 prompt。 |
 | `internal/runner/api.go` | 实现 LLM API 调用、重试、截断检测和自动续写。 |
 | `internal/runner/models.go` | 从 YAML 加载模型 provider、endpoint、api key 环境变量等配置。 |
 | `internal/runner/service.go` | 组织生成任务并行执行、检查点写入和生成结果落盘。 |

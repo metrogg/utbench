@@ -8,8 +8,10 @@ utbench generate     仅生成单元测试
 utbench evaluate     评测已生成的单元测试
 utbench report       生成评测报告
 utbench db           管理 SQLite 评测数据库
+utbench assets       查询可复用生成/评测资产
 utbench dataset      数据集管理 (index, manifest, stats, validate)
 utbench doctor       评测工具链自检
+utbench web          启动 Web 管理界面
 ```
 
 ---
@@ -36,26 +38,32 @@ utbench run \
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--config` | `../benchmark/config/models.yaml` | 模型配置文件路径 |
-| `--models` | `deepseek` | 模型列表（逗号分隔） |
-| `--langs` | `python` | 语言列表（逗号分隔） |
+| `--config` | 历史默认值 `../benchmark/config/models.yaml` | 当前仓库实际应显式传 `./configs/models.yaml` |
+| `--models` | 空 | 模型列表（逗号分隔）；为空时加载 `models.yaml` 中所有启用模型 |
+| `--subjects` | 空 | subject 列表（逗号分隔）；为空时至少包含默认 `model_api__<model>__no_skill` |
+| `--langs` | 空 | 语言列表（逗号分隔）；为空时使用全部支持语言 |
 | `--dataset-root` | `./datasets` | 数据集根目录 |
-| `--dataset-manifest` | `./configs/dataset_index.json` | 数据集清单路径 |
+| `--dataset-manifest` | 空 | 数据集清单路径 |
 | `--output-root` | `./artifacts` | 输出根目录 |
 | `--class` | `self_contained` | 数据集大类：`self_contained`/`repo_level` |
 | `--scenario` | 全部 | 数据集场景：`boundary`/`simple_function`/`complex_dependency`/`interface_mock` |
-| `--level` | `l1` | 数据集级别 |
+| `--level` | 空 | 数据集级别 |
 | `--max-samples` | `0`（不限制） | 样本数量上限 |
 | `--mode` | `full` | 执行模式：`full`/`incremental` |
+| `--reuse-generated` | `true` | 允许优先复用历史生成结果 |
+| `--reuse-evaluation` | `false` | 允许在环境指纹匹配时复用历史评测结果 |
 | `--mutation-enabled` | `true` | 启用变异测试 |
-| `--mutation-timeout` | `360` | 变异超时（秒） |
+| `--mutation-timeout` | `600` | 变异超时（秒） |
 | `--mutation-policy` | `warn` | 变异异常策略：`warn`/`fail` |
-| `--total-timeout` | `0`（不限制） | 总超时（分钟） |
+| `--test-timeout` | `180` | 测试执行超时（秒） |
+| `--workers` | `16` | 并发 worker 数量 |
+| `--eval-backend` | `local` | 评测后端：`local`/`docker` |
+| `--eval-docker-image` | `utbench:latest` | docker 评测镜像 |
 | `--dry-run` | `false` | 跳过 API 调用 |
 | `--reset-checkpoint` | `false` | 重置 checkpoint |
 | `--ingest` | `false` | 完成后写入 v2 SQLite 数据库 |
 | `--db-path` | `./storage/utbench.db` | SQLite 数据库路径 |
-| `--verbose` | `true` | 详细日志 |
+| `-v` | `false` | 打开详细日志 |
 
 ---
 
@@ -78,20 +86,23 @@ utbench generate \
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--config` | `../benchmark/config/models.yaml` | 模型配置文件路径 |
-| `--models` | `deepseek` | 模型列表 |
-| `--langs` | `python` | 语言列表 |
+| `--config` | 历史默认值 `../benchmark/config/models.yaml` | 当前仓库实际应显式传 `./configs/models.yaml` |
+| `--models` | 空 | 模型列表；为空时加载所有启用模型 |
+| `--subjects` | 空 | subject 列表 |
+| `--langs` | 空 | 语言列表；为空时使用全部支持语言 |
 | `--dataset-root` | `./datasets` | 数据集根目录 |
-| `--dataset-manifest` | `./configs/dataset_index.json` | 数据集清单路径 |
+| `--dataset-manifest` | 空 | 数据集清单路径 |
 | `--output-root` | `./artifacts` | 输出根目录 |
 | `--class` | `self_contained` | 数据集大类 |
 | `--scenario` | 全部 | 数据集场景 |
-| `--level` | `l1` | 数据集级别 |
+| `--level` | 空 | 数据集级别 |
 | `--max-samples` | `0` | 样本数量上限 |
 | `--mode` | `full` | 执行模式 |
+| `--reuse-generated` | `true` | 允许优先复用历史生成结果 |
+| `--db-path` | `./storage/utbench.db` | SQLite 数据库路径 |
 | `--dry-run` | `false` | 跳过 API 调用 |
 | `--reset-checkpoint` | `false` | 重置 checkpoint |
-| `--verbose` | `true` | 详细日志 |
+| `-v` | `false` | 打开详细日志 |
 
 ---
 
@@ -116,10 +127,14 @@ utbench evaluate \
 | `--manifest` | 必填 | 生成的 manifest 文件路径 |
 | `--output-root` | `./artifacts` | 输出根目录 |
 | `--mutation-enabled` | `true` | 启用变异测试 |
-| `--mutation-timeout` | `360` | 变异超时（秒） |
+| `--mutation-timeout` | `600` | 变异超时（秒） |
 | `--mutation-policy` | `warn` | 变异异常策略 |
-| `--test-timeout` | `0` | 测试超时（秒） |
-| `--verbose` | `true` | 详细日志 |
+| `--test-timeout` | `180` | 测试超时（秒） |
+| `--db-path` | `./storage/utbench.db` | SQLite 数据库路径 |
+| `--reuse-evaluation` | `false` | 允许复用历史评测结果 |
+| `--eval-backend` | `local` | 评测后端：`local`/`docker` |
+| `--eval-docker-image` | `utbench:latest` | docker 评测镜像 |
+| `-v` | `false` | 打开详细日志 |
 
 ---
 
@@ -152,8 +167,9 @@ utbench report \
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--input` | 必填 | 评测结果 JSON 文件路径 |
+| `--evaluation` | 必填 | 评测结果 JSON 文件路径 |
 | `--output-root` | `./artifacts` | 输出根目录 |
+| `--run-id` | 空 | 输出报告的 run ID；为空时自动生成 |
 
 ---
 
@@ -221,7 +237,7 @@ utbench db report \
 
 ```bash
 utbench dataset index \
-  --root ./datasets \
+  --dataset-root ./datasets \
   --output ./configs/dataset_index.json
 ```
 
@@ -229,7 +245,7 @@ utbench dataset index \
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--root` | `./datasets` | 数据集根目录 |
+| `--dataset-root` | `./datasets` | 数据集根目录 |
 | `--output` | `./configs/dataset_index.json` | 输出索引文件路径 |
 
 ### dataset stats
@@ -238,14 +254,14 @@ utbench dataset index \
 
 ```bash
 utbench dataset stats \
-  --manifest ./configs/dataset_index.json
+  --dataset-root ./datasets
 ```
 
 **参数：**
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--manifest` | `./configs/dataset_index.json` | 数据集索引文件路径 |
+| `--dataset-root` | `./datasets` | 数据集根目录 |
 
 ### dataset validate
 
@@ -292,6 +308,29 @@ utbench doctor \
 | `--mutation-timeout` | `120` | 变异测试超时（秒） |
 | `--test-timeout` | `60` | canary 测试超时（秒） |
 | `--json` | 空 | 写出 JSON 报告 |
+
+---
+
+## 8. assets
+
+查询 SQLite 中可复用的 subject / generation / evaluation 资产，以及复用命中解释。
+
+```bash
+utbench assets explain-reuse \
+  --db-path ./storage/utbench.db \
+  --subject model_api__deepseek__no_skill \
+  --lang python \
+  --sample sample_001
+```
+
+常用子命令：
+
+| 子命令 | 说明 |
+|------|------|
+| `subjects` | 查看 subject 级资产汇总 |
+| `generations` | 查看生成资产 |
+| `evaluations` | 查看评测资产 |
+| `explain-reuse` | 解释某个 subject/sample 当前是否能命中复用 |
 
 ---
 
@@ -343,4 +382,9 @@ artifacts/runs/<run-id>/
   run.log                     # 运行日志
   api.log                     # API 调用日志
 ```
+
+## 说明
+
+- 当前代码里 `run/generate` 的 `--config` 默认值仍保留历史路径，因此日常运行建议始终显式传 `--config ./configs/models.yaml`。
+- 当前项目的统一被测对象不是单纯 model，而是 `subject = framework + model + optional skill`。
 

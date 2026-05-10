@@ -5,3 +5,4 @@
 | 文档 | 归档原因 |
 | --- | --- |
 | [automation-scheduler-notification.md](automation-scheduler-notification.md) | 旧版自动化评测与通知方案，文内已注明未实际采用；当前参考 [定时评测与推送服务设计方案](../02-design/automation-scheduler-notification-design.md)。 |
+| [legacy-root-docs.md](legacy-root-docs.md) | 说明父仓库外层旧文档的当前定位，避免继续把外层 `docs/` 当主文档树。 |

@@ -4,6 +4,7 @@
 
 | 文档 | 内容定位 |
 | --- | --- |
+| [new-member-code-walkthrough.md](new-member-code-walkthrough.md) | 面向第一次进项目的开发者，按当前代码解释主链路、核心抽象和阅读顺序。 |
 | [project-introduction.md](project-introduction.md) | 项目整体介绍，适合作为理解 UT-Bench 的主入口。 |
 | [project-file-map.md](project-file-map.md) | 项目文件和模块职责说明，用于判断文件应该放在哪里、是否应该提交。 |
 | [feature-details.md](feature-details.md) | 功能清单和能力细节，和项目介绍有重叠，作为补充参考保留。 |

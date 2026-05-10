@@ -30,7 +30,8 @@
 | --- | --- | --- | --- |
 | `00-overview/` | `project-introduction.md` | 主入口 | 项目介绍主入口。 |
 | `00-overview/` | `project-file-map.md` | 参考 | 判断文件职责和提交边界时使用。 |
-| `00-overview/` | `feature-details.md` | 参考 | 与项目介绍有重合，保留为能力清单；后续可抽取差异内容后合并。 |
+| `00-overview/` | `new-member-code-walkthrough.md` | 主入口 | 面向第一次进项目的开发者，按代码建立主线理解。 |
+| `00-overview/` | `feature-details.md` | 参考 | 与项目介绍重合较多，保留为能力清单，但不建议继续扩写。 |
 | `01-user-guides/` | `USER_GUIDE.md` | 主入口 | 用户文档优先入口。 |
 | `01-user-guides/` | `startup-guide.md` | 主入口 | 启动和参数手册。 |
 | `01-user-guides/` | `cli-spec.md` | 参考 | 命令参考，避免和用户指南重复扩写场景教程。 |
@@ -43,13 +44,15 @@
 | `02-design/` | `runtime-sandbox-redesign.md` | 参考 | 沙箱后续改造方案。 |
 | `02-design/` | `automation-scheduler-notification-design.md` | 参考 | 当前采用方向的定时评测和通知设计。 |
 | `03-operations/` | `DOCKER_GUIDE.md` | 主入口 | Docker 主文档。 |
-| `03-operations/` | `quickstart-docker.md` | 参考 | 与 Docker 指南重合，保留为精简流程；后续可并入 Docker 指南。 |
+| `03-operations/` | `quickstart-docker.md` | 参考 | 与 Docker 指南重合较高，可保留为精简流程，但不建议继续作为独立主文档扩写。 |
 | `04-development/` | `dataset-governance.md` | 参考 | 数据集治理口径。 |
 | `04-development/` | `refactoring-analysis.md` | 阶段记录 | 重构分析和阶段计划，保留但不作为当前架构唯一依据。 |
 | `04-development/` | `technical-review.md` | 阶段记录 | 技术审查问题清单。 |
 | `04-development/` | `AGENT_UPGRADE.md` | 阶段记录 | Agent 评测升级方案与实施状态。 |
 | `05-integrations/` | `codebuddy-guide.md` | 外部资料 | 外部工具资料，体量较大，不作为主阅读入口。 |
+| `06-research/` | `README.md` | 参考 | 统一研究资料入口；当前实体文件仍主要保留在父仓库旧目录。 |
 | `99-archive/` | `automation-scheduler-notification.md` | 归档 | 旧版自动化评测方案，已被当前设计替代。 |
+| `99-archive/` | `legacy-root-docs.md` | 归档 | 说明父仓库旧文档的当前定位，避免继续把外层 `docs/` 当主树。 |
 
 ## 功能重合处理
 
@@ -61,6 +64,7 @@
 | 自动化调度与通知 | [automation-scheduler-notification-design.md](02-design/automation-scheduler-notification-design.md) | `99-archive/automation-scheduler-notification.md` | 旧版只留历史背景，不再扩展。 |
 | 技术审查、重构分析、升级记录 | [refactoring-analysis.md](04-development/refactoring-analysis.md) | `technical-review.md`、`AGENT_UPGRADE.md` | 都是阶段记录，新增结论应沉淀回设计或用户文档。 |
 | CodeBuddy/Skill 资料 | [codebuddy-guide.md](05-integrations/codebuddy-guide.md) | `configs/skills/**` | `docs` 只放说明，实际 skill 文件继续留在 `configs/skills/` 供运行使用。 |
+| 新成员理解项目主线 | [new-member-code-walkthrough.md](00-overview/new-member-code-walkthrough.md) | `project-introduction.md`、`feature-details.md` | 新成员先读导读，再按需进入长文；不要先读大而全介绍。 |
 
 ## 不纳入人工文档整理的内容
 
@@ -73,6 +77,8 @@
 
 ## 后续整理建议
 
+- 将 `feature-details.md` 继续降级为能力清单，不再承担项目主介绍职责。
+- 条件允许时，把父仓库 `docs/01-research` 和 `docs/03-integrations` 实体迁移到 `go-ut-bench/docs/06-research`、`go-ut-bench/docs/05-integrations`。
 - 将 `quickstart-docker.md` 的独有内容并入 `DOCKER_GUIDE.md` 后归档或删除。
 - 将 `feature-details.md` 中仍有效的能力清单浓缩到 `project-introduction.md`，减少概览类重复。
 - 阶段记录只追加结论，不再扩写教程；可执行操作应回写到用户指南、设计文档或运维文档。

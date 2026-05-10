@@ -4,25 +4,41 @@
 
 ### 1.1 项目定位
 
-UT-Bench（go-ut-bench）是一个基于 Go 语言开发的 **LLM 单元测试生成能力横向评测基准工具**。该工具的核心目标是：
+UT-Bench（go-ut-bench）当前更准确的定位是一个基于 Go 语言实现的 **单元测试生成评测平台**，而不只是“多模型 LLM benchmark 工具”。
 
-- **横向对比**：在同一基准数据集上，对多个大语言模型（LLM）生成单元测试的能力进行公平、客观的横向对比评测
-- **多维评估**：从编译通过率、测试通过率、代码覆盖率、变异测试得分等多个维度全面评估测试生成质量
-- **自动化流程**：提供端到端的自动化评测流水线，从测试生成到报告生成全程自动化
+它统一评测的对象是：
+
+```text
+subject = framework + model + optional skill
+```
+
+也就是说，当前系统既支持：
+
+- 纯模型 API baseline
+- CLI Agent baseline
+- Agent + skill 组合评测
+
+核心目标是：
+
+- **横向对比**：在同一数据集和同一评测工具链下，对不同 subject 的单测生成能力做公平比较
+- **多维评估**：从编译通过率、测试通过率、覆盖率、变异测试、耗时、失败归因等多个维度衡量测试质量
+- **自动化流程**：提供从样本发现、测试生成、执行评测、报告汇总到可选入库的端到端流水线
+- **资产沉淀**：通过 SQLite 持久化 generation、evaluation、report 和 artifact，支持复用和历史对比
 
 ### 1.2 核心价值
 
-1. **科学评测**：采用业界标准的评测指标和方法，确保评测结果的科学性和可信度
-2. **公平对比**：所有模型使用相同的提示词策略、相同的数据集样本，确保横向对比的公平性
-3. **可视化呈现**：生成包含图表、排名、洞察分析的 HTML 报告，便于结果分析和决策
-4. **历史追踪**：通过 SQLite 数据库持久化评测数据，支持跨运行对比和历史趋势分析
+1. **统一被测对象抽象**：把 model、agent framework 和 skill 统一成 subject，避免后续能力扩展时拆成两套系统
+2. **科学评测**：采用编译、测试、覆盖率、变异测试等指标，避免只比较“是否输出了测试代码”
+3. **可复用实验资产**：通过 SQLite 和指纹机制复用 generation / evaluation 结果，减少重复花费
+4. **可视化呈现**：生成包含排名、洞察、效率和对比视图的 HTML 报告，便于分析和决策
 
 ### 1.3 适用场景
 
-- **模型选型**：帮助企业或研究团队选择最适合代码测试生成任务的 LLM
-- **能力评估**：评估 LLM 在软件测试领域的实际应用能力
+- **模型选型**：帮助团队选择最适合单测生成任务的模型或模型 API 配置
+- **Agent 方案对比**：比较不同 CLI Agent 框架、skill 注入方式和 sandbox 策略
+- **能力评估**：评估模型或 Agent 在软件测试任务中的真实落地能力
 - **基准研究**：为学术研究提供标准的评测基准和数据
-- **质量监控**：持续监控模型版本升级后的测试生成能力变化
+- **质量监控**：持续监控模型版本、Agent 配置或 skill 变化后的能力变化
 
 ---
 
@@ -53,8 +69,8 @@ UT-Bench（go-ut-bench）是一个基于 Go 语言开发的 **LLM 单元测试�
           │                    │                    │                    │
           ▼                    ▼                    ▼                    ▼
     ┌──────────┐         ┌──────────┐         ┌──────────┐         ┌──────────┐
-    │ 数据集   │         │ LLM API  │         │ 工具链   │         │ HTML生成 │
-    │ 发现与   │         │ 调用与   │         │ 执行：   │         │ Chart.js │
+    │ 数据集   │         │ Subject  │         │ 工具链   │         │ HTML生成 │
+    │ 发现与   │         │ 生成测试 │         │ 执行：   │         │ Chart.js │
     │ 过滤     │         │ Worker   │         │ 编译/测试│         │ 可视化   │
     │          │         │ Pool     │         │ /覆盖率  │         │          │
     │          │         │          │         │ /变异    │         │          │
@@ -79,7 +95,7 @@ UT-Bench（go-ut-bench）是一个基于 Go 语言开发的 **LLM 单元测试�
 | 阶段 | 服务模块 | 核心功能 | 输入 | 输出 |
 |------|----------|----------|------|------|
 | 1. Dataset | `internal/dataset/` | 数据集样本发现与过滤 | RunSpec（运行配置） | []SampleRef（样本引用列表） |
-| 2. Runner | `internal/runner/` | LLM API 调用，生成单元测试代码 | RunSpec + Samples | GeneratedManifest（生成清单） |
+| 2. Runner | `internal/runner/` | 由模型 API 或 CLI Agent 生成单元测试代码 | RunSpec + Samples | GeneratedManifest（生成清单） |
 | 3. Evaluator | `internal/evaluator/` | 编译 → 测试 → 覆盖率 → 变异测试 | Manifest + 测试代码 | EvaluationResultSet（评测结果） |
 | 4. Reporter | `internal/reporter/` | 多维度聚合分析与 HTML 报告生成 | EvaluationResultSet | ReportPayload + report.html |
 | 5. Store | `internal/store/` | SQLite 持久化，支持历史查询与复用 | Run 目录产物 | DB Tables |
