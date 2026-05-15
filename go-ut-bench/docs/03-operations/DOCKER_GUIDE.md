@@ -78,7 +78,7 @@ cp .env.example .env
 `.env` 文件内容：
 
 ```bash
-DEEPSEEK_API_KEY=sk-xxx        # DeepSeek
+DEEPSEEK_API_KEY=your-deepseek-api-key        # DeepSeek
 DASHSCOPE_API_KEY=xxx          # 通义千问 (Qwen)
 MINIMAX_API_KEY=xxx            # Minimax
 VOLCENGINE_API_KEY=xxx         # 豆包 (Doubao)
@@ -298,7 +298,7 @@ sudo apt-get install cmake clang-19 libgtest-dev g++ mull-19
 
 ```bash
 go build -o utbench ./cmd/utbench/
-export DEEPSEEK_API_KEY="sk-xxx"
+export DEEPSEEK_API_KEY="your-deepseek-api-key"
 ./utbench run --models deepseek --langs python --max-samples 5
 ```
 

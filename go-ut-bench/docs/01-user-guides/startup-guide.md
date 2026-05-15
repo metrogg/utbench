@@ -96,10 +96,10 @@ go build -o .\go-ut-bench\utbench.exe .\go-ut-bench\cmd\utbench\
 
 ```dotenv
 # DeepSeek
-DEEPSEEK_API_KEY=sk-xxx
+DEEPSEEK_API_KEY=your-deepseek-api-key
 
 # 阿里云百炼 (qwen)
-DASHSCOPE_API_KEY=sk-xxx
+DASHSCOPE_API_KEY=your-dashscope-api-key
 
 # MiniMax
 MINIMAX_API_KEY=xxx
@@ -751,4 +751,3 @@ docker run --rm --env-file .env \
 | `--scenario` | 否 | 空（全选） | 场景名，逗号分隔 |
 | `--level` | 否 | 空（全选） | level 标签 |
 | `--limit-per-scenario` | 否 | `20` | 每场景保留样本数 |
-

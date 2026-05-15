@@ -1087,10 +1087,10 @@ repo_level 类型样本需要 `meta.json` 提供额外上下文：
 
 ```dotenv
 # DeepSeek
-DEEPSEEK_API_KEY=sk-xxx
+DEEPSEEK_API_KEY=your-deepseek-api-key
 
 # 阿里云百炼（Qwen、GLM-5）
-DASHSCOPE_API_KEY=sk-xxx
+DASHSCOPE_API_KEY=your-dashscope-api-key
 
 # MiniMax
 MINIMAX_API_KEY=xxx

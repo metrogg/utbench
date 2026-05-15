@@ -492,7 +492,7 @@ Claude Code 通过 `ANTHROPIC_BASE_URL` 将请求路由到 LLM Gateway/代理。
 
 | 方式 | 配置 | 说明 |
 |------|------|------|
-| 静态API Key | `ANTHROPIC_AUTH_TOKEN=sk-xxx` 或 `ANTHROPIC_API_KEY=sk-xxx` | 最简单 |
+| 静态API Key | `ANTHROPIC_AUTH_TOKEN=your-anthropic-api-key` 或 `ANTHROPIC_API_KEY=your-anthropic-api-key` | 最简单 |
 | 动态API Key | `apiKeyHelper`脚本 + `CLAUDE_CODE_API_KEY_HELPER_TTL_MS` | 支持密钥轮换 |
 | 自定义请求头 | `ANTHROPIC_CUSTOM_HEADERS` | 附加HTTP头 |
 
@@ -513,7 +513,7 @@ Claude Code 通过 `ANTHROPIC_BASE_URL` 将请求路由到 LLM Gateway/代理。
 {
   "env": {
     "ANTHROPIC_BASE_URL": "https://your-gateway.example.com",
-    "ANTHROPIC_AUTH_TOKEN": "sk-xxx",
+    "ANTHROPIC_AUTH_TOKEN": "your-anthropic-api-key",
     "ANTHROPIC_MODEL": "your-model-name",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "your-model-name",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "your-model-name",

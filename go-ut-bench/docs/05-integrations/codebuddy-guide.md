@@ -2592,7 +2592,7 @@ OPENAI_API_KEY="your-openai-api-key" codebuddy
 
 ```
 # 存储密钥到 Keychain
-security add-generic-password -a "$USER" -s "openai-api-key" -w "sk-xxx"
+security add-generic-password -a "$USER" -s "openai-api-key" -w "your-openai-api-key"
 
 # 在 ~/.zshrc 中配置自动导出
 export OPENAI_API_KEY=$(security find-generic-password -s "openai-api-key" -w 2>/dev/null)
