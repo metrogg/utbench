@@ -349,9 +349,9 @@ codebuddy kill feature-x
 
 设置环境变量：
 ```bash
-export OPENAI_API_KEY="sk-your-actual-api-key"
+export OPENAI_API_KEY="your-openai-api-key"
 # 或
-OPENAI_API_KEY="sk-xxx" codebuddy
+OPENAI_API_KEY="your-openai-api-key" codebuddy
 ```
 
 ### relatedModels 相关模型配置

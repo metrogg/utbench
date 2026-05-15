@@ -2582,10 +2582,10 @@ ${环境变量名}
 
 ```
 # 在 ~/.zshrc 或 ~/.bashrc 中添加
-export OPENAI_API_KEY="sk-your-actual-api-key"
+export OPENAI_API_KEY="your-openai-api-key"
 
 # 或者在启动时临时设置
-OPENAI_API_KEY="sk-xxx" codebuddy
+OPENAI_API_KEY="your-openai-api-key" codebuddy
 ```
 
 **使用系统 Keychain（macOS）：**
@@ -9096,7 +9096,7 @@ CODEBUDDY_AUTH_TOKEN
 认证类型	Bearer Token（Authorization 请求头）
 适用场景	CI/CD 自动化、已有 OAuth token
 
-export CODEBUDDY_AUTH_TOKEN="eyJhbGciOiJSUzI1NiIs..."
+export CODEBUDDY_AUTH_TOKEN="your-oauth-bearer-token"
 也可以在 settings.json 中配置：
 
 

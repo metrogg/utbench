@@ -2,7 +2,7 @@ import subprocess
 import ftplib
 import os
 
-def task_func(ftp_server='ftp.dlptest.com', ftp_user='dlpuser', ftp_password='rNrKYTX9g7z3RgJRmxWuGHbeu', ftp_dir='/ftp/test'):
+def task_func(ftp_server='ftp.dlptest.com', ftp_user='dlpuser', ftp_password='your_ftp_password_here', ftp_dir='/ftp/test'):
     try:
         ftp_obj = ftplib.FTP(ftp_server)
     except Exception as e:
